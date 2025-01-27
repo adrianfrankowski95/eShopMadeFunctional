@@ -32,7 +32,7 @@ module EventHandlerRegistry =
 [<RequireQualifiedAccess>]
 module EventsProcessor =
     type private Delay = TimeSpan
-    type Attempt = int
+    type private Attempt = int
     
     type EventsProcessorOptions<'state, 'eventPayload, 'ioError> =
         private
