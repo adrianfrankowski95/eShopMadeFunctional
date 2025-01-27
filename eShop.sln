@@ -79,13 +79,13 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "PaymentService", "PaymentSe
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "OrderService", "OrderService", "{30CF6C0D-AA2E-4F94-85DC-BDD45F7A5121}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ordering.Domain", "Ordering.Domain\Ordering.Domain.fsproj", "{0822D4FF-3CDA-4C17-8F08-F4633733E413}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ordering.Domain", "src\Ordering.Domain\Ordering.Domain.fsproj", "{0822D4FF-3CDA-4C17-8F08-F4633733E413}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.DomainDrivenDesign", "eShop.DomainDrivenDesign\eShop.DomainDrivenDesign.fsproj", "{07C81195-30DA-4D13-B4B5-3774369EB674}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.DomainDrivenDesign", "src\eShop.DomainDrivenDesign\eShop.DomainDrivenDesign.fsproj", "{07C81195-30DA-4D13-B4B5-3774369EB674}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.ConstrainedTypes", "eShop.ConstrainedTypes\eShop.ConstrainedTypes.fsproj", "{31ED75D2-6A8A-4EC1-822D-2334718CC14C}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.ConstrainedTypes", "src\eShop.ConstrainedTypes\eShop.ConstrainedTypes.fsproj", "{31ED75D2-6A8A-4EC1-822D-2334718CC14C}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.Prelude", "eShop.Prelude\eShop.Prelude.fsproj", "{5EC0C86C-4B64-474C-9602-221D419ACE2A}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.Prelude", "src\eShop.Prelude\eShop.Prelude.fsproj", "{5EC0C86C-4B64-474C-9602-221D419ACE2A}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
