@@ -2,6 +2,10 @@
   "solution": {
     "path": "eShop.sln",
     "projects": [
+      "eShop.ConstrainedTypes\\eShop.ConstrainedTypes.fsproj",
+      "eShop.DomainDrivenDesign\\eShop.DomainDrivenDesign.fsproj",
+      "eShop.Prelude\\eShop.Prelude.fsproj",
+      "Ordering.Domain\\Ordering.Domain.fsproj",
       "src\\Basket.API\\Basket.API.csproj",
       "src\\Catalog.API\\Catalog.API.csproj",
       "src\\eShop.AppHost\\eShop.AppHost.csproj",
