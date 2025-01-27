@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="AggregateId.fs" />
+        <Compile Include="Aggregate.fs" />
+        <Compile Include="EventHandling.fs" />
+        <Compile Include="Workflow.fs" />
+        <Compile Include="WorkflowExecutor.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\eShop.ConstrainedTypes\eShop.ConstrainedTypes.fsproj" />
+      <ProjectReference Include="..\eShop.Prelude\eShop.Prelude.fsproj" />
+    </ItemGroup>
+
+</Project>
