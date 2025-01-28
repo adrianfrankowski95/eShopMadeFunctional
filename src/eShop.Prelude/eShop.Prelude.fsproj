@@ -6,6 +6,8 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="Result.fs" />
+        <Compile Include="Option.fs" />
         <Compile Include="AsyncResult.fs" />
         <Compile Include="Either.fs" />
         <Compile Include="Tuple.fs" />
@@ -13,6 +15,10 @@
 
     <ItemGroup>
       <PackageReference Include="FsToolkit.ErrorHandling" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\eShop.ConstrainedTypes\eShop.ConstrainedTypes.fsproj" />
     </ItemGroup>
 
 </Project>

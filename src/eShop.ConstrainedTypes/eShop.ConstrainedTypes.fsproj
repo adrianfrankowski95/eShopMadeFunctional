@@ -7,11 +7,13 @@
 
     <ItemGroup>
       <Compile Include="Id.fs" />
+      <Compile Include="NonEmptyList.fs" />
       <Compile Include="NonWhiteSpaceString.fs" />
     </ItemGroup>
 
     <ItemGroup>
       <PackageReference Include="FSharp.UMX" />
+      <PackageReference Include="FsToolkit.ErrorHandling" />
     </ItemGroup>
 
 </Project>
