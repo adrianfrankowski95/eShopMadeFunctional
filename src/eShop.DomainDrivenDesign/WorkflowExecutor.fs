@@ -7,16 +7,18 @@ type ReadAggregate<'state, 'ioError> = AggregateId<'state> -> AsyncResult<Aggreg
 
 type PersistAggregate<'state, 'ioError> = Aggregate<'state> -> AsyncResult<unit, 'ioError>
 
-type PersistEvents<'eventId, 'event, 'ioError> = Event<'event> list -> AsyncResult<('eventId * Event<'event>) list, 'ioError>
+type PersistEvents<'eventId, 'event, 'ioError> =
+    Event<'event> list -> AsyncResult<('eventId * Event<'event>) list, 'ioError>
 
-type HandleEvents<'eventId, 'event, 'ioError> = ('eventId * Event<'event>) list -> AsyncResult<unit, 'ioError>
+type RaiseEvents<'eventId, 'event, 'ioError> = ('eventId * Event<'event>) list -> AsyncResult<unit, 'ioError>
 
-type WorkflowExecutorError<'domainError, 'readAggregateIoError, 'persistAggregateIoError, 'persistEventsIoError, 'handleEventsIoError> =
+type WorkflowExecutorError<'domainError, 'readAggregateIoError, 'persistAggregateIoError, 'persistEventsIoError, 'raiseEventsIoError>
+    =
     | DomainError of 'domainError
     | ReadAggregateIoError of 'readAggregateIoError
     | PersistAggregateIoError of 'persistAggregateIoError
     | PersistEventsIoError of 'persistEventsIoError
-    | HandleEventsIoError of 'handleEventsIoError
+    | RaiseEventsIoError of 'raiseEventsIoError
 
 [<RequireQualifiedAccess>]
 module WorkflowExecutor =
@@ -24,26 +26,24 @@ module WorkflowExecutor =
         (readAggregate: ReadAggregate<'state, 'readAggregateIoError>)
         (persistAggregate: PersistAggregate<'state, 'persistAggregateIoError>)
         (persistEvents: PersistEvents<'eventId, 'event, 'persistEventsIoError>)
-        (handleEvents: HandleEvents<'eventId, 'event, 'publishEventsIoError>)
-        (workflow: Workflow<'command, 'state, 'event, 'domainError>) =
+        (raiseEvents: RaiseEvents<'eventId, 'event, 'raiseEventsIoError>)
+        (workflow: Workflow<'command, 'state, 'event, 'domainError>)
+        =
         fun aggregateId command ->
             asyncResult {
                 let inline mapError ctor = AsyncResult.mapError ctor
-                
+
                 let! maybeAggregate =
                     aggregateId
                     |> readAggregate
                     |> AsyncResult.map (MaybeAggregate.ofOption aggregateId)
                     |> mapError ReadAggregateIoError
-                
-                let! newState, events =
-                    command
-                    |> workflow maybeAggregate
-                    |> mapError DomainError
-                
+
+                let! newState, events = command |> workflow maybeAggregate |> mapError DomainError
+
                 do! (aggregateId, newState) |> persistAggregate |> mapError PersistAggregateIoError
-                
+
                 let! eventsWithIds = events |> persistEvents |> mapError PersistEventsIoError
-                
-                do! eventsWithIds |> handleEvents |> mapError HandleEventsIoError
+
+                do! eventsWithIds |> raiseEvents |> mapError RaiseEventsIoError
             }

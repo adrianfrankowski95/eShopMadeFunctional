@@ -13,9 +13,9 @@ type EventHandler<'eventPayload, 'ioError> = Event<'eventPayload> -> AsyncResult
 
 type HandlerName = string
 
-type EventHandlerRegistry<'eventPayload, 'ioError> = Map<HandlerName, EventHandler<'eventPayload, 'ioError>>
-
 type InvokedHandlers = HandlerName Set
+
+type EventHandlerRegistry<'eventPayload, 'ioError> = Map<HandlerName, EventHandler<'eventPayload, 'ioError>>
 
 type ReadUnprocessedEvents<'eventId, 'eventPayload, 'ioError when 'eventId: comparison and 'eventPayload: comparison> =
     unit -> AsyncResult<Map<'eventId * Event<'eventPayload>, InvokedHandlers>, 'ioError>
@@ -27,46 +27,41 @@ module EventsProcessor =
     type private Delay = TimeSpan
     type private Attempt = int
 
-    type EventsProcessorOptions<'state, 'eventPayload, 'eventHandlerIoError> =
+    type EventsProcessorOptions<'state, 'eventPayload, 'ioError> =
         private
-            { EventHandlerRegistry: EventHandlerRegistry<'eventPayload, 'eventHandlerIoError>
+            { EventHandlerRegistry: EventHandlerRegistry<'eventPayload, 'ioError>
               Retries: Delay list }
 
-    let init<'state, 'eventPayload, 'eventHandlerIoError>
-        : EventsProcessorOptions<'state, 'eventPayload, 'eventHandlerIoError> =
+    let init<'state, 'eventPayload, 'ioError> : EventsProcessorOptions<'state, 'eventPayload, 'ioError> =
         { EventHandlerRegistry = Map.empty
-          Retries =
-            [ TimeSpan.FromMinutes(1: float)
-              TimeSpan.FromMinutes(2: float)
-              TimeSpan.FromMinutes(3: float)
-              TimeSpan.FromMinutes(10: float) ] }
+          Retries = ([ 1; 2; 3; 10 ]: float list) |> List.map TimeSpan.FromMinutes }
 
     let withRetries retries options = { options with Retries = retries }
 
-    let registerHandler<'state, 'eventPayload, 'eventHandlerIoError>
+    let registerHandler<'state, 'eventPayload, 'ioError>
         handlerName
-        (handler: EventHandler<'eventPayload, 'eventHandlerIoError>)
-        (options: EventsProcessorOptions<'state, 'eventPayload, 'eventHandlerIoError>)
+        (handler: EventHandler<'eventPayload, 'ioError>)
+        (options: EventsProcessorOptions<'state, 'eventPayload, 'ioError>)
         =
         { options with
             EventHandlerRegistry = options.EventHandlerRegistry |> Map.add handlerName handler }
 
     type EventsProcessorError<'eventId, 'eventPayload, 'readEventsIoError, 'markEventsAsProcessedIoError, 'eventHandlerIoError>
         =
-        | ReadEventsIoError of 'readEventsIoError
-        | MarkEventsAsProcessedIoError of Event<'eventPayload> * InvokedHandlers * 'markEventsAsProcessedIoError
-        | FailedEventHandlerAttempt of Attempt * 'eventId * Event<'eventPayload> * HandlerName * 'eventHandlerIoError
-        | MaxEventHandlerRetriesReached of Attempt * ('eventId * Event<'eventPayload>) * HandlerName Set
+        | ReadingUnprocessedEventsFailed of 'readEventsIoError
+        | MarkingEventAsProcessedFailed of 'eventId * InvokedHandlers * 'markEventsAsProcessedIoError
+        | EventHandlerFailed of Attempt * 'eventId * Event<'eventPayload> * HandlerName * 'eventHandlerIoError
+        | MaxEventProcessingRetriesReached of Attempt * ('eventId * Event<'eventPayload>) * HandlerName Set
 
     type private Command<'eventId, 'eventPayload, 'ioError when 'eventId: comparison and 'eventPayload: comparison> =
-        | HandleEvents of Map<'eventId * Event<'eventPayload>, EventHandlerRegistry<'eventPayload, 'ioError>>
-        | TriggerRetry of Attempt * ('eventId * Event<'eventPayload>) * EventHandlerRegistry<'eventPayload, 'ioError>
+        | Process of Map<'eventId * Event<'eventPayload>, EventHandlerRegistry<'eventPayload, 'ioError>>
+        | Retry of Attempt * ('eventId * Event<'eventPayload>) * EventHandlerRegistry<'eventPayload, 'ioError>
 
     type T<'state, 'eventId, 'eventPayload, 'readEventsIoError, 'markEventAsProcessedIoError, 'eventHandlerIoError
         when 'eventId: comparison and 'eventPayload: comparison>
         internal
         (
-            readEvents: ReadUnprocessedEvents<'eventId, 'eventPayload, 'readEventsIoError>,
+            readUnprocessedEvents: ReadUnprocessedEvents<'eventId, 'eventPayload, 'readEventsIoError>,
             markEventAsProcessed: MarkEventAsProcessed<'eventId, 'markEventAsProcessedIoError>,
             options: EventsProcessorOptions<'state, 'eventPayload, 'eventHandlerIoError>
         ) =
@@ -83,107 +78,114 @@ module EventsProcessor =
              >()
 
         let scheduleRetry reply attempt (event, failedHandlers) =
-            task {
-                do! options.Retries |> List.item (attempt - 1) |> Task.Delay
-
-                return (attempt, event, failedHandlers) |> TriggerRetry |> reply
-            }
-
-        let handleEventAndCollectFailedHandlers
-            (handlers: EventHandlerRegistry<'eventPayload, 'eventHandlerIoError>)
-            attempt
-            (eventId, event)
-            =
             async {
-                let! failedHandlers =
-                    handlers
-                    |> Map.toList
-                    |> List.traverseAsyncResultA (fun (handlerName, handler) ->
-                        event
-                        |> handler
-                        |> AsyncResult.teeError (fun error ->
-                            FailedEventHandlerAttempt(attempt, eventId, event, handlerName, error)
-                            |> errorEvent.Trigger)
-                        |> AsyncResult.setError (handlerName, handler))
-                    |> AsyncResult.map (fun _ -> Map.empty)
-                    |> AsyncResult.mapError Map.ofList
-                    |> AsyncResult.collapse
+                do! options.Retries |> List.item (attempt - 1) |> Task.Delay |> Async.AwaitTask
 
-                return failedHandlers |> Option.ofMap |> Option.map (fun x -> (eventId, event), x)
+                return (attempt, event, failedHandlers) |> Retry |> reply
             }
 
-        let worker =
+        let processEvent attempt handlers (eventId, event) =
+            handlers
+            |> Seq.traverseAsyncResultA (fun (KeyValue(handlerName, handler)) ->
+                event
+                |> handler
+                |> AsyncResult.teeError (fun error ->
+                    EventHandlerFailed(attempt, eventId, event, handlerName, error)
+                    |> errorEvent.Trigger)
+                |> AsyncResult.setError (handlerName, handler))
+            |> AsyncResult.map (fun _ -> eventId, handlers |> Map.keys |> Set.ofSeq)
+            |> AsyncResult.mapError (fun failedHandlers -> attempt, (eventId, event), failedHandlers |> Map.ofSeq)
+
+        let handleProcessingResult maxAttempts scheduleRetry result =
+            match result with
+            | Ok(eventId, invokedHandlers) ->
+                eventId
+                |> markEventAsProcessed
+                |> AsyncResult.teeError (fun ioError ->
+                    (eventId, invokedHandlers, ioError)
+                    |> MarkingEventAsProcessedFailed
+                    |> errorEvent.Trigger)
+                |> AsyncResult.defaultValue ()
+
+            | Error(attempt, event, failedHandlers) ->
+                match attempt = maxAttempts with
+                | true ->
+                    (attempt, event, failedHandlers |> Map.keys |> Set.ofSeq)
+                    |> MaxEventProcessingRetriesReached
+                    |> errorEvent.Trigger
+
+                    Async.retn ()
+                | false -> (event, failedHandlers) |> scheduleRetry attempt
+
+        let handleCommand maxAttempts scheduleRetry cmd =
+            let handleProcessingResult = handleProcessingResult maxAttempts scheduleRetry
+
+            async {
+                match cmd with
+                | Process(eventsWithHandlers) ->
+                    let attempt = 1
+
+                    let! results =
+                        eventsWithHandlers
+                        |> Seq.map (fun (KeyValue(event, handlers)) -> event |> processEvent attempt handlers)
+                        |> Async.Sequential
+
+                    do! results |> Array.map handleProcessingResult |> Async.Sequential |> Async.Ignore
+
+                | Retry(attempt, event, handlersToRetry) ->
+                    let attempt = attempt + 1
+
+                    let! result = event |> processEvent attempt handlersToRetry
+
+                    do! result |> handleProcessingResult
+            }
+
+        let restoreState =
+            readUnprocessedEvents
+            >> AsyncResult.teeError (ReadingUnprocessedEventsFailed >> errorEvent.Trigger)
+            >> AsyncResult.defaultValue Map.empty
+            >> Async.map (
+                Map.map (fun _ invokedHandlers -> options.EventHandlerRegistry |> Map.removeKeys invokedHandlers)
+            )
+
+        let processor =
             MailboxProcessor<Command<_, _, _>>.Start(fun inbox ->
                 let maxAttempts = (options.Retries |> List.length) + 1
                 let scheduleRetry = scheduleRetry inbox.Post
+                let handleCommand = handleCommand maxAttempts scheduleRetry
 
-                let rec readInbox () =
+                let rec loop () =
                     async {
                         let! cmd = inbox.Receive()
 
-                        match cmd with
-                        | HandleEvents(eventsAndHandlers) ->
-                            let attempt = 1
+                        do! cmd |> handleCommand
 
-                            let! toRetry =
-                                eventsAndHandlers
-                                |> Seq.map (fun (KeyValue(ev, handlers)) ->
-                                    ev |> handleEventAndCollectFailedHandlers handlers attempt)
-                                |> Async.Sequential
-                                |> Async.map (Array.toList >> List.choose id)
-
-                            toRetry |> List.map (scheduleRetry attempt) |> ignore
-
-                        | TriggerRetry(attempt, event, handlersToRetry) ->
-                            let attempt = attempt + 1
-
-                            let! toRetryOption = event |> handleEventAndCollectFailedHandlers handlersToRetry attempt
-
-                            toRetryOption
-                            |> Option.map (fun (event, failedHandlers) ->
-                                match attempt = maxAttempts with
-                                | true ->
-                                    let failedHandlerNames = failedHandlers |> Map.keys |> Set.ofSeq
-
-                                    MaxEventHandlerRetriesReached(attempt, event, failedHandlerNames)
-                                    |> errorEvent.Trigger
-
-                                    Task.FromResult()
-
-                                | false -> (event, failedHandlers) |> scheduleRetry attempt)
-                            |> Option.defaultWith (fun _ -> Task.FromResult())
-                            |> ignore
-
-                        return! readInbox ()
+                        return! loop ()
                     }
 
                 async {
-                    let! unprocessedEventsAndHandlers =
-                        readEvents ()
-                        |> AsyncResult.teeError (ReadEventsIoError >> errorEvent.Trigger)
-                        |> AsyncResult.defaultValue Map.empty
-                        |> Async.map (
-                            Map.map (fun _ invokedHandlers ->
-                                options.EventHandlerRegistry
-                                |> Map.filter (fun handlerName _ ->
-                                    invokedHandlers |> Set.contains handlerName |> not))
-                        )
+                    let! state = restoreState ()
 
-                    inbox.Post(unprocessedEventsAndHandlers |> HandleEvents)
+                    inbox.Post(state |> Process)
 
-                    do! readInbox ()
-                }
+                    do! loop ()
+                })
 
-            )
+        member this.OnError = errorEvent.Publish.Add
 
-        member this.OnError = errorEvent.Publish
-
-        member this.HandleEvents(events) =
+        member this.Process(events) =
             events
-            |> List.map (fun ev -> ev, options.EventHandlerRegistry)
-            |> Map.ofList
-            |> HandleEvents
-            |> worker.Post
+            |> Seq.map (fun ev -> ev, options.EventHandlerRegistry)
+            |> Map.ofSeq
+            |> Process
+            |> processor.Post
+
+    let build
+        (readUnprocessedEvents: ReadUnprocessedEvents<'eventId, 'eventPayload, 'readEventsIoError>)
+        (markEventAsProcessed: MarkEventAsProcessed<'eventId, 'markEventAsProcessedIoError>)
+        (options: EventsProcessorOptions<'state, 'eventPayload, 'eventHandlerIoError>)
+        =
+        T(readUnprocessedEvents, markEventAsProcessed, options)
 
 type EventsProcessor<'state, 'eventId, 'eventPayload, 'readEventsIoError, 'markEventsAsProcessedIoError, 'eventHandlerIoError
     when 'eventId: comparison and 'eventPayload: comparison> =
