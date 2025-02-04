@@ -2,7 +2,6 @@
 
 open System
 open System.Threading.Tasks
-open Microsoft.Extensions.Logging
 open eShop.Prelude
 open FsToolkit.ErrorHandling
 
@@ -16,18 +15,25 @@ type HandlerName = string
 
 type EventHandlerRegistry<'eventPayload, 'ioError> = Map<HandlerName, EventHandler<'eventPayload, 'ioError>>
 
+type InvokedHandlers = HandlerName Set
+
+type ReadUnprocessedEvents<'eventId, 'eventPayload, 'ioError when 'eventId: comparison and 'eventPayload: comparison> =
+    unit -> AsyncResult<Map<'eventId * Event<'eventPayload>, InvokedHandlers>, 'ioError>
+
+type MarkEventAsProcessed<'eventId, 'ioError> = 'eventId -> AsyncResult<unit, 'ioError>
 
 [<RequireQualifiedAccess>]
 module EventsProcessor =
     type private Delay = TimeSpan
     type private Attempt = int
 
-    type EventsProcessorOptions<'state, 'eventPayload, 'ioError> =
+    type EventsProcessorOptions<'state, 'eventPayload, 'eventHandlerIoError> =
         private
-            { EventHandlerRegistry: EventHandlerRegistry<'eventPayload, 'ioError>
+            { EventHandlerRegistry: EventHandlerRegistry<'eventPayload, 'eventHandlerIoError>
               Retries: Delay list }
 
-    let init<'state, 'eventPayload, 'ioError> : EventsProcessorOptions<'state, 'eventPayload, 'ioError> =
+    let init<'state, 'eventPayload, 'eventHandlerIoError>
+        : EventsProcessorOptions<'state, 'eventPayload, 'eventHandlerIoError> =
         { EventHandlerRegistry = Map.empty
           Retries =
             [ TimeSpan.FromMinutes(1: float)
@@ -37,32 +43,56 @@ module EventsProcessor =
 
     let withRetries retries options = { options with Retries = retries }
 
-    let registerHandler<'state, 'eventPayload, 'ioError>
+    let registerHandler<'state, 'eventPayload, 'eventHandlerIoError>
         handlerName
-        (handler: EventHandler<'eventPayload, 'ioError>)
-        (options: EventsProcessorOptions<'state, 'eventPayload, 'ioError>)
+        (handler: EventHandler<'eventPayload, 'eventHandlerIoError>)
+        (options: EventsProcessorOptions<'state, 'eventPayload, 'eventHandlerIoError>)
         =
         { options with
             EventHandlerRegistry = options.EventHandlerRegistry |> Map.add handlerName handler }
 
-    type private Command<'eventPayload, 'ioError> =
-        | HandleEvents of Event<'eventPayload> list
-        | TriggerRetry of Attempt * (Event<'eventPayload> * EventHandlerRegistry<'eventPayload, 'ioError>)
+    type EventsProcessorError<'eventId, 'eventPayload, 'readEventsIoError, 'markEventsAsProcessedIoError, 'eventHandlerIoError>
+        =
+        | ReadEventsIoError of 'readEventsIoError
+        | MarkEventsAsProcessedIoError of Event<'eventPayload> * InvokedHandlers * 'markEventsAsProcessedIoError
+        | FailedEventHandlerAttempt of Attempt * 'eventId * Event<'eventPayload> * HandlerName * 'eventHandlerIoError
+        | MaxEventHandlerRetriesReached of Attempt * ('eventId * Event<'eventPayload>) * HandlerName Set
 
-    type T<'state, 'eventPayload, 'ioError>
-        internal (logger: ILogger, options: EventsProcessorOptions<'state, 'eventPayload, 'ioError>) =
+    type private Command<'eventId, 'eventPayload, 'ioError when 'eventId: comparison and 'eventPayload: comparison> =
+        | HandleEvents of Map<'eventId * Event<'eventPayload>, EventHandlerRegistry<'eventPayload, 'ioError>>
+        | TriggerRetry of Attempt * ('eventId * Event<'eventPayload>) * EventHandlerRegistry<'eventPayload, 'ioError>
 
-        let scheduleRetry reply attempt eventAndFailedHandlers =
+    type T<'state, 'eventId, 'eventPayload, 'readEventsIoError, 'markEventAsProcessedIoError, 'eventHandlerIoError
+        when 'eventId: comparison and 'eventPayload: comparison>
+        internal
+        (
+            readEvents: ReadUnprocessedEvents<'eventId, 'eventPayload, 'readEventsIoError>,
+            markEventAsProcessed: MarkEventAsProcessed<'eventId, 'markEventAsProcessedIoError>,
+            options: EventsProcessorOptions<'state, 'eventPayload, 'eventHandlerIoError>
+        ) =
+
+        let errorEvent =
+            Event<
+                EventsProcessorError<
+                    'eventId,
+                    'eventPayload,
+                    'readEventsIoError,
+                    'markEventAsProcessedIoError,
+                    'eventHandlerIoError
+                 >
+             >()
+
+        let scheduleRetry reply attempt (event, failedHandlers) =
             task {
                 do! options.Retries |> List.item (attempt - 1) |> Task.Delay
 
-                return (attempt, eventAndFailedHandlers) |> reply
+                return (attempt, event, failedHandlers) |> TriggerRetry |> reply
             }
 
         let handleEventAndCollectFailedHandlers
-            (handlers: EventHandlerRegistry<'eventPayload, 'ioError>)
+            (handlers: EventHandlerRegistry<'eventPayload, 'eventHandlerIoError>)
             attempt
-            event
+            (eventId, event)
             =
             async {
                 let! failedHandlers =
@@ -72,43 +102,39 @@ module EventsProcessor =
                         event
                         |> handler
                         |> AsyncResult.teeError (fun error ->
-                            logger.LogError(
-                                "#{Attempt} attempt failed to handle an event with {HandlerName}. Error: {Error}. Event: {Event}",
-                                attempt,
-                                handlerName,
-                                error,
-                                event
-                            ))
+                            FailedEventHandlerAttempt(attempt, eventId, event, handlerName, error)
+                            |> errorEvent.Trigger)
                         |> AsyncResult.setError (handlerName, handler))
                     |> AsyncResult.map (fun _ -> Map.empty)
                     |> AsyncResult.mapError Map.ofList
                     |> AsyncResult.collapse
 
-                return failedHandlers |> Option.ofMap |> Option.map (fun x -> event, x)
+                return failedHandlers |> Option.ofMap |> Option.map (fun x -> (eventId, event), x)
             }
 
         let worker =
-            MailboxProcessor<Command<_, _>>.Start(fun inbox ->
+            MailboxProcessor<Command<_, _, _>>.Start(fun inbox ->
                 let maxAttempts = (options.Retries |> List.length) + 1
-                let scheduleRetry = scheduleRetry (TriggerRetry >> inbox.Post)
+                let scheduleRetry = scheduleRetry inbox.Post
 
-                let rec loop () =
+                let rec readInbox () =
                     async {
                         let! cmd = inbox.Receive()
 
                         match cmd with
-                        | HandleEvents events ->
+                        | HandleEvents(eventsAndHandlers) ->
                             let attempt = 1
 
                             let! toRetry =
-                                events
-                                |> Seq.map (handleEventAndCollectFailedHandlers options.EventHandlerRegistry attempt)
+                                eventsAndHandlers
+                                |> Seq.map (fun (KeyValue(ev, handlers)) ->
+                                    ev |> handleEventAndCollectFailedHandlers handlers attempt)
                                 |> Async.Sequential
                                 |> Async.map (Array.toList >> List.choose id)
 
                             toRetry |> List.map (scheduleRetry attempt) |> ignore
 
-                        | TriggerRetry(attempt, (event, handlersToRetry)) ->
+                        | TriggerRetry(attempt, event, handlersToRetry) ->
                             let attempt = attempt + 1
 
                             let! toRetryOption = event |> handleEventAndCollectFailedHandlers handlersToRetry attempt
@@ -117,12 +143,10 @@ module EventsProcessor =
                             |> Option.map (fun (event, failedHandlers) ->
                                 match attempt = maxAttempts with
                                 | true ->
-                                    logger.LogError(
-                                        "Failed to handle event on max attempt #{MaxAttempts}. Event: {Event}. Could not successfully invoke following handlers: {HandlerNames}",
-                                        maxAttempts,
-                                        event,
-                                        (failedHandlers |> Map.keys |> String.concat ",")
-                                    )
+                                    let failedHandlerNames = failedHandlers |> Map.keys |> Set.ofSeq
+
+                                    MaxEventHandlerRetriesReached(attempt, event, failedHandlerNames)
+                                    |> errorEvent.Trigger
 
                                     Task.FromResult()
 
@@ -130,11 +154,44 @@ module EventsProcessor =
                             |> Option.defaultWith (fun _ -> Task.FromResult())
                             |> ignore
 
-                        return! loop ()
+                        return! readInbox ()
                     }
 
-                loop ())
+                async {
+                    let! unprocessedEventsAndHandlers =
+                        readEvents ()
+                        |> AsyncResult.teeError (ReadEventsIoError >> errorEvent.Trigger)
+                        |> AsyncResult.defaultValue Map.empty
+                        |> Async.map (
+                            Map.map (fun _ invokedHandlers ->
+                                options.EventHandlerRegistry
+                                |> Map.filter (fun handlerName _ ->
+                                    invokedHandlers |> Set.contains handlerName |> not))
+                        )
 
-        member this.HandleEvents(events) = worker.Post(events |> HandleEvents)
+                    inbox.Post(unprocessedEventsAndHandlers |> HandleEvents)
 
-type EventsProcessor<'state, 'eventPayload, 'ioError> = EventsProcessor.T<'state, 'eventPayload, 'ioError>
+                    do! readInbox ()
+                }
+
+            )
+
+        member this.OnError = errorEvent.Publish
+
+        member this.HandleEvents(events) =
+            events
+            |> List.map (fun ev -> ev, options.EventHandlerRegistry)
+            |> Map.ofList
+            |> HandleEvents
+            |> worker.Post
+
+type EventsProcessor<'state, 'eventId, 'eventPayload, 'readEventsIoError, 'markEventsAsProcessedIoError, 'eventHandlerIoError
+    when 'eventId: comparison and 'eventPayload: comparison> =
+    EventsProcessor.T<
+        'state,
+        'eventId,
+        'eventPayload,
+        'readEventsIoError,
+        'markEventsAsProcessedIoError,
+        'eventHandlerIoError
+     >
