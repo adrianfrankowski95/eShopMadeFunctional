@@ -144,9 +144,7 @@ module EventsProcessor =
             readUnprocessedEvents
             >> AsyncResult.teeError (ReadingUnprocessedEventsFailed >> errorEvent.Trigger)
             >> AsyncResult.defaultValue Map.empty
-            >> Async.map (
-                Map.map (fun _ invokedHandlers -> options.EventHandlerRegistry |> Map.removeKeys invokedHandlers)
-            )
+            >> Async.map (Map.mapValues (Map.removeKeys options.EventHandlerRegistry))
 
         let processor =
             MailboxProcessor<Command<_, _, _>>.Start(fun inbox ->

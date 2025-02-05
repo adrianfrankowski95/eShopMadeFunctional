@@ -6,9 +6,20 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Folder Include="Model\" />
+        <Compile Include="Model\ValueObjects\CardType.fs" />
+        <Compile Include="Model\PaymentMethod.fs" />
+        <Compile Include="Model\Buyer.fs" />
         <Folder Include="Workflows\" />
         <Folder Include="Ports\" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="FsToolkit.ErrorHandling" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\eShop.ConstrainedTypes\eShop.ConstrainedTypes.fsproj" />
+      <ProjectReference Include="..\eShop.DomainDrivenDesign\eShop.DomainDrivenDesign.fsproj" />
     </ItemGroup>
 
 </Project>
