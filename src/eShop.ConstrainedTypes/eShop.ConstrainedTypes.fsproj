@@ -7,13 +7,19 @@
 
     <ItemGroup>
       <Compile Include="Id.fs" />
+      <Compile Include="String.fs" />
+      <Compile Include="Decimal.fs" />
+      <Compile Include="Int.fs" />
       <Compile Include="NonEmptyList.fs" />
-      <Compile Include="NonWhiteSpaceString.fs" />
     </ItemGroup>
 
     <ItemGroup>
       <PackageReference Include="FSharp.UMX" />
       <PackageReference Include="FsToolkit.ErrorHandling" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\eShop.Prelude\eShop.Prelude.fsproj" />
     </ItemGroup>
 
 </Project>

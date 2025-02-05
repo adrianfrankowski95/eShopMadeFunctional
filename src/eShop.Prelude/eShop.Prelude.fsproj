@@ -18,8 +18,4 @@
       <PackageReference Include="FsToolkit.ErrorHandling" />
     </ItemGroup>
 
-    <ItemGroup>
-      <ProjectReference Include="..\eShop.ConstrainedTypes\eShop.ConstrainedTypes.fsproj" />
-    </ItemGroup>
-
 </Project>

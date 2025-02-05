@@ -8,19 +8,20 @@ type AggregateDoesNotExistError<'state> = AggregateDoesNotExistError of Aggregat
 type MaybeAggregate<'state> =
     | New of AggregateId<'state>
     | Existing of Aggregate<'state>
-    
+
+[<RequireQualifiedAccess>]
 module MaybeAggregate =
     let ofOption aggregateId =
         function
         | Some aggregate -> Existing aggregate
         | None -> New aggregateId
-    
+
     let requireExisting =
         function
-        | Existing (_, state) -> state |> Ok
+        | Existing(_, state) -> state |> Ok
         | New id -> id |> AggregateDoesNotExistError |> Error
-        
+
     let requireNew =
         function
         | New id -> id |> Ok
-        | Existing (id, _) -> id |> AggregateAlreadyExistsError |> Error
+        | Existing(id, _) -> id |> AggregateAlreadyExistsError |> Error

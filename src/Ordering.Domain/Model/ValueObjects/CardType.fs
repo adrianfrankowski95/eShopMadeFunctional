@@ -3,22 +3,19 @@
 open FsToolkit.ErrorHandling
 open eShop.ConstrainedTypes
 
-type CardTypes = private CardTypes of Set<NonWhiteSpaceString>
+type CardTypes = private CardTypes of Set<String.NonWhiteSpace>
 
-type CardType = private CardType of NonWhiteSpaceString
+type CardType = private CardType of String.NonWhiteSpace
 
+[<RequireQualifiedAccess>]
 module CardType =
     let create rawCardType (CardTypes cardTypes) =
         result {
-            let! cardType =
-                rawCardType
-                |> NonWhiteSpaceString.create
-                |> Result.mapError ((+) "Invalid Card Type: ")
+            let! cardType = rawCardType |> String.NonWhiteSpace.create (nameof CardType)
 
-            do!
+            return!
                 cardTypes
                 |> Set.contains cardType
                 |> Result.requireTrue $"Unsupported Card Type: %s{rawCardType}"
-
-            return cardType |> CardType
+                |> Result.map (fun _ -> cardType |> CardType)
         }

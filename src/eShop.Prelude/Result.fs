@@ -6,3 +6,6 @@ module Result =
         match x with
         | Ok x -> x
         | Error x -> x
+
+module Operators =
+    let (>=>) f g = f >> Result.bind g
