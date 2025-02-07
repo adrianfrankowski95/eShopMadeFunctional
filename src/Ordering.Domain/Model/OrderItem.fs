@@ -3,6 +3,7 @@
 open eShop.ConstrainedTypes
 open eShop.ConstrainedTypes.Int.ActivePatterns
 open eShop.ConstrainedTypes.Decimal.ActivePatterns
+open eShop.ConstrainedTypes.Operators
 open FsToolkit.ErrorHandling
 
 [<Measure>]
@@ -65,29 +66,23 @@ type OrderItem =
 
 [<RequireQualifiedAccess>]
 module OrderItem =
-    let getProductId orderItem = orderItem.ProductId
+    let getProductId = _.ProductId
 
-    let getProductName orderItem = orderItem.ProductName
+    let getProductName = _.ProductName
 
-    let getPictureUrl orderItem = orderItem.PictureUrl
+    let getPictureUrl = _.PictureUrl
 
-    let getUnitPrice orderItem = orderItem.UnitPrice
+    let getUnitPrice = _.UnitPrice
 
-    let getUnits orderItem = orderItem.Units
+    let getUnits = _.Units
 
     let create productId productName pictureUrl (unitPrice: UnitPrice) (units: Units) (discount: Discount) =
         result {
-            let rawUnitPrice = unitPrice |> UnitPrice.value
-            let rawDiscount = discount |> Discount.value
-
-            let totalPrice = units |> Units.value |> decimal |> ((*) rawUnitPrice)
+            let totalPrice = unitPrice * units
 
             do!
-                totalPrice < rawDiscount
-                |> Result.requireFalse (
-                    (totalPrice |> Decimal.NonNegative.createAbsolute, discount)
-                    |> DiscountHigherThanTotalPriceError
-                )
+                totalPrice < discount
+                |> Result.requireFalse ((totalPrice, discount) |> DiscountHigherThanTotalPriceError)
 
             return
                 { ProductId = productId

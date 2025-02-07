@@ -21,6 +21,7 @@ module NonNegative =
 
     let value (NonNegative value) = value
 
+
 [<AutoOpen>]
 module ActivePatterns =
     let (|NonNegativeDecimal|) = NonNegative.value

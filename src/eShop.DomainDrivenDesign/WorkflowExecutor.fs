@@ -10,15 +10,15 @@ type PersistAggregate<'state, 'ioError> = Aggregate<'state> -> AsyncResult<unit,
 type PersistEvents<'eventId, 'event, 'ioError> =
     Event<'event> list -> AsyncResult<('eventId * Event<'event>) list, 'ioError>
 
-type RaiseEvents<'eventId, 'event, 'ioError> = ('eventId * Event<'event>) list -> AsyncResult<unit, 'ioError>
+type PublishEvents<'eventId, 'event, 'ioError> = ('eventId * Event<'event>) list -> AsyncResult<unit, 'ioError>
 
-type WorkflowExecutorError<'domainError, 'readAggregateIoError, 'persistAggregateIoError, 'persistEventsIoError, 'raiseEventsIoError>
+type WorkflowExecutorError<'domainError, 'readAggregateIoError, 'persistAggregateIoError, 'persistEventsIoError, 'publishEventsIoError>
     =
     | DomainError of 'domainError
     | ReadAggregateIoError of 'readAggregateIoError
     | PersistAggregateIoError of 'persistAggregateIoError
     | PersistEventsIoError of 'persistEventsIoError
-    | RaiseEventsIoError of 'raiseEventsIoError
+    | PublishEventsIoError of 'publishEventsIoError
 
 [<RequireQualifiedAccess>]
 module WorkflowExecutor =
@@ -26,7 +26,7 @@ module WorkflowExecutor =
         (readAggregate: ReadAggregate<'state, 'readAggregateIoError>)
         (persistAggregate: PersistAggregate<'state, 'persistAggregateIoError>)
         (persistEvents: PersistEvents<'eventId, 'event, 'persistEventsIoError>)
-        (raiseEvents: RaiseEvents<'eventId, 'event, 'raiseEventsIoError>)
+        (publishEvents: PublishEvents<'eventId, 'event, 'publishEventsIoError>)
         (workflow: Workflow<'command, 'state, 'event, 'domainError>)
         =
         fun aggregateId command ->
@@ -45,5 +45,5 @@ module WorkflowExecutor =
 
                 let! eventsWithIds = events |> persistEvents |> mapError PersistEventsIoError
 
-                do! eventsWithIds |> raiseEvents |> mapError RaiseEventsIoError
+                do! eventsWithIds |> publishEvents |> mapError PublishEventsIoError
             }

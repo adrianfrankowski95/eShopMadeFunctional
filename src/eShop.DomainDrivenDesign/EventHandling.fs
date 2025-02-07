@@ -46,22 +46,22 @@ module EventsProcessor =
         { options with
             EventHandlerRegistry = options.EventHandlerRegistry |> Map.add handlerName handler }
 
-    type EventsProcessorError<'eventId, 'eventPayload, 'readEventsIoError, 'markEventsAsProcessedIoError, 'eventHandlerIoError>
+    type EventsProcessorError<'eventId, 'eventPayload, 'readUnprocessedEventsIoError, 'markEventsAsProcessedIoError, 'eventHandlerIoError>
         =
-        | ReadingUnprocessedEventsFailed of 'readEventsIoError
+        | ReadingUnprocessedEventsFailed of 'readUnprocessedEventsIoError
         | MarkingEventAsProcessedFailed of 'eventId * InvokedHandlers * 'markEventsAsProcessedIoError
         | EventHandlerFailed of Attempt * 'eventId * Event<'eventPayload> * HandlerName * 'eventHandlerIoError
         | MaxEventProcessingRetriesReached of Attempt * ('eventId * Event<'eventPayload>) * HandlerName Set
 
     type private Command<'eventId, 'eventPayload, 'ioError when 'eventId: comparison and 'eventPayload: comparison> =
-        | Process of Map<'eventId * Event<'eventPayload>, EventHandlerRegistry<'eventPayload, 'ioError>>
+        | Publish of Map<'eventId * Event<'eventPayload>, EventHandlerRegistry<'eventPayload, 'ioError>>
         | Retry of Attempt * ('eventId * Event<'eventPayload>) * EventHandlerRegistry<'eventPayload, 'ioError>
 
-    type T<'state, 'eventId, 'eventPayload, 'readEventsIoError, 'markEventAsProcessedIoError, 'eventHandlerIoError
+    type T<'state, 'eventId, 'eventPayload, 'readUnprocessedEventsIoError, 'markEventAsProcessedIoError, 'eventHandlerIoError
         when 'eventId: comparison and 'eventPayload: comparison>
         internal
         (
-            readUnprocessedEvents: ReadUnprocessedEvents<'eventId, 'eventPayload, 'readEventsIoError>,
+            readUnprocessedEvents: ReadUnprocessedEvents<'eventId, 'eventPayload, 'readUnprocessedEventsIoError>,
             markEventAsProcessed: MarkEventAsProcessed<'eventId, 'markEventAsProcessedIoError>,
             options: EventsProcessorOptions<'state, 'eventPayload, 'eventHandlerIoError>
         ) =
@@ -71,17 +71,17 @@ module EventsProcessor =
                 EventsProcessorError<
                     'eventId,
                     'eventPayload,
-                    'readEventsIoError,
+                    'readUnprocessedEventsIoError,
                     'markEventAsProcessedIoError,
                     'eventHandlerIoError
                  >
              >()
 
-        let scheduleRetry reply attempt (event, failedHandlers) =
+        let scheduleRetry postCommand attempt (event, failedHandlers) =
             async {
                 do! options.Retries |> List.item (attempt - 1) |> Task.Delay |> Async.AwaitTask
 
-                return (attempt, event, failedHandlers) |> Retry |> reply
+                return (attempt, event, failedHandlers) |> Retry |> postCommand
             }
 
         let processEvent attempt handlers (eventId, event) =
@@ -122,7 +122,7 @@ module EventsProcessor =
 
             async {
                 match cmd with
-                | Process(eventsWithHandlers) ->
+                | Publish(eventsWithHandlers) ->
                     let attempt = 1
 
                     let! results =
@@ -164,34 +164,34 @@ module EventsProcessor =
                 async {
                     let! state = restoreState ()
 
-                    inbox.Post(state |> Process)
+                    inbox.Post(state |> Publish)
 
                     do! loop ()
                 })
 
         member this.OnError = errorEvent.Publish.Add
 
-        member this.Process(events) =
+        member this.Publish(events) =
             events
             |> Seq.map (fun ev -> ev, options.EventHandlerRegistry)
             |> Map.ofSeq
-            |> Process
+            |> Publish
             |> processor.Post
 
     let build
-        (readUnprocessedEvents: ReadUnprocessedEvents<'eventId, 'eventPayload, 'readEventsIoError>)
+        (readUnprocessedEvents: ReadUnprocessedEvents<'eventId, 'eventPayload, 'readUnprocessedEventsIoError>)
         (markEventAsProcessed: MarkEventAsProcessed<'eventId, 'markEventAsProcessedIoError>)
         (options: EventsProcessorOptions<'state, 'eventPayload, 'eventHandlerIoError>)
         =
         T(readUnprocessedEvents, markEventAsProcessed, options)
 
-type EventsProcessor<'state, 'eventId, 'eventPayload, 'readEventsIoError, 'markEventsAsProcessedIoError, 'eventHandlerIoError
+type EventsProcessor<'state, 'eventId, 'eventPayload, 'readUnprocessedEventsIoError, 'markEventsAsProcessedIoError, 'eventHandlerIoError
     when 'eventId: comparison and 'eventPayload: comparison> =
     EventsProcessor.T<
         'state,
         'eventId,
         'eventPayload,
-        'readEventsIoError,
+        'readUnprocessedEventsIoError,
         'markEventsAsProcessedIoError,
         'eventHandlerIoError
      >
