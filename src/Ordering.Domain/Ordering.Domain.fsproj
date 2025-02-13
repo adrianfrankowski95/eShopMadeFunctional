@@ -14,8 +14,17 @@
         <Compile Include="Model\PaymentMethod.fs" />
         <Compile Include="Model\Buyer.fs" />
         <Compile Include="Model\OrderItem.fs" />
-        <Folder Include="Workflows\" />
-        <Folder Include="Ports\" />
+        <Compile Include="Model\Command.fs" />
+        <Compile Include="Model\DomainEvent.fs" />
+        <Compile Include="Model\Order.fs" />
+        <Compile Include="Ports\OrderManagementPort.fs" />
+        <Compile Include="Ports\BuyerManagementPort.fs" />
+        <Compile Include="Workflows\PayOrderWorkflow.fs" />
+        <Compile Include="Workflows\CancelOrderWorkflow.fs" />
+        <Compile Include="Workflows\ShipOrderWorkflow.fs" />
+        <Compile Include="Workflows\ConfirmOrderItemsStockWorkflow.fs" />
+        <Compile Include="Workflows\RejectOrderItemsStockWorkflow.fs" />
+        <Compile Include="Workflows\StartOrderWorkflow.fs" />
     </ItemGroup>
 
     <ItemGroup>

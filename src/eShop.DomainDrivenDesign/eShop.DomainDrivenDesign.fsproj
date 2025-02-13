@@ -7,7 +7,6 @@
 
     <ItemGroup>
         <Compile Include="AggregateId.fs" />
-        <Compile Include="Aggregate.fs" />
         <Compile Include="EventHandling.fs" />
         <Compile Include="Workflow.fs" />
         <Compile Include="WorkflowExecutor.fs" />

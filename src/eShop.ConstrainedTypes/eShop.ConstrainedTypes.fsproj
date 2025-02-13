@@ -11,6 +11,7 @@
       <Compile Include="Decimal.fs" />
       <Compile Include="Int.fs" />
       <Compile Include="NonEmptyList.fs" />
+      <Compile Include="NonEmptyMap.fs" />
       <Compile Include="Operators.fs" />
     </ItemGroup>
 

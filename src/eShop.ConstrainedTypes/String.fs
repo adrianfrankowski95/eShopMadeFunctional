@@ -67,3 +67,5 @@ type NonWhiteSpace = private NonWhiteSpace of string
 
 module NonWhiteSpace =
     let create = Constraints.nonWhiteSpace NonWhiteSpace
+    
+    let value (NonWhiteSpace value) = value

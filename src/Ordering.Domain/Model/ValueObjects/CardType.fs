@@ -3,20 +3,23 @@
 open FsToolkit.ErrorHandling
 open eShop.ConstrainedTypes
 
-type SupportedCardTypes = private SupportedCardTypes of Set<String.NonWhiteSpace>
+type CardTypeId = CardTypeId of int
 
+[<RequireQualifiedAccess>]
+module CardTypeId =
+    let value (CardTypeId value) = value
 
-type CardType = private CardType of String.NonWhiteSpace
+type CardTypeName = String.NonWhiteSpace
+
+type CardType = private CardType of CardTypeId * CardTypeName
+
+type SupportedCardTypes = private SupportedCardTypes of Map<CardTypeId, CardTypeName>
+
 
 [<RequireQualifiedAccess>]
 module CardType =
-    let create rawCardType (SupportedCardTypes supportedCardTypes) =
-        result {
-            let! cardType = rawCardType |> String.NonWhiteSpace.create (nameof CardType)
-
-            return!
-                supportedCardTypes
-                |> Set.contains cardType
-                |> Result.requireTrue $"Unsupported Card Type: %s{rawCardType}"
-                |> Result.map (fun _ -> cardType |> CardType)
-        }
+    let create (SupportedCardTypes supportedCardTypes) cardTypeId =
+        supportedCardTypes
+        |> Map.tryFind cardTypeId
+        |> Result.requireSome $"Invalid CardTypeId: %d{cardTypeId |> CardTypeId.value}"
+        |> Result.map (fun cardTypeName -> (cardTypeId, cardTypeName) |> CardType)

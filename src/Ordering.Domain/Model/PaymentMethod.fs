@@ -2,55 +2,26 @@
 
 open System
 open Ordering.Domain.Model.ValueObjects
-open eShop.ConstrainedTypes
 
-[<Measure>]
-type paymentMethodId
-
-type PaymentMethodId = Id<paymentMethodId>
-
-type PaymentMethodData =
+type UnverifiedPaymentMethod =
     { CardType: CardType
       CardNumber: CardNumber
       SecurityNumber: CardSecurityNumber
       CardHolderName: CardHolderName
       Expiration: DateTimeOffset }
 
-[<Struct>]
-type PaymentMethod =
+[<RequireQualifiedAccess>]
+module UnverifiedPaymentMethod =
+    let create cardType cardNumber securityNumber cardHolderName expiration =
+        { CardType = cardType
+          CardNumber = cardNumber
+          SecurityNumber = securityNumber
+          CardHolderName = cardHolderName
+          Expiration = expiration }
+
+// Note: After verification, remove properties that are no longer needed or should not be stored anywhere
+type VerifiedPaymentMethod =
     private
-    | Pending of PaymentMethodData
-    | Verified of PaymentMethodData
-
-module PaymentMethod =
-    let getCardType =
-        function
-        | Pending data -> data.CardType
-        | Verified data -> data.CardType
-
-    let getCardNumber =
-        function
-        | Pending data -> data.CardNumber
-        | Verified data -> data.CardNumber
-
-    let getSecurityNumber =
-        function
-        | Pending data -> data.SecurityNumber
-        | Verified data -> data.SecurityNumber
-
-    let getCardHolderName =
-        function
-        | Pending data -> data.CardHolderName
-        | Verified data -> data.CardHolderName
-
-    let getExpiration =
-        function
-        | Pending data -> data.Expiration
-        | Verified data -> data.Expiration
-
-    let create data = data |> Pending
-
-    let verify =
-        function
-        | Pending data -> data |> Verified
-        | Verified data -> data |> Verified
+        { CardType: CardType
+          CardNumber: CardNumber
+          Expiration: DateTimeOffset }

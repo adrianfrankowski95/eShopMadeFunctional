@@ -15,30 +15,41 @@ module BuyerName =
     let create = String.NonWhiteSpace.create (nameof BuyerName)
 
 
-type Buyer =
+type BuyerWithoutVerifiedPaymentMethods =
+    private { Id: BuyerId; Name: BuyerName }
+
+type BuyerWithVerifiedPaymentMethods =
     private
         { Id: BuyerId
           Name: BuyerName
-          PaymentMethods: Map<PaymentMethodId, PaymentMethod> }
+          PaymentMethods: VerifiedPaymentMethod Set }
+
+type Buyer =
+    private
+    | WithoutVerifiedPaymentMethods of BuyerWithoutVerifiedPaymentMethods
+    | WithVerifiedPaymentMethods of BuyerWithVerifiedPaymentMethods
 
 [<RequireQualifiedAccess>]
 module Buyer =
-    let getId = _.Id
+    let private getId =
+        function
+        | WithoutVerifiedPaymentMethods buyer -> buyer.Id
+        | WithVerifiedPaymentMethods buyer -> buyer.Id
 
-    let getName = _.Name
+    let private getName =
+        function
+        | WithoutVerifiedPaymentMethods buyer -> buyer.Name
+        | WithVerifiedPaymentMethods buyer -> buyer.Name
 
-    let getPaymentMethods = _.PaymentMethods
+    let private getPaymentMethods =
+        function
+        | WithoutVerifiedPaymentMethods _ -> Set.empty
+        | WithVerifiedPaymentMethods buyer -> buyer.PaymentMethods
 
-    let create id name =
-        { Id = id
-          Name = name
-          PaymentMethods = Map.empty }
+    let create name id =
+        { Id = id; Name = name } |> WithoutVerifiedPaymentMethods
 
-    let verifyOrAddPaymentMethod paymentMethodId paymentMethod buyer =
-        let verifiedPaymentMethod =
-            buyer.PaymentMethods
-            |> Map.tryFind paymentMethodId
-            |> Option.defaultValue paymentMethod
-            |> PaymentMethod.verify
-
-        buyer.PaymentMethods |> Map.add paymentMethodId verifiedPaymentMethod
+    let verifyOrAddPaymentMethod verifiedPaymentMethod buyer =
+        { Id = buyer |> getId
+          Name = buyer |> getName
+          PaymentMethods = buyer |> getPaymentMethods |> Set.add verifiedPaymentMethod }

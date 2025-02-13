@@ -1,5 +1,9 @@
 ﻿namespace eShop.DomainDrivenDesign
 
+open System
 open eShop.Prelude
 
-type Workflow<'command, 'state, 'event, 'domainError> = MaybeAggregate<'state> -> 'command -> AsyncResult<'state * Event<'event> list, 'domainError>
+type UtcNow = DateTimeOffset
+
+type Workflow<'command, 'state, 'event, 'domainError, 'ioError> =
+    UtcNow -> 'state -> 'command -> AsyncResult<'state * 'event list, Either<'domainError, 'ioError>>

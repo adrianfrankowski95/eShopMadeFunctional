@@ -52,22 +52,26 @@ type PictureUrl = string
 
 type TotalPrice = Decimal.NonNegative
 
-type DiscountHigherThanTotalPriceError = DiscountHigherThanTotalPriceError of (TotalPrice * Discount)
+type DiscountHigherThanTotalPrice = DiscountHigherThanTotalPrice of (TotalPrice * Discount)
 
-
-type OrderItem =
+type OrderItemWithConfirmedStock =
     private
-        { ProductId: ProductId
-          ProductName: ProductName
+        { ProductName: ProductName
+          PictureUrl: PictureUrl
+          UnitPrice: UnitPrice
+          Units: Units
+          Discount: Discount }
+
+type OrderItemWithUnconfirmedStock =
+    private
+        { ProductName: ProductName
           PictureUrl: PictureUrl
           UnitPrice: UnitPrice
           Units: Units
           Discount: Discount }
 
 [<RequireQualifiedAccess>]
-module OrderItem =
-    let getProductId = _.ProductId
-
+module OrderItemWithUnconfirmedStock =
     let getProductName = _.ProductName
 
     let getPictureUrl = _.PictureUrl
@@ -76,25 +80,54 @@ module OrderItem =
 
     let getUnits = _.Units
 
-    let create productId productName pictureUrl (unitPrice: UnitPrice) (units: Units) (discount: Discount) =
+    let create productName pictureUrl (unitPrice: UnitPrice) (units: Units) (discount: Discount) =
         result {
             let totalPrice = unitPrice * units
 
             do!
                 totalPrice < discount
-                |> Result.requireFalse ((totalPrice, discount) |> DiscountHigherThanTotalPriceError)
+                |> Result.requireFalse ((totalPrice, discount) |> DiscountHigherThanTotalPrice)
 
             return
-                { ProductId = productId
-                  ProductName = productName
+                { ProductName = productName
                   PictureUrl = pictureUrl
                   UnitPrice = unitPrice
                   Units = units
                   Discount = discount }
         }
 
-    let setNewDiscount discount orderItem = { orderItem with Discount = discount }
+    let confirmStock orderItem : OrderItemWithConfirmedStock =
+        { ProductName = orderItem.ProductName
+          PictureUrl = orderItem.PictureUrl
+          UnitPrice = orderItem.UnitPrice
+          Units = orderItem.Units
+          Discount = orderItem.Discount }
 
-    let addUnits units orderItem =
-        { orderItem with
-            Units = orderItem.Units |> Units.add units }
+type UnvalidatedOrderItem =
+    { ProductName: ProductName
+      PictureUrl: PictureUrl
+      UnitPrice: UnitPrice
+      Units: Units
+      Discount: Discount }
+
+[<RequireQualifiedAccess>]
+module UnvalidatedOrderItem =
+    let create productName pictureUrl unitPrice units discount =
+        { ProductName = productName
+          PictureUrl = pictureUrl
+          UnitPrice = unitPrice
+          Units = units
+          Discount = discount }
+
+    let validate (unvalidatedOrderItem: UnvalidatedOrderItem) =
+        OrderItemWithUnconfirmedStock.create
+            unvalidatedOrderItem.ProductName
+            unvalidatedOrderItem.PictureUrl
+            unvalidatedOrderItem.UnitPrice
+            unvalidatedOrderItem.Units
+            unvalidatedOrderItem.Discount
+
+type OrderItem =
+    | Unvalidated of UnvalidatedOrderItem
+    | WithUnconfirmedStock of OrderItemWithUnconfirmedStock
+    | WithConfirmedStock of OrderItemWithConfirmedStock
