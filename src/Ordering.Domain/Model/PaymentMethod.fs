@@ -19,7 +19,7 @@ type UnverifiedPaymentMethod =
 module UnverifiedPaymentMethod =
     let create cardType cardNumber securityNumber cardHolderName expiration now =
         result {
-            do! now > expiration |> Result.requireTrue PaymentMethodExpiredError
+            do! expiration > now |> Result.requireTrue PaymentMethodExpiredError
 
             return
                 { CardType = cardType

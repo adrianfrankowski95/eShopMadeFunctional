@@ -76,8 +76,8 @@ module StartOrderWorkflow =
                     unverifiedPaymentMethod
                     |> verifyPaymentMethod
                     |> AsyncResult.mapError (function
-                        | Left ioError -> ioError |> Right
-                        | Right(_: BuyerManagementPort.InvalidPaymentMethodError) ->
+                        | Right ioError -> ioError |> Right
+                        | Left(_: BuyerManagementPort.InvalidPaymentMethodError) ->
                             unverifiedPaymentMethod |> InvalidPaymentMethod |> Left)
 
                 and! validatedOrderItems =

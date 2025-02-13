@@ -12,4 +12,4 @@ type GetSupportedCardTypes<'ioError> = unit -> AsyncResult<SupportedCardTypes, '
 type InvalidPaymentMethodError = InvalidPaymentMethodError
 
 type VerifyPaymentMethod<'ioError> =
-    UnverifiedPaymentMethod -> AsyncResult<VerifiedPaymentMethod, Either<'ioError, InvalidPaymentMethodError>>
+    UnverifiedPaymentMethod -> AsyncResult<VerifiedPaymentMethod, Either<InvalidPaymentMethodError, 'ioError>>
