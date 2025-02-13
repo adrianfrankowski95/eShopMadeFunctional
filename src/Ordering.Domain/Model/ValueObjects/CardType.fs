@@ -9,17 +9,21 @@ type CardTypeId = CardTypeId of int
 module CardTypeId =
     let value (CardTypeId value) = value
 
+
 type CardTypeName = String.NonWhiteSpace
 
-type CardType = private CardType of CardTypeId * CardTypeName
 
 type SupportedCardTypes = private SupportedCardTypes of Map<CardTypeId, CardTypeName>
 
+
+type UnsupportedCardTypeError = UnsupportedCardTypeError of CardTypeId
+
+type CardType = private CardType of CardTypeId * CardTypeName
 
 [<RequireQualifiedAccess>]
 module CardType =
     let create (SupportedCardTypes supportedCardTypes) cardTypeId =
         supportedCardTypes
         |> Map.tryFind cardTypeId
-        |> Result.requireSome $"Invalid CardTypeId: %d{cardTypeId |> CardTypeId.value}"
+        |> Result.requireSome (cardTypeId |> UnsupportedCardTypeError)
         |> Result.map (fun cardTypeName -> (cardTypeId, cardTypeName) |> CardType)

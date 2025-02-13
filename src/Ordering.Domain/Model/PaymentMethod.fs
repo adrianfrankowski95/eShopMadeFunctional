@@ -3,21 +3,32 @@
 open System
 open Ordering.Domain.Model.ValueObjects
 
+open FsToolkit.ErrorHandling
+
+type PaymentMethodExpiredError = PaymentMethodExpiredError
+
 type UnverifiedPaymentMethod =
-    { CardType: CardType
-      CardNumber: CardNumber
-      SecurityNumber: CardSecurityNumber
-      CardHolderName: CardHolderName
-      Expiration: DateTimeOffset }
+    private
+        { CardType: CardType
+          CardNumber: CardNumber
+          CardSecurityNumber: CardSecurityNumber
+          CardHolderName: CardHolderName
+          Expiration: DateTimeOffset }
 
 [<RequireQualifiedAccess>]
 module UnverifiedPaymentMethod =
-    let create cardType cardNumber securityNumber cardHolderName expiration =
-        { CardType = cardType
-          CardNumber = cardNumber
-          SecurityNumber = securityNumber
-          CardHolderName = cardHolderName
-          Expiration = expiration }
+    let create cardType cardNumber securityNumber cardHolderName expiration now =
+        result {
+            do! now > expiration |> Result.requireTrue PaymentMethodExpiredError
+
+            return
+                { CardType = cardType
+                  CardNumber = cardNumber
+                  CardSecurityNumber = securityNumber
+                  CardHolderName = cardHolderName
+                  Expiration = expiration }
+        }
+
 
 // Note: After verification, remove properties that are no longer needed or should not be stored anywhere
 type VerifiedPaymentMethod =

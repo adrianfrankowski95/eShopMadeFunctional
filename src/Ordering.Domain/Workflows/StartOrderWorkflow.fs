@@ -27,10 +27,11 @@ module StartOrderWorkflow =
 
     type DomainError =
         | BuyerNotFound of BuyerId
-        | InvalidCardType of CardTypeId
+        | UnsupportedCardType of CardTypeId
+        | PaymentMethodExpired
         | InvalidPaymentMethod of UnverifiedPaymentMethod
-        | InvalidOrderItems of Map<ProductId, DiscountHigherThanTotalPrice>
-        | OrderStateError of OrderStateError
+        | InvalidOrderItems of Map<ProductId, DiscountHigherThanTotalPriceError>
+        | InvalidOrderState of InvalidOrderStateError
 
     type T<'ioError> = Workflow<Command, Order, DomainEvent, DomainError, 'ioError>
 
@@ -58,22 +59,26 @@ module StartOrderWorkflow =
                 let! cardType =
                     command.CardTypeId
                     |> CardType.create supportedCardTypes
-                    |> Result.setError (command.CardTypeId |> InvalidCardType |> Left)
+                    |> Result.mapError (fun (UnsupportedCardTypeError cardTypeId) ->
+                        cardTypeId |> UnsupportedCardType |> Left)
 
-                let unverifiedPaymentMethod =
+                let! unverifiedPaymentMethod =
                     UnverifiedPaymentMethod.create
                         cardType
                         command.CardNumber
                         command.CardSecurityNumber
                         command.CardHolderName
                         command.Expiration
+                        now
+                    |> Result.mapError (fun (_: PaymentMethodExpiredError) -> PaymentMethodExpired |> Left)
 
                 let! verifiedPaymentMethod =
                     unverifiedPaymentMethod
                     |> verifyPaymentMethod
                     |> AsyncResult.mapError (function
                         | Left ioError -> ioError |> Right
-                        | Right invalidPaymentMethod -> invalidPaymentMethod |> InvalidPaymentMethod |> Left)
+                        | Right(_: BuyerManagementPort.InvalidPaymentMethodError) ->
+                            unverifiedPaymentMethod |> InvalidPaymentMethod |> Left)
 
                 and! validatedOrderItems =
                     command.OrderItems
@@ -95,7 +100,7 @@ module StartOrderWorkflow =
                     createOrderCommand
                     |> Command.CreateOrder
                     |> Order.evolve state
-                    |> Result.mapError (OrderStateError >> Left)
+                    |> Result.mapError (InvalidOrderState >> Left)
             }
 
 type StartOrderWorkflow<'ioError> = StartOrderWorkflow.T<'ioError>

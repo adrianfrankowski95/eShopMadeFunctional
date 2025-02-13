@@ -7,7 +7,7 @@ open eShop.Prelude
 
 [<RequireQualifiedAccess>]
 module ConfirmOrderItemsStockWorkflow =
-    type T<'ioError> = Workflow<unit, Order, DomainEvent, OrderStateError, 'ioError>
+    type T<'ioError> = Workflow<unit, Order, DomainEvent, InvalidOrderStateError, 'ioError>
 
     let build: T<'ioError> =
         fun _ state _ ->

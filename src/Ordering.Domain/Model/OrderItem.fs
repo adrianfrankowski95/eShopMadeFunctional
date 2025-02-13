@@ -48,10 +48,6 @@ module Discount =
 
 type PictureUrl = string
 
-type TotalPrice = Decimal.NonNegative
-
-type DiscountHigherThanTotalPrice = DiscountHigherThanTotalPrice of (TotalPrice * Discount)
-
 type OrderItemWithConfirmedStock =
     private
         { ProductName: ProductName
@@ -59,6 +55,10 @@ type OrderItemWithConfirmedStock =
           UnitPrice: UnitPrice
           Units: Units
           Discount: Discount }
+
+type TotalPrice = Decimal.NonNegative
+
+type DiscountHigherThanTotalPriceError = DiscountHigherThanTotalPriceError of (TotalPrice * Discount)
 
 type OrderItemWithUnconfirmedStock =
     private
@@ -84,7 +84,7 @@ module OrderItemWithUnconfirmedStock =
 
             do!
                 totalPrice < discount
-                |> Result.requireFalse ((totalPrice, discount) |> DiscountHigherThanTotalPrice)
+                |> Result.requireFalse ((totalPrice, discount) |> DiscountHigherThanTotalPriceError)
 
             return
                 { ProductName = productName
