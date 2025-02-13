@@ -28,13 +28,11 @@ module DomainEvent =
         { ShippedTo: BuyerWithVerifiedPaymentMethods
           ShippedOrderItems: NonEmptyMap<ProductId, OrderItemWithConfirmedStock> }
 
-    type T =
-        | OrderStarted of OrderStarted
-        | BuyerPaymentMethodVerified of BuyerPaymentMethodVerified
-        | OrderCancelled of OrderCancelled
-        | OrderStatusChangedToAwaitingValidation of OrderStatusChangedToAwaitingValidation
-        | OrderStockConfirmed of OrderStockConfirmed
-        | OrderPaid of OrderPaid
-        | OrderShipped of OrderShipped
-
-type DomainEvent = DomainEvent.T
+type DomainEvent =
+    | OrderStarted of DomainEvent.OrderStarted
+    | BuyerPaymentMethodVerified of DomainEvent.BuyerPaymentMethodVerified
+    | OrderCancelled of DomainEvent.OrderCancelled
+    | OrderStatusChangedToAwaitingValidation of DomainEvent.OrderStatusChangedToAwaitingValidation
+    | OrderStockConfirmed of DomainEvent.OrderStockConfirmed
+    | OrderPaid of DomainEvent.OrderPaid
+    | OrderShipped of DomainEvent.OrderShipped

@@ -21,7 +21,7 @@ module StartOrderWorkflow =
           OrderItems: NonEmptyMap<ProductId, UnvalidatedOrderItem>
           CardTypeId: CardTypeId
           CardNumber: CardNumber
-          SecurityNumber: CardSecurityNumber
+          CardSecurityNumber: CardSecurityNumber
           CardHolderName: CardHolderName
           Expiration: DateTimeOffset }
 
@@ -30,7 +30,7 @@ module StartOrderWorkflow =
         | InvalidCardType of CardTypeId
         | InvalidPaymentMethod of UnverifiedPaymentMethod
         | InvalidOrderItems of Map<ProductId, DiscountHigherThanTotalPrice>
-        | OrderError of OrderError
+        | OrderStateError of OrderStateError
 
     type T<'ioError> = Workflow<Command, Order, DomainEvent, DomainError, 'ioError>
 
@@ -64,7 +64,7 @@ module StartOrderWorkflow =
                     UnverifiedPaymentMethod.create
                         cardType
                         command.CardNumber
-                        command.SecurityNumber
+                        command.CardSecurityNumber
                         command.CardHolderName
                         command.Expiration
 
@@ -95,7 +95,7 @@ module StartOrderWorkflow =
                     createOrderCommand
                     |> Command.CreateOrder
                     |> Order.evolve state
-                    |> Result.mapError (OrderError >> Left)
+                    |> Result.mapError (OrderStateError >> Left)
             }
 
 type StartOrderWorkflow<'ioError> = StartOrderWorkflow.T<'ioError>

@@ -4,7 +4,7 @@ open System
 open Ordering.Domain.Model.ValueObjects
 open eShop.ConstrainedTypes
 
-type OrderError =
+type OrderStateError =
     | OnlyPaidOrderCanBeShipped
     | PaidOrderCannotBeCancelled
     | ShippedOrderCannotBeCancelled
@@ -53,7 +53,7 @@ module Order =
         | Shipped of Shipped
         | Cancelled of Cancelled
 
-    let evolve (state: T) (command: Command) : Result<T * DomainEvent list, OrderError> =
+    let evolve (state: T) (command: Command) : Result<T * DomainEvent list, OrderStateError> =
         match state, command with
         | Init, CreateOrder cmd ->
             let buyerWithVerifiedPaymentMethod =

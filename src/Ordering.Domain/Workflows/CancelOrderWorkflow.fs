@@ -7,7 +7,7 @@ open eShop.Prelude
 
 [<RequireQualifiedAccess>]
 module CancelOrderWorkflow =
-    type T<'ioError> = Workflow<unit, Order, DomainEvent, OrderError, 'ioError>
+    type T<'ioError> = Workflow<unit, Order, DomainEvent, OrderStateError, 'ioError>
 
     let build: T<'ioError> =
         fun _ state _ ->

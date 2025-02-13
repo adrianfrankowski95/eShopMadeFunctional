@@ -34,8 +34,6 @@ type Units = Int.Positive
 module Units =
     let create = Int.Positive.create (nameof Units)
 
-    let add value (units: Units) = Int.Positive.add value units
-
     let value (PositiveInt value) = value
 
 
