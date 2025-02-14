@@ -21,12 +21,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Mobile.Bff.Shopping\Mobile.Bff.Shopping.csproj" />
-    <ProjectReference Include="..\Basket.API\Basket.API.csproj" />
-    <ProjectReference Include="..\Catalog.API\Catalog.API.csproj" />
-    <ProjectReference Include="..\Identity.API\Identity.API.csproj" />
-    <ProjectReference Include="..\Ordering.API\Ordering.API.csproj" />
-    <ProjectReference Include="..\OrderProcessor\OrderProcessor.csproj" />
-    <ProjectReference Include="..\PaymentProcessor\PaymentProcessor.csproj" />
+    <ProjectReference Include="..\LegacyBasketService\Basket.API\Basket.API.csproj" />
+    <ProjectReference Include="..\LegacyCatalogService\Catalog.API\Catalog.API.csproj" />
+    <ProjectReference Include="..\LegacyIdentityService\Identity.API\Identity.API.csproj" />
+    <ProjectReference Include="..\LegacyOrderService\Ordering.API\Ordering.API.csproj" />
+    <ProjectReference Include="..\LegacyOrderService\OrderProcessor\OrderProcessor.csproj" />
+    <ProjectReference Include="..\LegacyPaymentService\PaymentProcessor\PaymentProcessor.csproj" />
     <ProjectReference Include="..\Webhooks.API\Webhooks.API.csproj" />
     <ProjectReference Include="..\WebApp\WebApp.csproj" />
     <ProjectReference Include="..\WebhookClient\WebhookClient.csproj" />

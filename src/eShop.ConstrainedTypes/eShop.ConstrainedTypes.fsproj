@@ -12,6 +12,7 @@
       <Compile Include="Int.fs" />
       <Compile Include="NonEmptyList.fs" />
       <Compile Include="NonEmptyMap.fs" />
+      <Compile Include="ActivePatterns.fs" />
       <Compile Include="Operators.fs" />
     </ItemGroup>
 

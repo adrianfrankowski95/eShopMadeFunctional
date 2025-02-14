@@ -5,6 +5,7 @@ open Microsoft.FSharp.Core
 open FsToolkit.ErrorHandling
 open System
 
+[<RequireQualifiedAccess>]
 module Constraints =
     let nonNegative ctor fieldName (rawDecimal: decimal) =
         rawDecimal < 0.0m
@@ -14,14 +15,10 @@ module Constraints =
 
 type NonNegative = private NonNegative of decimal
 
+[<RequireQualifiedAccess>]
 module NonNegative =
     let create = Constraints.nonNegative NonNegative
 
     let createAbsolute: decimal -> NonNegative = Math.Abs >> NonNegative
 
     let value (NonNegative value) = value
-
-
-[<AutoOpen>]
-module ActivePatterns =
-    let (|NonNegativeDecimal|) = NonNegative.value

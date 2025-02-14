@@ -5,6 +5,7 @@ open System
 open Microsoft.FSharp.Core
 open FsToolkit.ErrorHandling
 
+[<RequireQualifiedAccess>]
 module Constraints =
     let nonNegative ctor fieldName rawInt =
         rawInt < 0
@@ -20,6 +21,7 @@ type Positive = private Positive of int
 
 type NonNegative = private NonNegative of int
 
+[<RequireQualifiedAccess>]
 module Positive =
     let create = Constraints.positive Positive
 
@@ -27,6 +29,7 @@ module Positive =
 
     let value (Positive int) = int
 
+[<RequireQualifiedAccess>]
 module NonNegative =
     let create = Constraints.nonNegative NonNegative
 
@@ -35,9 +38,3 @@ module NonNegative =
     let ofPositiveInt (Positive int) = int |> NonNegative
 
     let value (NonNegative int) = int
-
-[<AutoOpen>]
-module ActivePatterns =
-    let (|PositiveInt|) = Positive.value
-
-    let (|NonNegativeInt|) = NonNegative.value

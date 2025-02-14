@@ -5,6 +5,7 @@ open System
 open eShop.Prelude.Operators
 open FsToolkit.ErrorHandling
 
+[<RequireQualifiedAccess>]
 module Constraints =
     let nonNull ctor fieldName rawString =
         rawString
@@ -65,6 +66,7 @@ module Constraints =
 
 type NonWhiteSpace = private NonWhiteSpace of string
 
+[<RequireQualifiedAccess>]
 module NonWhiteSpace =
     let create = Constraints.nonWhiteSpace NonWhiteSpace
     

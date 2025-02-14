@@ -37,7 +37,3 @@ module NonEmptyMap =
         |> Map.toList
         |> List.traverseResultA f
         |> Result.map (Map.ofList >> NonEmptyMap)
-
-[<AutoOpen>]
-module ActivePatterns =
-    let (|NonEmptyMap|) = NonEmptyMap.toMap

@@ -1,8 +1,6 @@
 ﻿namespace Ordering.Domain.Model
 
 open eShop.ConstrainedTypes
-open eShop.ConstrainedTypes.Int.ActivePatterns
-open eShop.ConstrainedTypes.Decimal.ActivePatterns
 open eShop.ConstrainedTypes.Operators
 open FsToolkit.ErrorHandling
 

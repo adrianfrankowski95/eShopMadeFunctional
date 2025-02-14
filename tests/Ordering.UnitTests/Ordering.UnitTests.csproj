@@ -19,9 +19,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Ordering.API\Ordering.API.csproj" />
-    <ProjectReference Include="..\..\src\Ordering.Domain\Ordering.Domain.csproj" />
-    <ProjectReference Include="..\..\src\Ordering.Infrastructure\Ordering.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\LegacyOrderService\Ordering.API\Ordering.API.csproj" />
+    <ProjectReference Include="..\..\src\LegacyOrderService\Ordering.Domain\Ordering.Domain.csproj" />
+    <ProjectReference Include="..\..\src\LegacyOrderService\Ordering.Infrastructure\Ordering.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

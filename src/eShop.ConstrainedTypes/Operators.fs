@@ -1,7 +1,6 @@
 ﻿module eShop.ConstrainedTypes.Operators
 
-open eShop.ConstrainedTypes.Int.ActivePatterns
-open eShop.ConstrainedTypes.Decimal.ActivePatterns
+open eShop.ConstrainedTypes
 
 type Operators = Operators
     with

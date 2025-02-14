@@ -45,7 +45,3 @@ module NonEmptyList =
 
     let traverseAsyncOptionM f =
         sequence (List.traverseAsyncOptionM f) AsyncOption.map
-
-[<AutoOpen>]
-module ActivePatterns =
-    let (|NonEmptyList|) = NonEmptyList.toList
