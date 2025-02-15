@@ -5,10 +5,10 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Folder Include="HttpHandlers\" />
-        <Compile Include="WebApp.fs" />
         <Compile Include="PortsAdapters.fs" />
         <Compile Include="CompositionRoot.fs" />
+        <Folder Include="HttpHandlers\" />
+        <Compile Include="WebApp.fs" />
         <Compile Include="Configuration.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
