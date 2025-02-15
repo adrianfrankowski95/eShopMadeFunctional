@@ -1,7 +1,7 @@
-﻿using eShop.EventBusRabbitMQ;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
-namespace Microsoft.Extensions.Hosting;
+namespace eShop.EventBusRabbitMQ;
 
 public static class RabbitMqDependencyInjectionExtensions
 {

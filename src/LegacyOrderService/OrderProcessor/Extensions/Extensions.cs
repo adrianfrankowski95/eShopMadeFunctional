@@ -1,4 +1,5 @@
 ﻿using System.Text.Json.Serialization;
+using eShop.EventBusRabbitMQ;
 using eShop.OrderProcessor.Events;
 
 namespace eShop.OrderProcessor.Extensions;

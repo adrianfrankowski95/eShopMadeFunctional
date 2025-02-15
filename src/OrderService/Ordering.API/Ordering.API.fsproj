@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Folder Include="HttpHandlers\" />
+        <Compile Include="WebApp.fs" />
+        <Compile Include="PortsAdapters.fs" />
+        <Compile Include="CompositionRoot.fs" />
+        <Compile Include="Configuration.fs" />
+        <Compile Include="Program.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Giraffe" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\..\eShop.ServiceDefaults\eShop.ServiceDefaults.csproj" />
+      <ProjectReference Include="..\..\EventBusRabbitMQ\EventBusRabbitMQ.csproj" />
+    </ItemGroup>
+
+</Project>

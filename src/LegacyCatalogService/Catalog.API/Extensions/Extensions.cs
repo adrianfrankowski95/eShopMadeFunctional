@@ -1,4 +1,5 @@
 ﻿using eShop.Catalog.API.Services;
+using eShop.EventBusRabbitMQ;
 using Microsoft.Extensions.AI;
 using OpenAI;
 
