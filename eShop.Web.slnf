@@ -2,8 +2,10 @@
   "solution": {
     "path": "eShop.sln",
     "projects": [
+      "eShop.DomainDrivenDesign.Postgres\\eShop.DomainDrivenDesign.Postgres.fsproj",
       "src\\eShop.AppHost\\eShop.AppHost.csproj",
       "src\\eShop.ConstrainedTypes\\eShop.ConstrainedTypes.fsproj",
+      "src\\eShop.DomainDrivenDesign.Postgres\\eShop.DomainDrivenDesign.Postgres.fsproj",
       "src\\eShop.DomainDrivenDesign\\eShop.DomainDrivenDesign.fsproj",
       "src\\eShop.Prelude\\eShop.Prelude.fsproj",
       "src\\eShop.ServiceDefaults\\eShop.ServiceDefaults.csproj",
