@@ -72,7 +72,6 @@ module EventsProcessor =
             markEventAsProcessed: MarkEventAsProcessed<'eventId, 'markEventAsProcessedIoError>,
             options: EventsProcessorOptions<'state, 'eventPayload, 'eventHandlerIoError>
         ) =
-
         let errorEvent =
             Event<
                 EventsProcessorError<
@@ -92,7 +91,9 @@ module EventsProcessor =
                 return (attempt, event, failedHandlers) |> Retry |> postCommand
             }
 
-        let processEvent maxAttempts scheduleRetry attempt handlers (eventId, event) =
+        let maxAttempts = (options.Retries |> List.length) + 1
+
+        let processEvent scheduleRetry attempt handlers (eventId, event) =
             async {
                 let! successfulHandlers, failedHandlers =
                     handlers
@@ -129,12 +130,11 @@ module EventsProcessor =
                             (attempt, (eventId, event), failedHandlers |> List.map fst |> Set.ofList)
                             |> MaxEventProcessingRetriesReached
                             |> errorEvent.Trigger
-
-                            Async.retn ()
+                            |> Async.retn
             }
 
-        let handleCommand maxAttempts scheduleRetry cmd =
-            let processEvent = processEvent maxAttempts scheduleRetry
+        let handleCommand scheduleRetry cmd =
+            let processEvent = processEvent scheduleRetry
 
             async {
                 match cmd with
@@ -161,9 +161,8 @@ module EventsProcessor =
 
         let processor =
             MailboxProcessor<Command<_, _, _>>.Start(fun inbox ->
-                let maxAttempts = (options.Retries |> List.length) + 1
                 let scheduleRetry = scheduleRetry inbox.Post
-                let handleCommand = handleCommand maxAttempts scheduleRetry
+                let handleCommand = handleCommand scheduleRetry
 
                 let rec loop () =
                     async {

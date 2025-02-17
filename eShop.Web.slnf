@@ -21,6 +21,7 @@
       "src\\LegacyOrderService\\OrderProcessor\\OrderProcessor.csproj",
       "src\\LegacyPaymentService\\PaymentProcessor\\PaymentProcessor.csproj",
       "src\\Mobile.Bff.Shopping\\Mobile.Bff.Shopping.csproj",
+      "src\\OrderService\\Ordering.Adapters.Postgres\\Ordering.Adapters.Postgres.fsproj",
       "src\\OrderService\\Ordering.API\\Ordering.API.fsproj",
       "src\\OrderService\\Ordering.Domain\\Ordering.Domain.fsproj",
       "src\\WebAppComponents\\WebAppComponents.csproj",

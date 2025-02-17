@@ -95,6 +95,10 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ordering.API", "src\OrderSe
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.DomainDrivenDesign.Postgres", "src\eShop.DomainDrivenDesign.Postgres\eShop.DomainDrivenDesign.Postgres.fsproj", "{117B8D4C-90D9-4AEB-8857-E93F8782F0C6}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Adapters", "Adapters", "{980F20CB-CBCB-48E9-A7E5-DEB057C8D1BD}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ordering.Adapters.Postgres", "src\OrderService\Ordering.Adapters.Postgres\Ordering.Adapters.Postgres.fsproj", "{F411E513-7212-45EF-929B-22CDA26AED6F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -233,6 +237,10 @@ Global
 		{117B8D4C-90D9-4AEB-8857-E93F8782F0C6}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{117B8D4C-90D9-4AEB-8857-E93F8782F0C6}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{117B8D4C-90D9-4AEB-8857-E93F8782F0C6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F411E513-7212-45EF-929B-22CDA26AED6F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F411E513-7212-45EF-929B-22CDA26AED6F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F411E513-7212-45EF-929B-22CDA26AED6F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F411E513-7212-45EF-929B-22CDA26AED6F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -276,6 +284,8 @@ Global
 		{5EC0C86C-4B64-474C-9602-221D419ACE2A} = {932D8224-11F6-4D07-B109-DA28AD288A63}
 		{CDD93D50-691F-4D05-AAE3-67AB55629BBC} = {30CF6C0D-AA2E-4F94-85DC-BDD45F7A5121}
 		{117B8D4C-90D9-4AEB-8857-E93F8782F0C6} = {932D8224-11F6-4D07-B109-DA28AD288A63}
+		{980F20CB-CBCB-48E9-A7E5-DEB057C8D1BD} = {30CF6C0D-AA2E-4F94-85DC-BDD45F7A5121}
+		{F411E513-7212-45EF-929B-22CDA26AED6F} = {980F20CB-CBCB-48E9-A7E5-DEB057C8D1BD}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {25728519-5F0F-4973-8A64-0A81EB4EA8D9}
