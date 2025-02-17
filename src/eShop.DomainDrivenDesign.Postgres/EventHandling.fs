@@ -11,16 +11,23 @@ open Dapper
 module EventHandling =
     type EventId = private EventId of Guid
 
-    [<RequireQualifiedAccess>]
-    module EventId =
-        let value (EventId value) = value
+    type IoError =
+        | SerializationException of exn
+        | DeserializationException of exn
+        | SqlException of exn
 
     module private Json =
         let serialize (jsonOptions: JsonSerializerOptions) (data: 'eventPayload) =
-            JsonSerializer.Serialize<'eventPayload>(data, jsonOptions)
+            try
+                JsonSerializer.Serialize<'eventPayload>(data, jsonOptions) |> Ok
+            with e ->
+                e |> SerializationException |> Error
 
         let deserialize<'eventPayload> (jsonOptions: JsonSerializerOptions) (payload: string) =
-            JsonSerializer.Deserialize<'eventPayload>(payload, jsonOptions)
+            try
+                JsonSerializer.Deserialize<'eventPayload>(payload, jsonOptions) |> Ok
+            with e ->
+                e |> DeserializationException |> Error
 
     module private Sql =
         [<Literal>]
@@ -61,21 +68,24 @@ module EventHandling =
 
         module Event =
             let toDomain<'eventPayload> jsonOptions dto =
-                (dto.EventId |> EventId,
-                 { Data = dto.EventData |> Json.deserialize<'eventPayload> jsonOptions
-                   OccurredAt = dto.OccurredAt }),
-                dto.SuccessfulHandlers |> Set.ofArray
+                dto.EventData
+                |> Json.deserialize<'eventPayload> jsonOptions
+                |> Result.map (fun evData ->
+                    (dto.EventId |> EventId,
+                     { Data = evData
+                       OccurredAt = dto.OccurredAt }),
+                    dto.SuccessfulHandlers |> Set.ofArray)
 
-    let private toAsyncResult x =
+    let inline private toAsyncResult errMapper x =
         try
-            x |> AsyncResult.ofTask
+            x |> Async.AwaitTask |> Async.map Ok
         with e ->
-            e |> AsyncResult.error
+            e |> errMapper |> AsyncResult.error
 
     let persistEvents
         (jsonOptions: JsonSerializerOptions)
-        (dbConnection: IDbConnection)
-        : PersistEvents<'state, EventId, 'eventPayload, exn> =
+        (dbTransaction: IDbTransaction)
+        : PersistEvents<'state, EventId, 'eventPayload, IoError list> =
         fun (AggregateId aggregateId) events ->
             events
             |> List.traverseAsyncResultA (fun ev ->
@@ -85,36 +95,46 @@ module EventHandling =
                        EventData = ev.Data |> Json.serialize jsonOptions
                        OccurredAt = ev.OccurredAt |}
 
-                dbConnection.ExecuteScalarAsync<Guid>(Sql.PersistEvent, param)
-                |> toAsyncResult
+                dbTransaction.Connection.ExecuteScalarAsync<Guid>(Sql.PersistEvent, param, dbTransaction)
+                |> toAsyncResult SqlException
                 |> AsyncResult.map (fun evId -> evId |> EventId, ev))
-            |> AsyncResult.mapError (fun ex -> ex |> AggregateException :> exn)
 
     let readUnprocessedEvents
         (jsonOptions: JsonSerializerOptions)
         (dbConnection: IDbConnection)
-        : ReadUnprocessedEvents<EventId, 'eventPayload, exn> =
+        : ReadUnprocessedEvents<EventId, 'eventPayload, IoError list> =
         fun aggregateType ->
             dbConnection.QueryAsync<Dto.Event>(Sql.ReadUnprocessedEvents, {| AggregateType = aggregateType |})
-            |> toAsyncResult
-            |> AsyncResult.map (Seq.map (Dto.Event.toDomain<'eventPayload> jsonOptions) >> Map.ofSeq)
+            |> toAsyncResult SqlException
+            |> AsyncResult.map List.ofSeq
+            |> AsyncResult.mapError List.singleton
+            |> AsyncResult.bind (
+                List.traverseResultA (Dto.Event.toDomain<'eventPayload> jsonOptions)
+                >> Result.map Map.ofSeq
+                >> AsyncResult.ofResult
+            )
 
-    let persistSuccessfulEventHandlers (dbConnection: IDbConnection) : PersistSuccessfulEventHandlers<EventId, exn> =
+    let persistSuccessfulEventHandlers
+        (dbConnection: IDbConnection)
+        : PersistSuccessfulEventHandlers<EventId, IoError> =
         fun (EventId eventId) successfulHandlers ->
             dbConnection.ExecuteAsync(
                 Sql.PersistSuccessfulEventHandlers,
                 {| EventId = eventId
                    SuccessfulHandlers = successfulHandlers |> Set.toArray |}
             )
-            |> toAsyncResult
+            |> toAsyncResult SqlException
             |> AsyncResult.ignore
 
-    let markEventAsProcessed (getNow: GetUtcNow) (dbConnection: IDbConnection) : MarkEventAsProcessed<EventId, exn> =
+    let markEventAsProcessed
+        (getNow: GetUtcNow)
+        (dbConnection: IDbConnection)
+        : MarkEventAsProcessed<EventId, IoError> =
         fun (EventId eventId) ->
             dbConnection.ExecuteAsync(
                 Sql.MarkEventAsProcessed,
                 {| EventId = eventId
                    UtcNow = getNow () |}
             )
-            |> toAsyncResult
+            |> toAsyncResult SqlException
             |> AsyncResult.ignore
