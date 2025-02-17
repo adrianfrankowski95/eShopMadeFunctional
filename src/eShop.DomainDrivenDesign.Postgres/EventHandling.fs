@@ -2,6 +2,7 @@
 
 open System
 open System.Data
+open System.Data.Common
 open System.Text.Json
 open FsToolkit.ErrorHandling
 open Dapper
@@ -13,8 +14,8 @@ type SqlIoError =
     | SqlException of exn
 
 type SqlConnection =
-    | WithTransaction of IDbTransaction
-    | WithoutTransaction of IDbConnection
+    | WithTransaction of DbTransaction
+    | WithoutTransaction of DbConnection
 
 [<RequireQualifiedAccess>]
 module EventHandling =
