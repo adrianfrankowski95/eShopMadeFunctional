@@ -6,9 +6,9 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="Library.fs"/>
         <Content Include="dbinit\Create_EventProcessingLog_Table.sql" />
         <Compile Include="EventHandling.fs" />
+        <Compile Include="TransactionalWorkflowExecutor.fs" />
     </ItemGroup>
 
     <ItemGroup>

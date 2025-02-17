@@ -1,25 +1,20 @@
-﻿[<RequireQualifiedAccess>]
-module eShop.DomainDrivenDesign.Postgres
+﻿namespace eShop.DomainDrivenDesign.Postgres
 
 open System
 open System.Data
 open System.Text.Json
 open FsToolkit.ErrorHandling
 open Dapper
+open eShop.DomainDrivenDesign
 
-type IoError =
+type SqlIoError =
     | SerializationException of exn
     | DeserializationException of exn
     | SqlException of exn
 
-type Connection =
+type SqlConnection =
     | WithTransaction of IDbTransaction
     | WithoutTransaction of IDbConnection
-
-let (|Connection|) =
-    function
-    | WithTransaction dbTransaction -> (dbTransaction.Connection, Some dbTransaction)
-    | WithoutTransaction dbConnection -> (dbConnection, None)
 
 [<RequireQualifiedAccess>]
 module EventHandling =
@@ -91,10 +86,15 @@ module EventHandling =
         with e ->
             e |> errMapper |> AsyncResult.error
 
+    let private (|SqlConnection|) =
+        function
+        | WithTransaction dbTransaction -> (dbTransaction.Connection, Some dbTransaction)
+        | WithoutTransaction dbConnection -> (dbConnection, None)
+
     let persistEvents
         (jsonOptions: JsonSerializerOptions)
         (dbTransaction: IDbTransaction)
-        : PersistEvents<'state, EventId, 'eventPayload, IoError list> =
+        : PersistEvents<'state, EventId, 'eventPayload, SqlIoError list> =
         fun (AggregateId aggregateId) events ->
             events
             |> List.traverseAsyncResultA (fun ev ->
@@ -110,8 +110,8 @@ module EventHandling =
 
     let readUnprocessedEvents
         (jsonOptions: JsonSerializerOptions)
-        (Connection(dbConnection, transactionOption))
-        : ReadUnprocessedEvents<EventId, 'eventPayload, IoError list> =
+        (SqlConnection(dbConnection, transactionOption))
+        : ReadUnprocessedEvents<EventId, 'eventPayload, SqlIoError list> =
         fun aggregateType ->
             dbConnection.QueryAsync<Dto.Event>(
                 Sql.ReadUnprocessedEvents,
@@ -128,8 +128,8 @@ module EventHandling =
             )
 
     let persistSuccessfulEventHandlers
-        (Connection(dbConnection, transactionOption))
-        : PersistSuccessfulEventHandlers<EventId, IoError> =
+        (SqlConnection(dbConnection, transactionOption))
+        : PersistSuccessfulEventHandlers<EventId, SqlIoError> =
         fun (EventId eventId) successfulHandlers ->
             dbConnection.ExecuteAsync(
                 Sql.PersistSuccessfulEventHandlers,
@@ -142,8 +142,8 @@ module EventHandling =
 
     let markEventAsProcessed
         (getNow: GetUtcNow)
-        (Connection(dbConnection, transactionOption))
-        : MarkEventAsProcessed<EventId, IoError> =
+        (SqlConnection(dbConnection, transactionOption))
+        : MarkEventAsProcessed<EventId, SqlIoError> =
         fun (EventId eventId) ->
             dbConnection.ExecuteAsync(
                 Sql.MarkEventAsProcessed,
