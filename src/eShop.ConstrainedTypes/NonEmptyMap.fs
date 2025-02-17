@@ -21,10 +21,10 @@ module NonEmptyMap =
 
     let toList map = map |> toMap |> Map.toList
 
-    let map mapping map =
+    let inline map ([<InlineIfLambda>] mapping) map =
         map |> toMap |> Map.map mapping |> NonEmptyMap
 
-    let mapValues mapping map =
+    let inline mapValues ([<InlineIfLambda>] mapping) map =
         map |> toMap |> Map.map (fun _ v -> v |> mapping) |> NonEmptyMap
 
     let count map = map |> toMap |> Map.count
@@ -32,7 +32,7 @@ module NonEmptyMap =
     let add key value map =
         map |> toMap |> Map.add key value |> NonEmptyMap
 
-    let traverseResultA f (NonEmptyMap xs) =
+    let inline traverseResultA ([<InlineIfLambda>] f) (NonEmptyMap xs) =
         xs
         |> Map.toList
         |> List.traverseResultA f

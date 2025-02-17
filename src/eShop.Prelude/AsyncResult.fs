@@ -36,7 +36,7 @@ module AsyncResult =
                     }
         }
 
-    let inline teeUnitAsync ([<InlineIfLambda>] f) x =
+    let inline teeAnyAsync ([<InlineIfLambda>] f) x =
         async {
             let! result = x
 

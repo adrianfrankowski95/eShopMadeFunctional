@@ -2,7 +2,7 @@
 
 [<RequireQualifiedAccess>]
 module Map =
-    let inline mapValues mapping map =
+    let inline mapValues ([<InlineIfLambda>] mapping) map =
         map |> Map.map (fun _ k -> k |> mapping)
 
     let rec removeKeys map (keysToRemove: seq<_>) =

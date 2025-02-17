@@ -24,9 +24,6 @@ type NonNegative = private NonNegative of int
 [<RequireQualifiedAccess>]
 module Positive =
     let create = Constraints.positive Positive
-
-    let add (NonNegative value1) (Positive value2) = value1 + value2 |> Positive
-
     let value (Positive int) = int
 
 [<RequireQualifiedAccess>]

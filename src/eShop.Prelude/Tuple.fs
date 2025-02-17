@@ -2,6 +2,6 @@
 
 [<RequireQualifiedAccess>]
 module Tuple =
-    let inline mapFst f (x, y) = (x |> f, y)
+    let inline mapFst ([<InlineIfLambda>] f) (x, y) = (x |> f, y)
 
-    let inline mapSnd f (x, y) = (x, y |> f)
+    let inline mapSnd ([<InlineIfLambda>] f) (x, y) = (x, y |> f)

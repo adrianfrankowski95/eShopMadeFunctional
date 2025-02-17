@@ -30,7 +30,7 @@ module TransactionalWorkflowExecutor =
         { options with
             IsolationLevel = isolationLevel }
 
-    let execute workflow (options: Options) =
+    let inline execute ([<InlineIfLambda>] workflow) (options: Options) =
         fun state command ->
             let rec executeInTransaction workflow (retries: Delay list) =
                 asyncResult {
@@ -42,9 +42,9 @@ module TransactionalWorkflowExecutor =
                     return!
                         command
                         |> workflow transaction state
-                        |> AsyncResult.teeAsync (transaction.CommitAsync >> Async.AwaitTask)
-                        |> AsyncResult.teeErrorAsync (transaction.RollbackAsync >> Async.AwaitTask)
-                        |> AsyncResult.teeUnitAsync (connection.CloseAsync >> Async.AwaitTask)
+                        |> AsyncResult.teeAsync (fun _ -> transaction.CommitAsync() |> Async.AwaitTask)
+                        |> AsyncResult.teeErrorAsync (fun _ -> transaction.RollbackAsync() |> Async.AwaitTask)
+                        |> AsyncResult.teeAnyAsync (connection.CloseAsync >> Async.AwaitTask)
                         |> AsyncResult.orElseWith (fun error ->
                             match retries with
                             | [] -> error |> AsyncResult.error

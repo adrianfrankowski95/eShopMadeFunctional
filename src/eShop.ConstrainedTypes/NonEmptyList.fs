@@ -10,38 +10,33 @@ module NonEmptyList =
 
     let ofList list =
         match list with
-        | [] ->
-            "Invalid NonEmptyList: Provided list is empty"
-            |> Error
+        | [] -> "Invalid NonEmptyList: Provided list is empty" |> Error
         | head :: tail -> create head tail |> Ok
 
     let toList = List.Cons
 
-    let map mapping ((head, tail): NonEmptyList<'t>) =
-        (mapping head, List.map mapping tail)
-        |> NonEmptyList
+    let inline map ([<InlineIfLambda>] mapping) ((head, tail): NonEmptyList<'t>) =
+        (mapping head, List.map mapping tail) |> NonEmptyList
 
     let length ((_, tail): NonEmptyList<'t>) = tail |> List.length |> (+) 1
 
-    let sequence sequencer mapper =
-        toList
-        >> sequencer
-        >> mapper (ofList >> Result.valueOr failwith)
+    let inline sequence ([<InlineIfLambda>] sequencer) ([<InlineIfLambda>] mapper) =
+        toList >> sequencer >> mapper (ofList >> Result.valueOr failwith)
 
-    let traverseResultA f =
+    let inline traverseResultA ([<InlineIfLambda>] f) =
         sequence (List.traverseResultA f) Result.map
 
-    let traverseResultM f =
+    let inline traverseResultM ([<InlineIfLambda>] f) =
         sequence (List.traverseResultM f) Result.map
 
-    let traverseOptionM f =
+    let inline traverseOptionM ([<InlineIfLambda>] f) =
         sequence (List.traverseOptionM f) Option.map
 
-    let traverseAsyncResultA f =
+    let inline traverseAsyncResultA ([<InlineIfLambda>] f) =
         sequence (List.traverseAsyncResultA f) AsyncResult.map
 
-    let traverseAsyncResultM f =
+    let inline traverseAsyncResultM ([<InlineIfLambda>] f) =
         sequence (List.traverseAsyncResultM f) AsyncResult.map
 
-    let traverseAsyncOptionM f =
+    let inline traverseAsyncOptionM ([<InlineIfLambda>] f) =
         sequence (List.traverseAsyncOptionM f) AsyncOption.map
