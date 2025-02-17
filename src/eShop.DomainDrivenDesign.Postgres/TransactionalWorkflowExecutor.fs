@@ -15,8 +15,8 @@ module TransactionalWorkflowExecutor =
 
     type Options =
         private
-            { IsolationLevel: IsolationLevel
-              GetDbConnection: GetDbConnection
+            { GetDbConnection: GetDbConnection
+              IsolationLevel: IsolationLevel
               Retries: Delay list }
 
     let init getDbConnection =
