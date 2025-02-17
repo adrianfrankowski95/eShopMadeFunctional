@@ -7,14 +7,23 @@ open System.Text.Json
 open FsToolkit.ErrorHandling
 open Dapper
 
+type IoError =
+    | SerializationException of exn
+    | DeserializationException of exn
+    | SqlException of exn
+
+type Connection =
+    | WithTransaction of IDbTransaction
+    | WithoutTransaction of IDbConnection
+
+let (|Connection|) =
+    function
+    | WithTransaction dbTransaction -> (dbTransaction.Connection, Some dbTransaction)
+    | WithoutTransaction dbConnection -> (dbConnection, None)
+
 [<RequireQualifiedAccess>]
 module EventHandling =
     type EventId = private EventId of Guid
-
-    type IoError =
-        | SerializationException of exn
-        | DeserializationException of exn
-        | SqlException of exn
 
     module private Json =
         let serialize (jsonOptions: JsonSerializerOptions) (data: 'eventPayload) =
@@ -101,10 +110,14 @@ module EventHandling =
 
     let readUnprocessedEvents
         (jsonOptions: JsonSerializerOptions)
-        (dbConnection: IDbConnection)
+        (Connection(dbConnection, transactionOption))
         : ReadUnprocessedEvents<EventId, 'eventPayload, IoError list> =
         fun aggregateType ->
-            dbConnection.QueryAsync<Dto.Event>(Sql.ReadUnprocessedEvents, {| AggregateType = aggregateType |})
+            dbConnection.QueryAsync<Dto.Event>(
+                Sql.ReadUnprocessedEvents,
+                {| AggregateType = aggregateType |},
+                transactionOption |> Option.toObj
+            )
             |> toAsyncResult SqlException
             |> AsyncResult.map List.ofSeq
             |> AsyncResult.mapError List.singleton
@@ -115,26 +128,28 @@ module EventHandling =
             )
 
     let persistSuccessfulEventHandlers
-        (dbConnection: IDbConnection)
+        (Connection(dbConnection, transactionOption))
         : PersistSuccessfulEventHandlers<EventId, IoError> =
         fun (EventId eventId) successfulHandlers ->
             dbConnection.ExecuteAsync(
                 Sql.PersistSuccessfulEventHandlers,
                 {| EventId = eventId
-                   SuccessfulHandlers = successfulHandlers |> Set.toArray |}
+                   SuccessfulHandlers = successfulHandlers |> Set.toArray |},
+                transactionOption |> Option.toObj
             )
             |> toAsyncResult SqlException
             |> AsyncResult.ignore
 
     let markEventAsProcessed
         (getNow: GetUtcNow)
-        (dbConnection: IDbConnection)
+        (Connection(dbConnection, transactionOption))
         : MarkEventAsProcessed<EventId, IoError> =
         fun (EventId eventId) ->
             dbConnection.ExecuteAsync(
                 Sql.MarkEventAsProcessed,
                 {| EventId = eventId
-                   UtcNow = getNow () |}
+                   UtcNow = getNow () |},
+                transactionOption |> Option.toObj
             )
             |> toAsyncResult SqlException
             |> AsyncResult.ignore
