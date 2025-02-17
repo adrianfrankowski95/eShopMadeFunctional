@@ -7,11 +7,16 @@
 
     <ItemGroup>
         <Compile Include="Library.fs"/>
-        <Content Include="dbinit\Create_EventLog_Table.sql" />
+        <Content Include="dbinit\Create_EventProcessingLog_Table.sql" />
+        <Compile Include="EventHandling.fs" />
     </ItemGroup>
 
     <ItemGroup>
       <ProjectReference Include="..\eShop.DomainDrivenDesign\eShop.DomainDrivenDesign.fsproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Dapper" />
     </ItemGroup>
 
 </Project>
