@@ -3,20 +3,17 @@
 open System
 open System.Data
 open System.Text.Json
-open System.Threading
-open DbUp
 open FsToolkit.ErrorHandling
 open Dapper
 open eShop.DomainDrivenDesign
 
 [<RequireQualifiedAccess>]
 module EventHandling =
+    type EventId = private EventId of Guid
 
     [<RequireQualifiedAccess>]
     module Db =
-        let init = Db.init "./dbinit/"
-
-    type EventId = private EventId of Guid
+        let init = Db.init "DomainDrivenDesign.Postgres.EventHandling" "./dbinit/"
 
     module private Json =
         let serialize (jsonOptions: JsonSerializerOptions) (data: 'eventPayload) =
