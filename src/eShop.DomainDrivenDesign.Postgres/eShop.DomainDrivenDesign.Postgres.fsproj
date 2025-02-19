@@ -6,17 +6,22 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Content Include="dbinit\Create_EventProcessingLog_Table.sql" />
+        <EmbeddedResource Include="dbinit\01_Create_EventProcessingLog_Table.sql" />
+    </ItemGroup>
+    
+    <ItemGroup>
+        <Compile Include="Adapter.fs" />
         <Compile Include="EventHandling.fs" />
         <Compile Include="TransactionalWorkflowExecutor.fs" />
     </ItemGroup>
-
+    
     <ItemGroup>
       <ProjectReference Include="..\eShop.DomainDrivenDesign\eShop.DomainDrivenDesign.fsproj" />
     </ItemGroup>
 
     <ItemGroup>
       <PackageReference Include="Dapper" />
+      <PackageReference Include="dbup-postgresql" />
     </ItemGroup>
 
 </Project>

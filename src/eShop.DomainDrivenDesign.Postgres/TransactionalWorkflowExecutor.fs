@@ -1,13 +1,9 @@
-﻿[<RequireQualifiedAccess>]
-module eShop.DomainDrivenDesign.Postgres
+﻿namespace eShop.DomainDrivenDesign.Postgres
 
 open System
 open System.Data
-open System.Data.Common
 open eShop.Prelude
 open FsToolkit.ErrorHandling
-
-type GetDbConnection = unit -> DbConnection
 
 [<RequireQualifiedAccess>]
 module TransactionalWorkflowExecutor =

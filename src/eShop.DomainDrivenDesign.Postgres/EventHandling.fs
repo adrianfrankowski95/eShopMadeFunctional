@@ -2,23 +2,20 @@
 
 open System
 open System.Data
-open System.Data.Common
 open System.Text.Json
+open System.Threading
+open DbUp
 open FsToolkit.ErrorHandling
 open Dapper
 open eShop.DomainDrivenDesign
 
-type SqlIoError =
-    | SerializationException of exn
-    | DeserializationException of exn
-    | SqlException of exn
-
-type SqlConnection =
-    | WithTransaction of DbTransaction
-    | WithoutTransaction of DbConnection
-
 [<RequireQualifiedAccess>]
 module EventHandling =
+
+    [<RequireQualifiedAccess>]
+    module Db =
+        let init = Db.init "./dbinit/"
+
     type EventId = private EventId of Guid
 
     module private Json =
