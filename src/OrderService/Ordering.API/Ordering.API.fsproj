@@ -18,6 +18,7 @@
     </ItemGroup>
 
     <ItemGroup>
+      <ProjectReference Include="..\..\eShop.DomainDrivenDesign.Postgres\eShop.DomainDrivenDesign.Postgres.fsproj" />
       <ProjectReference Include="..\..\eShop.ServiceDefaults\eShop.ServiceDefaults.csproj" />
       <ProjectReference Include="..\..\EventBusRabbitMQ\EventBusRabbitMQ.csproj" />
     </ItemGroup>

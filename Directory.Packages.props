@@ -26,12 +26,14 @@
     <PackageVersion Include="FSharp.UMX" Version="1.1.0" />
     <PackageVersion Include="FsToolkit.ErrorHandling" Version="4.18.0" />
     <PackageVersion Include="Giraffe" Version="7.0.2" />
+    <PackageVersion Include="Microsoft.Data.SqlClient" Version="6.0.1" />
     <PackageVersion Include="Microsoft.Extensions.ApiDescription.Server" Version="$(AspnetVersion)">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageVersion>
     <PackageVersion Include="CommunityToolkit.Aspire.Hosting.Ollama" Version="9.1.0" />
     <PackageVersion Include="CommunityToolkit.Aspire.OllamaSharp" Version="9.1.0" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.1" />
     <PackageVersion Include="Microsoft.Extensions.ServiceDiscovery" Version="$(AspireVersion)" />
     <PackageVersion Include="Microsoft.Extensions.ServiceDiscovery.Yarp" Version="$(AspireVersion)" />
     <!-- Version together with Asp.Versioning -->
@@ -93,7 +95,6 @@
     <PackageVersion Include="Grpc.Tools" Version="2.69.0" PrivateAssets="All" />
     <!-- Miscellaneous -->
     <PackageVersion Include="Automapper" Version="13.0.1" />
-    <PackageVersion Include="Dapper" Version="2.1.35" />
     <PackageVersion Include="FluentValidation.AspNetCore" Version="11.3.0" />
     <PackageVersion Include="MediatR" Version="12.4.1" />
     <PackageVersion Include="Microsoft.Web.LibraryManager.Build" Version="2.1.175" />

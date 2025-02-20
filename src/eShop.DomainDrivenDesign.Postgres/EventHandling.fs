@@ -1,19 +1,15 @@
 ﻿namespace eShop.DomainDrivenDesign.Postgres
 
 open System
-open System.Data
+open System.Data.Common
 open System.Text.Json
 open FsToolkit.ErrorHandling
-open Dapper
 open eShop.DomainDrivenDesign
+open eShop.Postgres
 
 [<RequireQualifiedAccess>]
-module EventHandling =
+module Postgres =
     type EventId = private EventId of Guid
-
-    [<RequireQualifiedAccess>]
-    module Db =
-        let init = Db.init "DomainDrivenDesign.Postgres.EventHandling" "./dbinit/"
 
     module private Json =
         let serialize (jsonOptions: JsonSerializerOptions) (data: 'eventPayload) =
@@ -29,31 +25,27 @@ module EventHandling =
                 e |> DeserializationException |> Error
 
     module private Sql =
-        [<Literal>]
-        let PersistEvent =
-            """INSERT INTO "eShop"."EventProcessingLog" 
+        let inline persistEvent (DbSchema schema) =
+            $"""INSERT INTO "%s{schema}"."EventProcessingLog" 
             ("AggregateId", "AggregateType", "EventData", "OccurredAt", "SuccessfulHandlers")
             VALUES 
-            (@AggregateId, @AggregateType, @EventData, @OccurredAt, {})
+            (@AggregateId, @AggregateType, @EventData, @OccurredAt, {{}})
             RETURNING "EventId";"""
 
-        [<Literal>]
-        let ReadUnprocessedEvents =
-            """SELECT "EventId", "AggregateType", "EventData", "OccurredAt", "SuccessfulHandlers"
-            FROM "eShop"."EventProcessingLog"
+        let inline readUnprocessedEvents (DbSchema schema) =
+            $"""SELECT "EventId", "AggregateType", "EventData", "OccurredAt", "SuccessfulHandlers"
+            FROM "%s{schema}"."EventProcessingLog"
             WHERE "AggregateType" = @AggregateType
             AND "ProcessedAt" IS NULL
             ORDER BY "OccurredAt" ASC;"""
 
-        [<Literal>]
-        let PersistSuccessfulEventHandlers =
-            """UPDATE "eShop"."EventProcessingLog"
+        let inline persistSuccessfulEventHandlers (DbSchema schema) =
+            $"""UPDATE "%s{schema}"."EventProcessingLog"
             SET "SuccessfulHandlers" = "SuccessfulHandlers" || @SuccessfulHandlers
             WHERE "EventId" = @EventId;"""
 
-        [<Literal>]
-        let MarkEventAsProcessed =
-            """UPDATE "eShop"."EventProcessingLog"
+        let inline markEventAsProcessed (DbSchema schema) =
+            $"""UPDATE "%s{schema}"."EventProcessingLog"
             SET "ProcessedAt" = @UtcNow
             WHERE "EventId" = @EventId;"""
 
@@ -75,45 +67,43 @@ module EventHandling =
                        OccurredAt = dto.OccurredAt }),
                     dto.SuccessfulHandlers |> Set.ofArray)
 
-    let inline private toAsyncResult errMapper x =
-        try
-            x |> Async.AwaitTask |> Async.map Ok
-        with e ->
-            e |> errMapper |> AsyncResult.error
-
-    let private (|SqlConnection|) =
-        function
-        | WithTransaction dbTransaction -> (dbTransaction.Connection, Some dbTransaction)
-        | WithoutTransaction dbConnection -> (dbConnection, None)
+    let createInitScriptForEventProcessing =
+        Postgres.createScript "EventProcessing" "./dbinit/"
 
     let persistEvents
         (jsonOptions: JsonSerializerOptions)
-        (dbTransaction: IDbTransaction)
+        (dbSchema: DbSchema)
+        (dbTransaction: DbTransaction)
         : PersistEvents<'state, EventId, 'eventPayload, SqlIoError list> =
         fun (AggregateId aggregateId) events ->
             events
             |> List.traverseAsyncResultA (fun ev ->
-                let param =
-                    {| AggregateId = aggregateId
-                       AggregateType = typeof<'state>.Name
-                       EventData = ev.Data |> Json.serialize jsonOptions
-                       OccurredAt = ev.OccurredAt |}
+                asyncResult {
+                    let! eventData = ev.Data |> Json.serialize jsonOptions
 
-                dbTransaction.Connection.ExecuteScalarAsync<Guid>(Sql.PersistEvent, param, dbTransaction)
-                |> toAsyncResult SqlException
-                |> AsyncResult.map (fun evId -> evId |> EventId, ev))
+                    let param =
+                        {| AggregateId = aggregateId
+                           AggregateType = typeof<'state>.Name
+                           EventData = eventData
+                           OccurredAt = ev.OccurredAt |}
+
+                    return!
+                        dbTransaction
+                        |> SqlSession.WithTransaction
+                        |> Dapper.executeScalar<Guid> (Sql.persistEvent dbSchema) param
+                        |> AsyncResult.map (fun evId -> evId |> EventId, ev)
+                })
 
     let readUnprocessedEvents
         (jsonOptions: JsonSerializerOptions)
-        (SqlConnection(dbConnection, transactionOption))
+        (dbSchema: DbSchema)
+        (sqlSession: SqlSession)
         : ReadUnprocessedEvents<EventId, 'eventPayload, SqlIoError list> =
         fun aggregateType ->
-            dbConnection.QueryAsync<Dto.Event>(
-                Sql.ReadUnprocessedEvents,
-                {| AggregateType = aggregateType |},
-                transactionOption |> Option.toObj
-            )
-            |> toAsyncResult SqlException
+            let param = {| AggregateType = aggregateType |}
+
+            sqlSession
+            |> Dapper.query<Dto.Event> (Sql.readUnprocessedEvents dbSchema) param
             |> AsyncResult.map List.ofSeq
             |> AsyncResult.mapError List.singleton
             |> AsyncResult.bind (
@@ -123,28 +113,28 @@ module EventHandling =
             )
 
     let persistSuccessfulEventHandlers
-        (SqlConnection(dbConnection, transactionOption))
+        (dbSchema: DbSchema)
+        (sqlSession: SqlSession)
         : PersistSuccessfulEventHandlers<EventId, SqlIoError> =
         fun (EventId eventId) successfulHandlers ->
-            dbConnection.ExecuteAsync(
-                Sql.PersistSuccessfulEventHandlers,
+            let param =
                 {| EventId = eventId
-                   SuccessfulHandlers = successfulHandlers |> Set.toArray |},
-                transactionOption |> Option.toObj
-            )
-            |> toAsyncResult SqlException
+                   SuccessfulHandlers = successfulHandlers |> Set.toArray |}
+
+            sqlSession
+            |> Dapper.execute (Sql.persistSuccessfulEventHandlers dbSchema) param
             |> AsyncResult.ignore
 
     let markEventAsProcessed
         (getNow: GetUtcNow)
-        (SqlConnection(dbConnection, transactionOption))
+        (dbSchema: DbSchema)
+        (sqlSession: SqlSession)
         : MarkEventAsProcessed<EventId, SqlIoError> =
         fun (EventId eventId) ->
-            dbConnection.ExecuteAsync(
-                Sql.MarkEventAsProcessed,
+            let param =
                 {| EventId = eventId
-                   UtcNow = getNow () |},
-                transactionOption |> Option.toObj
-            )
-            |> toAsyncResult SqlException
+                   UtcNow = getNow () |}
+
+            sqlSession
+            |> Dapper.execute (Sql.markEventAsProcessed dbSchema) param
             |> AsyncResult.ignore
