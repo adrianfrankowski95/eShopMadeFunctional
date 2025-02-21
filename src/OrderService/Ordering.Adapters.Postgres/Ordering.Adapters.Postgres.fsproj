@@ -6,7 +6,16 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="Library.fs"/>
+        <Compile Include="OrderManagementAdapter.fs" />
+
+    </ItemGroup>
+
+    <ItemGroup>
+        <EmbeddedResource Include="dbinit\01_Create_Ordering_Tables.sql"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\eShop.Postgres\eShop.Postgres.fsproj"/>
     </ItemGroup>
 
 </Project>

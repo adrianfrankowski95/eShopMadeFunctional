@@ -26,7 +26,7 @@ module TransactionalWorkflowExecutor =
         { options with
             IsolationLevel = isolationLevel }
 
-    let inline execute ([<InlineIfLambda>] workflow) (options: Options) =
+    let execute workflow (options: Options) =
         fun state command ->
             let rec executeInTransaction workflow (retries: Delay list) =
                 asyncResult {

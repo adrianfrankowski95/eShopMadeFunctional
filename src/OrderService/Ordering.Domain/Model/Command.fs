@@ -13,8 +13,8 @@ module Command =
     type CreateOrder =
         { Buyer: Buyer
           Address: Address
-          VerifiedPaymentMethod: VerifiedPaymentMethod
-          OrderDate: DateTimeOffset
+          PaymentMethod: VerifiedPaymentMethod
+          OrderedAt: DateTimeOffset
           OrderItems: NonEmptyMap<ProductId, OrderItemWithUnconfirmedStock> }
 
     type SetStockRejectedOrderStatus =

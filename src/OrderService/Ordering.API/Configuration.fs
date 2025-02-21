@@ -22,8 +22,8 @@ let private configureDb (config: IConfiguration) (services: IServiceCollection) 
 
     services.AddTransient<DbConnection>(fun _ -> new SqlConnection(connectionString))
     |> addDbSchema schema
-    |> addDbScript initEventProcessingDb
-    |> addDbScript initOrderingDb
+    |> addDbScriptExecution initEventProcessingDb
+    |> addDbScriptExecution initOrderingDb
 
 let private configureServices (config: IConfiguration) (services: IServiceCollection) =
     services.AddProblemDetails().AddGiraffe() |> configureDb config |> ignore

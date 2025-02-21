@@ -6,31 +6,31 @@ open eShop.ConstrainedTypes
 module DomainEvent =
     type OrderStarted = { Buyer: Buyer }
 
-    type BuyerPaymentMethodVerified =
-        { Buyer: BuyerWithVerifiedPaymentMethods
+    type PaymentMethodVerified =
+        { Buyer: Buyer
           VerifiedPaymentMethod: VerifiedPaymentMethod }
 
     type OrderCancelled = { Buyer: Buyer }
 
     type OrderStatusChangedToAwaitingValidation =
-        { Buyer: BuyerWithVerifiedPaymentMethods
+        { Buyer: Buyer
           StockToValidate: NonEmptyMap<ProductId, Units> }
 
     type OrderStockConfirmed =
-        { Buyer: BuyerWithVerifiedPaymentMethods
+        { Buyer: Buyer
           ConfirmedOrderItems: NonEmptyMap<ProductId, OrderItemWithConfirmedStock> }
 
     type OrderPaid =
-        { PaidBy: BuyerWithVerifiedPaymentMethods
+        { PaidBy: Buyer
           PaidOrderItems: NonEmptyMap<ProductId, OrderItemWithConfirmedStock> }
 
     type OrderShipped =
-        { ShippedTo: BuyerWithVerifiedPaymentMethods
+        { ShippedTo: Buyer
           ShippedOrderItems: NonEmptyMap<ProductId, OrderItemWithConfirmedStock> }
 
 type DomainEvent =
     | OrderStarted of DomainEvent.OrderStarted
-    | BuyerPaymentMethodVerified of DomainEvent.BuyerPaymentMethodVerified
+    | BuyerPaymentMethodVerified of DomainEvent.PaymentMethodVerified
     | OrderCancelled of DomainEvent.OrderCancelled
     | OrderStatusChangedToAwaitingValidation of DomainEvent.OrderStatusChangedToAwaitingValidation
     | OrderStockConfirmed of DomainEvent.OrderStockConfirmed

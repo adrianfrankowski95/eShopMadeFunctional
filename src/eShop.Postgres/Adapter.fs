@@ -71,7 +71,7 @@ module Postgres =
 module DependencyInjection =
     let addDbSchema (schema: DbSchema) (services: IServiceCollection) = services.AddSingleton<DbSchema>(schema)
 
-    let addDbScript (DbScript script) (services: IServiceCollection) =
+    let addDbScriptExecution (DbScript script) (services: IServiceCollection) =
         services.AddHostedService(fun sp ->
             let connectionString = sp.GetRequiredService<DbConnection>().ConnectionString
 

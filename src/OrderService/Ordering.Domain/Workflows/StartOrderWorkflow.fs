@@ -47,7 +47,10 @@ module StartOrderWorkflow =
 
                 let! buyer =
                     match command.Buyer with
-                    | New buyerName -> generateBuyerId () |> Buyer.create buyerName |> AsyncResult.ok
+                    | New buyerName ->
+                        { Id = generateBuyerId ()
+                          Name = buyerName }
+                        |> AsyncResult.ok
                     | Existing buyerId ->
                         buyerId
                         |> getBuyer
@@ -92,9 +95,9 @@ module StartOrderWorkflow =
                 let createOrderCommand: Command.CreateOrder =
                     { Buyer = buyer
                       Address = command.Address
-                      VerifiedPaymentMethod = verifiedPaymentMethod
+                      PaymentMethod = verifiedPaymentMethod
                       OrderItems = validatedOrderItems
-                      OrderDate = now }
+                      OrderedAt = now }
 
                 return!
                     createOrderCommand

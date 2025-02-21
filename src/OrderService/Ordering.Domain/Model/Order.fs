@@ -16,33 +16,37 @@ module Order =
           UnvalidatedOrderItems: Map<ProductId, UnvalidatedOrderItem> }
 
     type AwaitingStockValidation =
-        { Buyer: BuyerWithVerifiedPaymentMethods
+        { Buyer: Buyer
+          PaymentMethod: VerifiedPaymentMethod
           Address: Address
-          OrderDate: DateTimeOffset
+          OrderedAt: DateTimeOffset
           UnconfirmedOrderItems: NonEmptyMap<ProductId, OrderItemWithUnconfirmedStock> }
 
     type WithConfirmedStock =
-        { Buyer: BuyerWithVerifiedPaymentMethods
+        { Buyer: Buyer
+          PaymentMethod: VerifiedPaymentMethod
           Address: Address
-          OrderDate: DateTimeOffset
+          OrderedAt: DateTimeOffset
           ConfirmedOrderItems: NonEmptyMap<ProductId, OrderItemWithConfirmedStock> }
 
     type Paid =
-        { Buyer: BuyerWithVerifiedPaymentMethods
+        { Buyer: Buyer
+          PaymentMethod: VerifiedPaymentMethod
           Address: Address
-          OrderDate: DateTimeOffset
+          OrderedAt: DateTimeOffset
           PaidOrderItems: NonEmptyMap<ProductId, OrderItemWithConfirmedStock> }
 
     type Shipped =
-        { Buyer: BuyerWithVerifiedPaymentMethods
+        { Buyer: Buyer
+          PaymentMethod: VerifiedPaymentMethod
           Address: Address
-          OrderDate: DateTimeOffset
+          OrderedAt: DateTimeOffset
           ShippedOrderItems: NonEmptyMap<ProductId, OrderItemWithConfirmedStock> }
 
     type Cancelled =
         { Buyer: Buyer
           Address: Address
-          OrderDate: DateTimeOffset
+          OrderedAt: DateTimeOffset
           CancelledOrderItems: NonEmptyMap<ProductId, OrderItem> }
 
     type T =
@@ -56,22 +60,21 @@ module Order =
     let evolve (state: T) (command: Command) : Result<T * DomainEvent list, InvalidOrderStateError> =
         match state, command with
         | Init, CreateOrder cmd ->
-            let buyerWithVerifiedPaymentMethod =
-                cmd.Buyer |> Buyer.verifyOrAddPaymentMethod cmd.VerifiedPaymentMethod
-
             let newState =
-                { Buyer = buyerWithVerifiedPaymentMethod
+                { Buyer = cmd.Buyer
                   Address = cmd.Address
-                  OrderDate = cmd.OrderDate
+                  PaymentMethod = cmd.PaymentMethod
+                  OrderedAt = cmd.OrderedAt
                   UnconfirmedOrderItems = cmd.OrderItems }
 
             let events =
-                [ ({ Buyer = cmd.Buyer }: DomainEvent.OrderStarted) |> DomainEvent.OrderStarted
-                  ({ Buyer = buyerWithVerifiedPaymentMethod
-                     VerifiedPaymentMethod = cmd.VerifiedPaymentMethod }
-                  : DomainEvent.BuyerPaymentMethodVerified)
+                [ ({ Buyer = newState.Buyer }: DomainEvent.OrderStarted)
+                  |> DomainEvent.OrderStarted
+                  ({ Buyer = newState.Buyer
+                     VerifiedPaymentMethod = cmd.PaymentMethod }
+                  : DomainEvent.PaymentMethodVerified)
                   |> DomainEvent.BuyerPaymentMethodVerified
-                  ({ Buyer = buyerWithVerifiedPaymentMethod
+                  ({ Buyer = newState.Buyer
                      StockToValidate =
                        newState.UnconfirmedOrderItems
                        |> NonEmptyMap.map (fun _ orderItem -> orderItem.Units) }
@@ -84,7 +87,8 @@ module Order =
             let newState =
                 { Buyer = awaitingValidation.Buyer
                   Address = awaitingValidation.Address
-                  OrderDate = awaitingValidation.OrderDate
+                  PaymentMethod = awaitingValidation.PaymentMethod
+                  OrderedAt = awaitingValidation.OrderedAt
                   ConfirmedOrderItems =
                     awaitingValidation.UnconfirmedOrderItems
                     |> NonEmptyMap.mapValues OrderItemWithUnconfirmedStock.confirmStock }
@@ -100,7 +104,8 @@ module Order =
             let newState =
                 { Buyer = withConfirmedStock.Buyer
                   Address = withConfirmedStock.Address
-                  OrderDate = withConfirmedStock.OrderDate
+                  PaymentMethod = withConfirmedStock.PaymentMethod
+                  OrderedAt = withConfirmedStock.OrderedAt
                   PaidOrderItems = withConfirmedStock.ConfirmedOrderItems }
 
             let event: DomainEvent.OrderPaid =
@@ -113,7 +118,8 @@ module Order =
             let newState =
                 { Buyer = paid.Buyer
                   Address = paid.Address
-                  OrderDate = paid.OrderDate
+                  PaymentMethod = paid.PaymentMethod
+                  OrderedAt = paid.OrderedAt
                   ShippedOrderItems = paid.PaidOrderItems }
 
             let event: DomainEvent.OrderShipped =
@@ -126,9 +132,9 @@ module Order =
 
         | AwaitingStockValidation awaitingValidation, CancelOrder ->
             let newState =
-                { Buyer = awaitingValidation.Buyer |> Buyer.WithVerifiedPaymentMethods
+                { Buyer = awaitingValidation.Buyer
                   Address = awaitingValidation.Address
-                  OrderDate = awaitingValidation.OrderDate
+                  OrderedAt = awaitingValidation.OrderedAt
                   CancelledOrderItems =
                     awaitingValidation.UnconfirmedOrderItems
                     |> NonEmptyMap.mapValues OrderItem.WithUnconfirmedStock }
@@ -139,9 +145,9 @@ module Order =
 
         | WithConfirmedStock withConfirmedStock, CancelOrder ->
             let newState =
-                { Buyer = withConfirmedStock.Buyer |> Buyer.WithVerifiedPaymentMethods
+                { Buyer = withConfirmedStock.Buyer
                   Address = withConfirmedStock.Address
-                  OrderDate = withConfirmedStock.OrderDate
+                  OrderedAt = withConfirmedStock.OrderedAt
                   CancelledOrderItems =
                     withConfirmedStock.ConfirmedOrderItems
                     |> NonEmptyMap.mapValues OrderItem.WithConfirmedStock }

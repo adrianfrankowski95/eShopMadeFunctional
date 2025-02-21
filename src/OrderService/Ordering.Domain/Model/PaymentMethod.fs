@@ -2,7 +2,6 @@
 
 open System
 open Ordering.Domain.Model.ValueObjects
-
 open FsToolkit.ErrorHandling
 
 type PaymentMethodExpiredError = PaymentMethodExpiredError
@@ -35,4 +34,5 @@ type VerifiedPaymentMethod =
     private
         { CardType: CardType
           CardNumber: CardNumber
+          CardHolderName: CardHolderName
           Expiration: DateTimeOffset }
