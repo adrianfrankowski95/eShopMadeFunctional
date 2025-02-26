@@ -14,8 +14,6 @@
       <PackageReference Include="Dapper" Version="2.1.66"/>
       <PackageReference Include="dbup-postgresql" />
       <PackageReference Include="FsToolkit.ErrorHandling" />
-      <PackageReference Include="Microsoft.Data.SqlClient" />
-      <PackageReference Include="Microsoft.Extensions.Hosting" />
     </ItemGroup>
 
 </Project>

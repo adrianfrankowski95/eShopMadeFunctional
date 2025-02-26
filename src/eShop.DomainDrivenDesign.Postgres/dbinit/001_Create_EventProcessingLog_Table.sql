@@ -7,6 +7,6 @@ CREATE TABLE "$Schema$"."EventProcessingLog"
     "AggregateType"      VARCHAR(50) NOT NULL,
     "EventData"          JSONB       NOT NULL,
     "OccurredAt"         TIMESTAMPTZ NOT NULL,
-    "SuccessfulHandlers" TEXT[] NOT NULL,
+    "SuccessfulHandlers" TEXT[] NOT NULL DEFAULT '{}',
     "ProcessedAt"        TIMESTAMPTZ NULL
 );

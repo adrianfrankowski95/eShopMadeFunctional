@@ -27,9 +27,9 @@ module Postgres =
     module private Sql =
         let inline persistEvent (DbSchema schema) =
             $"""INSERT INTO "%s{schema}"."EventProcessingLog" 
-            ("AggregateId", "AggregateType", "EventData", "OccurredAt", "SuccessfulHandlers")
+            ("AggregateId", "AggregateType", "EventData", "OccurredAt")
             VALUES 
-            (@AggregateId, @AggregateType, @EventData, @OccurredAt, {{}})
+            (@AggregateId, @AggregateType, @EventData, @OccurredAt)
             RETURNING "EventId";"""
 
         let inline readUnprocessedEvents (DbSchema schema) =
@@ -58,19 +58,18 @@ module Postgres =
               SuccessfulHandlers: string array }
 
         module Event =
-            let toDomain<'eventPayload> jsonOptions dto =
+            let toDomain<'dto, 'eventData> (toDomain: 'dto -> Result<'eventData, string>) jsonOptions dto =
                 dto.EventData
-                |> Json.deserialize<'eventPayload> jsonOptions
+                |> Json.deserialize<'dto> jsonOptions
+                |> Result.bind (toDomain >> Result.mapError InvalidData)
                 |> Result.map (fun evData ->
                     (dto.EventId |> EventId,
                      { Data = evData
                        OccurredAt = dto.OccurredAt }),
                     dto.SuccessfulHandlers |> Set.ofArray)
 
-    let createInitScriptForEventProcessing =
-        Postgres.createScript "EventProcessing" "./dbinit/"
-
     let persistEvents
+        (eventPayloadToDto: 'eventPayload -> 'dto)
         (jsonOptions: JsonSerializerOptions)
         (dbSchema: DbSchema)
         (dbTransaction: DbTransaction)
@@ -79,7 +78,7 @@ module Postgres =
             events
             |> List.traverseAsyncResultA (fun ev ->
                 asyncResult {
-                    let! eventData = ev.Data |> Json.serialize jsonOptions
+                    let! eventData = ev.Data |> eventPayloadToDto |> Json.serialize jsonOptions
 
                     let param =
                         {| AggregateId = aggregateId
@@ -89,12 +88,13 @@ module Postgres =
 
                     return!
                         dbTransaction
-                        |> SqlSession.WithTransaction
+                        |> SqlSession.Sustained
                         |> Dapper.executeScalar<Guid> (Sql.persistEvent dbSchema) param
                         |> AsyncResult.map (fun evId -> evId |> EventId, ev)
                 })
 
     let readUnprocessedEvents
+        (dtoToEventPayload: 'dto -> Result<'eventPayload, string>)
         (jsonOptions: JsonSerializerOptions)
         (dbSchema: DbSchema)
         (sqlSession: SqlSession)
@@ -107,7 +107,7 @@ module Postgres =
             |> AsyncResult.map List.ofSeq
             |> AsyncResult.mapError List.singleton
             |> AsyncResult.bind (
-                List.traverseResultA (Dto.Event.toDomain<'eventPayload> jsonOptions)
+                List.traverseResultA (Dto.Event.toDomain<'dto, 'eventPayload> dtoToEventPayload jsonOptions)
                 >> Result.map Map.ofSeq
                 >> AsyncResult.ofResult
             )

@@ -18,7 +18,7 @@ internal static class Extensions
         });
         builder.EnrichNpgsqlDbContext<OrderingContext>();
 
-        services.AddMigration<OrderingContext, OrderingContextSeed>();
+        // services.AddMigration<OrderingContext, OrderingContextSeed>();
 
         // Add the integration services that consume the DbContext
         services.AddTransient<IIntegrationEventLogService, IntegrationEventLogService<OrderingContext>>();

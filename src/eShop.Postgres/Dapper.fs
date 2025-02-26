@@ -1,14 +1,13 @@
 ﻿[<RequireQualifiedAccess>]
 module eShop.Postgres.Dapper
 
-open eShop.DomainDrivenDesign.Postgres
 open Dapper
 open FsToolkit.ErrorHandling
 
 let private (|SqlSession|) =
     function
-    | WithTransaction dbTransaction -> (dbTransaction.Connection, dbTransaction)
-    | WithoutTransaction dbConnection -> (dbConnection, null)
+    | Sustained dbTransaction -> (dbTransaction.Connection, dbTransaction)
+    | Standalone dbConnection -> (dbConnection, null)
 
 let inline private toAsyncResult x =
     try

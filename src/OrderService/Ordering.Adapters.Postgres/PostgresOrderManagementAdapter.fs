@@ -1,11 +1,13 @@
 ﻿[<RequireQualifiedAccess>]
-module Ordering.Adapters.Postgres.OrderManagementAdapter
+module Ordering.Adapters.Postgres.PostgresOrderManagementAdapter
 
 open System
 open FsToolkit.ErrorHandling
+open Ordering.Domain.Ports
+open eShop.DomainDrivenDesign.Postgres
 
 module internal Dto =
-    type internal OrderStatus =
+    type OrderStatus =
         | Draft
         | AwaitingStockValidation
         | StockConfirmed
@@ -63,3 +65,7 @@ module internal Dto =
 
 module private Sql =
     let getOrder = ""
+
+type ReadOrderAggregate = OrderManagementPort.ReadOrderAggregate<SqlIoError> 
+
+let readOrderAggregate: ReadOrderAggregate = failwith ""

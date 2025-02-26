@@ -12,8 +12,9 @@
         <Compile Include="Configuration.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
-
+    
     <ItemGroup>
+      <PackageReference Include="FSharp.Data.LiteralProviders" />
       <PackageReference Include="Giraffe" />
     </ItemGroup>
 
@@ -21,6 +22,8 @@
       <ProjectReference Include="..\..\eShop.DomainDrivenDesign.Postgres\eShop.DomainDrivenDesign.Postgres.fsproj" />
       <ProjectReference Include="..\..\eShop.ServiceDefaults\eShop.ServiceDefaults.csproj" />
       <ProjectReference Include="..\..\EventBusRabbitMQ\EventBusRabbitMQ.csproj" />
+      <ProjectReference Include="..\Ordering.Adapters.Postgres\Ordering.Adapters.Postgres.fsproj" />
+      <ProjectReference Include="..\Ordering.Domain\Ordering.Domain.fsproj" />
     </ItemGroup>
 
 </Project>

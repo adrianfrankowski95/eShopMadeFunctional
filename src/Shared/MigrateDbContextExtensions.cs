@@ -39,6 +39,7 @@ internal static class MigrateDbContextExtensions
 
         try
         {
+            Console.WriteLine(context.Database.GetConnectionString());
             logger.LogInformation("Migrating database associated with context {DbContextName}", typeof(TContext).Name);
 
             var strategy = context.Database.CreateExecutionStrategy();

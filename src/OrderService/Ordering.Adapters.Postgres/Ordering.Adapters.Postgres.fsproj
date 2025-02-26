@@ -6,16 +6,16 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="OrderManagementAdapter.fs" />
-
+        <Compile Include="PostgresOrderManagementAdapter.fs" />
     </ItemGroup>
 
     <ItemGroup>
-        <EmbeddedResource Include="dbinit\01_Create_Ordering_Tables.sql"/>
+        <EmbeddedResource Include="dbinit\*sql" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
-
+    
     <ItemGroup>
         <ProjectReference Include="..\..\eShop.Postgres\eShop.Postgres.fsproj"/>
+        <ProjectReference Include="..\Ordering.Domain\Ordering.Domain.fsproj" />
     </ItemGroup>
 
 </Project>

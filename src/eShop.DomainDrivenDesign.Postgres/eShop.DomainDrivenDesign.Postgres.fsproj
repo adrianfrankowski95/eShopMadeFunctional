@@ -4,9 +4,9 @@
         <TargetFramework>net9.0</TargetFramework>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
     </PropertyGroup>
-
+    
     <ItemGroup>
-        <EmbeddedResource Include="dbinit\01_Create_EventProcessingLog_Table.sql" />
+        <EmbeddedResource Include="dbinit\*.sql" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
     
     <ItemGroup>
