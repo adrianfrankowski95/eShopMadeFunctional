@@ -4,7 +4,7 @@ module Ordering.Adapters.Postgres.PostgresOrderManagementAdapter
 open System
 open FsToolkit.ErrorHandling
 open Ordering.Domain.Ports
-open eShop.DomainDrivenDesign.Postgres
+open eShop.Postgres
 
 module internal Dto =
     type OrderStatus =

@@ -2,6 +2,7 @@
 
 open System
 open System.Data
+open eShop.Postgres
 open eShop.Prelude
 open FsToolkit.ErrorHandling
 

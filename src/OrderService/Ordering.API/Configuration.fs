@@ -11,7 +11,7 @@ open Microsoft.Extensions.Configuration
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.Hosting
 open Npgsql
-open eShop.DomainDrivenDesign.Postgres
+open eShop.Postgres
 open eShop.ServiceDefaults
 open eShop.EventBusRabbitMQ
 open eShop.Prelude
