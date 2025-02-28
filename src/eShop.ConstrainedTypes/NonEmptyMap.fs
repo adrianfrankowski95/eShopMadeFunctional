@@ -14,6 +14,11 @@ module NonEmptyMap =
         | 0 -> "Invalid NonEmptyMap: Provided map is empty" |> Error
         | _ -> map |> NonEmptyMap |> Ok
 
+    let ofSeq seq =
+        match seq |> Seq.length with
+        | 0 -> "Invalid NonEmptyMap: Provided map is empty" |> Error
+        | _ -> seq |> Map.ofSeq |> NonEmptyMap |> Ok
+
     let ofNonEmptyList (((key, value), tail): NonEmptyList<'k * 'v>) =
         tail |> Map.ofList |> Map.add key value |> NonEmptyMap
 

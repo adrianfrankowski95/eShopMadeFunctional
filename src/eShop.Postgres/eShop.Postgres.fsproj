@@ -3,6 +3,8 @@
     <PropertyGroup>
         <TargetFramework>net9.0</TargetFramework>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <RootNamespace>eShop.Postgres</RootNamespace>
+        <AssemblyName>eShop.Postgres</AssemblyName>
     </PropertyGroup>
     
     <ItemGroup>
@@ -11,7 +13,7 @@
     </ItemGroup>
     
     <ItemGroup>
-      <PackageReference Include="Dapper" Version="2.1.66"/>
+      <PackageReference Include="Dapper"/>
       <PackageReference Include="dbup-postgresql" />
       <PackageReference Include="FsToolkit.ErrorHandling" />
     </ItemGroup>

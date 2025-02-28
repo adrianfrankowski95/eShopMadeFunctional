@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <RootNamespace>eShop.Ordering.Adapters.Postgres</RootNamespace>
+        <AssemblyName>eShop.Ordering.Adapters.Postgres</AssemblyName>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="PostgresOrderManagementAdapter.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <EmbeddedResource Include="dbinit\*sql" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+    
+    <ItemGroup>
+        <ProjectReference Include="..\..\eShop.Postgres\eShop.Postgres.fsproj"/>
+        <ProjectReference Include="..\eShop.Ordering.Domain\eShop.Ordering.Domain.fsproj" />
+    </ItemGroup>
+
+</Project>

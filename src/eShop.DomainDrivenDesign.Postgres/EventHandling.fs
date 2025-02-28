@@ -80,16 +80,12 @@ module Postgres =
                 asyncResult {
                     let! eventData = ev.Data |> eventPayloadToDto |> Json.serialize jsonOptions
 
-                    let param =
+                    return!
                         {| AggregateId = aggregateId
                            AggregateType = typeof<'state>.Name
                            EventData = eventData
                            OccurredAt = ev.OccurredAt |}
-
-                    return!
-                        dbTransaction
-                        |> SqlSession.Sustained
-                        |> Dapper.executeScalar<Guid> (Sql.persistEvent dbSchema) param
+                        |> Dapper.executeScalar<Guid> (SqlSession.Sustained dbTransaction) (Sql.persistEvent dbSchema) 
                         |> AsyncResult.map (fun evId -> evId |> EventId, ev)
                 })
 
@@ -100,10 +96,8 @@ module Postgres =
         (sqlSession: SqlSession)
         : ReadUnprocessedEvents<EventId, 'eventPayload, SqlIoError list> =
         fun aggregateType ->
-            let param = {| AggregateType = aggregateType |}
-
-            sqlSession
-            |> Dapper.query<Dto.Event> (Sql.readUnprocessedEvents dbSchema) param
+            {| AggregateType = aggregateType |}
+            |> Dapper.query<Dto.Event> sqlSession (Sql.readUnprocessedEvents dbSchema)
             |> AsyncResult.map List.ofSeq
             |> AsyncResult.mapError List.singleton
             |> AsyncResult.bind (
@@ -117,12 +111,9 @@ module Postgres =
         (sqlSession: SqlSession)
         : PersistSuccessfulEventHandlers<EventId, SqlIoError> =
         fun (EventId eventId) successfulHandlers ->
-            let param =
-                {| EventId = eventId
-                   SuccessfulHandlers = successfulHandlers |> Set.toArray |}
-
-            sqlSession
-            |> Dapper.execute (Sql.persistSuccessfulEventHandlers dbSchema) param
+            {| EventId = eventId
+               SuccessfulHandlers = successfulHandlers |> Set.toArray |}
+            |> Dapper.execute sqlSession (Sql.persistSuccessfulEventHandlers dbSchema)
             |> AsyncResult.ignore
 
     let markEventAsProcessed
@@ -131,10 +122,7 @@ module Postgres =
         (sqlSession: SqlSession)
         : MarkEventAsProcessed<EventId, SqlIoError> =
         fun (EventId eventId) ->
-            let param =
-                {| EventId = eventId
-                   UtcNow = getNow () |}
-
-            sqlSession
-            |> Dapper.execute (Sql.markEventAsProcessed dbSchema) param
+            {| EventId = eventId
+               UtcNow = getNow () |}
+            |> Dapper.execute sqlSession (Sql.markEventAsProcessed dbSchema)
             |> AsyncResult.ignore

@@ -1,2 +1,0 @@
-﻿module Ordering.API.CompositionRoot
-

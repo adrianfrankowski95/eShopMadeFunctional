@@ -18,6 +18,7 @@ type SqlIoError =
     | SqlException of exn
     | InvalidData of string
 
+[<RequireQualifiedAccess>]
 type SqlSession =
     | Sustained of DbTransaction
     | Standalone of DbConnection

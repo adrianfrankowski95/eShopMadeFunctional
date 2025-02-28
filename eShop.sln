@@ -83,7 +83,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "LegacyPaymentService", "Leg
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "OrderService", "OrderService", "{30CF6C0D-AA2E-4F94-85DC-BDD45F7A5121}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ordering.Domain", "src\OrderService\Ordering.Domain\Ordering.Domain.fsproj", "{0822D4FF-3CDA-4C17-8F08-F4633733E413}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.Ordering.Domain", "src\OrderService\eShop.Ordering.Domain\eShop.Ordering.Domain.fsproj", "{0822D4FF-3CDA-4C17-8F08-F4633733E413}"
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.DomainDrivenDesign", "src\eShop.DomainDrivenDesign\eShop.DomainDrivenDesign.fsproj", "{07C81195-30DA-4D13-B4B5-3774369EB674}"
 EndProject
@@ -91,13 +91,13 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.ConstrainedTypes", "s
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.Prelude", "src\eShop.Prelude\eShop.Prelude.fsproj", "{5EC0C86C-4B64-474C-9602-221D419ACE2A}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ordering.API", "src\OrderService\Ordering.API\Ordering.API.fsproj", "{CDD93D50-691F-4D05-AAE3-67AB55629BBC}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.Ordering.API", "src\OrderService\eShop.Ordering.API\eShop.Ordering.API.fsproj", "{CDD93D50-691F-4D05-AAE3-67AB55629BBC}"
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.DomainDrivenDesign.Postgres", "src\eShop.DomainDrivenDesign.Postgres\eShop.DomainDrivenDesign.Postgres.fsproj", "{117B8D4C-90D9-4AEB-8857-E93F8782F0C6}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Adapters", "Adapters", "{980F20CB-CBCB-48E9-A7E5-DEB057C8D1BD}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ordering.Adapters.Postgres", "src\OrderService\Ordering.Adapters.Postgres\Ordering.Adapters.Postgres.fsproj", "{F411E513-7212-45EF-929B-22CDA26AED6F}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.Ordering.Adapters.Postgres", "src\OrderService\eShop.Ordering.Adapters.Postgres\eShop.Ordering.Adapters.Postgres.fsproj", "{F411E513-7212-45EF-929B-22CDA26AED6F}"
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.Postgres", "src\eShop.Postgres\eShop.Postgres.fsproj", "{00B2FAEB-1B60-4DCC-AF45-4E01577C94BE}"
 EndProject
