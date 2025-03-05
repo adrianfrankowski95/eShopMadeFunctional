@@ -704,7 +704,7 @@ module private Sql =
         $"""
         INSERT INTO "{schema}"."Buyers" ("Id", "Name") VALUES (@BuyerId, @BuyerName)
         ON CONFLICT ("Id")
-        DO UPDATE SET "Name" = EXCLUDED."Name"
+        DO UPDATE SET "Name" = COALESCE(EXCLUDED."Name", "Name")
         """
 
     let upsertOrderItem (DbSchema schema) =
