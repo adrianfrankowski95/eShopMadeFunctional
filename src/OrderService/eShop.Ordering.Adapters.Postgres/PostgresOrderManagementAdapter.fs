@@ -731,10 +731,10 @@ module private Sql =
 type ReadOrderAggregate = OrderManagementPort.ReadOrderAggregate<SqlIoError>
 
 let readOrderAggregate dbSchema sqlSession : ReadOrderAggregate =
-    fun aggregateId ->
+    fun (AggregateId aggregateId) ->
         asyncResult {
             let! orderDtos =
-                {| OrderId = aggregateId |> AggregateId.value |}
+                {| OrderId = aggregateId |}
                 |> Dapper.query<Dto.Order> sqlSession (Sql.getOrderById dbSchema)
                 |> AsyncResult.map (Seq.groupBy _.Id)
 
