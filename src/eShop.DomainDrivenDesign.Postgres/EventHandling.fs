@@ -6,23 +6,24 @@ open System.Text.Json
 open FsToolkit.ErrorHandling
 open eShop.DomainDrivenDesign
 open eShop.Postgres
+open eShop.Postgres.Dapper.Parameters
 
 [<RequireQualifiedAccess>]
 module Postgres =
     type EventId = private EventId of Guid
 
-    module private Json =
-        let serialize (jsonOptions: JsonSerializerOptions) (data: 'eventPayload) =
-            try
-                JsonSerializer.Serialize<'eventPayload>(data, jsonOptions) |> Ok
-            with e ->
-                e |> SerializationException |> Error
-
-        let deserialize<'eventPayload> (jsonOptions: JsonSerializerOptions) (payload: string) =
-            try
-                JsonSerializer.Deserialize<'eventPayload>(payload, jsonOptions) |> Ok
-            with e ->
-                e |> DeserializationException |> Error
+    // module private Json =
+    //     let serialize (jsonOptions: JsonSerializerOptions) (data: 'eventPayload) =
+    //         try
+    //             JsonSerializer.Serialize<'eventPayload>(data, jsonOptions) |> Ok
+    //         with e ->
+    //             e |> SerializationException |> Error
+    //
+    //     let deserialize<'eventPayload> (jsonOptions: JsonSerializerOptions) (payload: string) =
+    //         try
+    //             JsonSerializer.Deserialize<'eventPayload>(payload, jsonOptions) |> Ok
+    //         with e ->
+    //             e |> DeserializationException |> Error
 
     module private Sql =
         let inline persistEvent (DbSchema schema) =
@@ -51,58 +52,55 @@ module Postgres =
 
     module private Dto =
         [<CLIMutable>]
-        type Event =
+        type Event<'eventPayloadDto> =
             { EventId: Guid
-              EventData: string
+              EventData: 'eventPayloadDto
               OccurredAt: DateTimeOffset
               SuccessfulHandlers: string array }
 
         module Event =
-            let toDomain<'dto, 'eventData> (toDomain: 'dto -> Result<'eventData, string>) jsonOptions dto =
+            let toDomain<'eventPayloadDto, 'eventPayload>
+                (toDomain: 'eventPayloadDto -> Result<'eventPayload, string>)
+                dto
+                =
                 dto.EventData
-                |> Json.deserialize<'dto> jsonOptions
-                |> Result.bind (toDomain >> Result.mapError InvalidData)
+                |> toDomain
                 |> Result.map (fun evData ->
-                    (dto.EventId |> EventId,
-                     { Data = evData
-                       OccurredAt = dto.OccurredAt }),
-                    dto.SuccessfulHandlers |> Set.ofArray)
+                    dto.EventId |> EventId,
+                    ({ Data = evData
+                       OccurredAt = dto.OccurredAt },
+                     dto.SuccessfulHandlers |> Set.ofArray))
+
+    type PersistEvents<'state, 'eventPayload> = PersistEvents<'state, EventId, 'eventPayload, SqlIoError>
 
     let persistEvents
-        (eventPayloadToDto: 'eventPayload -> 'dto)
-        (jsonOptions: JsonSerializerOptions)
+        (eventPayloadToDto: 'eventPayload -> 'eventPayloadDto)
         (dbSchema: DbSchema)
         (dbTransaction: DbTransaction)
-        : PersistEvents<'state, EventId, 'eventPayload, SqlIoError list> =
-        fun (AggregateId aggregateId) events ->
-            events
-            |> List.traverseAsyncResultA (fun ev ->
-                asyncResult {
-                    let! eventData = ev.Data |> eventPayloadToDto |> Json.serialize jsonOptions
+        : PersistEvents<'state, 'eventPayload> =
+        fun (AggregateId aggregateId) ->
+            List.traverseAsyncResultM (fun ev ->
+                {| AggregateId = aggregateId
+                   AggregateType = typeof<'state>.Name
+                   EventData = ev.Data |> eventPayloadToDto |> JsonbParameter<'eventPayloadDto>
+                   OccurredAt = ev.OccurredAt |}
+                |> Dapper.executeScalar<Guid> (SqlSession.Sustained dbTransaction) (Sql.persistEvent dbSchema)
+                |> AsyncResult.map (fun evId -> evId |> EventId, ev))
 
-                    return!
-                        {| AggregateId = aggregateId
-                           AggregateType = typeof<'state>.Name
-                           EventData = eventData
-                           OccurredAt = ev.OccurredAt |}
-                        |> Dapper.executeScalar<Guid> (SqlSession.Sustained dbTransaction) (Sql.persistEvent dbSchema) 
-                        |> AsyncResult.map (fun evId -> evId |> EventId, ev)
-                })
+    type ReadUnprocessedEvents<'eventPayload> = ReadUnprocessedEvents<EventId, 'eventPayload, SqlIoError>
 
     let readUnprocessedEvents
-        (dtoToEventPayload: 'dto -> Result<'eventPayload, string>)
-        (jsonOptions: JsonSerializerOptions)
+        (dtoToEventPayload: 'eventPayloadDto -> Result<'eventPayload, string>)
         (dbSchema: DbSchema)
         (sqlSession: SqlSession)
-        : ReadUnprocessedEvents<EventId, 'eventPayload, SqlIoError list> =
+        : ReadUnprocessedEvents<'eventPayload> =
         fun aggregateType ->
             {| AggregateType = aggregateType |}
-            |> Dapper.query<Dto.Event> sqlSession (Sql.readUnprocessedEvents dbSchema)
-            |> AsyncResult.map List.ofSeq
-            |> AsyncResult.mapError List.singleton
+            |> Dapper.query<Dto.Event<'eventPayloadDto>> sqlSession (Sql.readUnprocessedEvents dbSchema)
             |> AsyncResult.bind (
-                List.traverseResultA (Dto.Event.toDomain<'dto, 'eventPayload> dtoToEventPayload jsonOptions)
+                Seq.traverseResultA (Dto.Event.toDomain<'eventPayloadDto, 'eventPayload> dtoToEventPayload)
                 >> Result.map Map.ofSeq
+                >> Result.mapError (String.concat "; " >> InvalidData)
                 >> AsyncResult.ofResult
             )
 

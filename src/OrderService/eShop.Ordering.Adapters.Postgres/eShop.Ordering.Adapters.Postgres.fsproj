@@ -16,6 +16,7 @@
     </ItemGroup>
     
     <ItemGroup>
+        <ProjectReference Include="..\..\eShop.DomainDrivenDesign.Postgres\eShop.DomainDrivenDesign.Postgres.fsproj" />
         <ProjectReference Include="..\..\eShop.Postgres\eShop.Postgres.fsproj"/>
         <ProjectReference Include="..\eShop.Ordering.Domain\eShop.Ordering.Domain.fsproj" />
     </ItemGroup>

@@ -53,6 +53,7 @@ let private configureDb (config: IConfiguration) (env: IWebHostEnvironment) (ser
             sp.GetRequiredService<JsonSerializerOptions>()
             |> NpgsqlDataSourceBuilder(connectionString)
                 .EnableParameterLogging(env.IsDevelopment())
+                .EnableDynamicJson()
                 .ConfigureJsonOptions
             |> _.Build())
         .AddTransient<DbConnection>(_.GetRequiredService<NpgsqlDataSource>().CreateConnection())

@@ -13,5 +13,6 @@ type BuyerName = String.NonWhiteSpace
 module BuyerName =
     let create = String.NonWhiteSpace.create (nameof BuyerName)
 
+    let value = String.NonWhiteSpace.value
 
 type Buyer = { Id: BuyerId; Name: BuyerName }

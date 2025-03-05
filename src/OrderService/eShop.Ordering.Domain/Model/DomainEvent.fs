@@ -1,5 +1,6 @@
 ﻿namespace eShop.Ordering.Domain.Model
 
+open Microsoft.FSharp.Core
 open eShop.ConstrainedTypes
 
 [<RequireQualifiedAccess>]
@@ -21,16 +22,17 @@ module DomainEvent =
           ConfirmedOrderItems: NonEmptyMap<ProductId, OrderItemWithConfirmedStock> }
 
     type OrderPaid =
-        { PaidBy: Buyer
+        { Buyer: Buyer
           PaidOrderItems: NonEmptyMap<ProductId, OrderItemWithConfirmedStock> }
 
     type OrderShipped =
-        { ShippedTo: Buyer
+        { Buyer: Buyer
           ShippedOrderItems: NonEmptyMap<ProductId, OrderItemWithConfirmedStock> }
 
 type DomainEvent =
+    internal
     | OrderStarted of DomainEvent.OrderStarted
-    | BuyerPaymentMethodVerified of DomainEvent.PaymentMethodVerified
+    | PaymentMethodVerified of DomainEvent.PaymentMethodVerified
     | OrderCancelled of DomainEvent.OrderCancelled
     | OrderStatusChangedToAwaitingValidation of DomainEvent.OrderStatusChangedToAwaitingValidation
     | OrderStockConfirmed of DomainEvent.OrderStockConfirmed

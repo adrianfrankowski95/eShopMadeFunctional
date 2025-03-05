@@ -13,12 +13,17 @@ type CardTypeId = int<cardTypeId>
 module CardTypeId =
     let ofInt (int: int) : CardTypeId = %int
 
+    let value (id: CardTypeId) : int = %id
+
 
 type CardTypeName = String.NonWhiteSpace
 
 [<RequireQualifiedAccess>]
 module CardTypeName =
     let create = String.NonWhiteSpace.create (nameof CardTypeName)
+    
+    let value = String.NonWhiteSpace.value
+
 
 type SupportedCardTypes = internal SupportedCardTypes of Map<CardTypeId, CardTypeName>
 

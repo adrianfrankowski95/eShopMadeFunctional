@@ -9,6 +9,7 @@ open eShop.Ordering.Domain.Model
 open eShop.Ordering.Domain.Model.ValueObjects
 open eShop.Ordering.Domain.Ports
 open eShop.DomainDrivenDesign
+open eShop.DomainDrivenDesign.Postgres
 open eShop.Postgres
 open eShop.Prelude
 
@@ -38,6 +39,9 @@ module internal Dto =
 
         let toString status =
             statusMap |> Map.findKey (fun _ v -> v = status)
+
+    [<CLIMutable>]
+    type CardType = { Id: int; Name: string }
 
     [<CLIMutable>]
     type Order =
@@ -187,160 +191,470 @@ module internal Dto =
         let toDomain (maybeOrder: (int * Order seq) option) : Result<Domain.Model.Order, string> =
             maybeOrder
             |> Option.map (fun (_, orders) ->
-                validation {
-                    let orderDto = orders |> Seq.head
-                    let buyerId = orderDto.BuyerId |> BuyerId.ofGuid
+                let orderDto = orders |> Seq.head
+                let buyerId = orderDto.BuyerId |> BuyerId.ofGuid
 
-                    let! status = orderDto.Status |> OrderStatus.create
+                orderDto.Status
+                |> OrderStatus.create
+                |> Result.mapError List.singleton
+                |> Result.bind (function
+                    | Draft ->
+                        orders
+                        |> List.ofSeq
+                        |> List.traverseResultA createUnvalidatedOrderItem
+                        |> Result.map (
+                            Seq.choose id
+                            >> Map.ofSeq
+                            >> fun items ->
+                                ({ BuyerId = buyerId
+                                   UnvalidatedOrderItems = items }
+                                : Order.Draft)
+                                |> Order.Draft
+                        )
+                    | AwaitingStockValidation ->
+                        validation {
+                            let! buyer = orderDto |> createBuyer
+                            and! paymentMethod = orderDto |> createVerifiedPaymentMethod
+                            and! address = orderDto |> createAddress
+                            and! startedAt = orderDto.StartedAt |> Result.requireSome "Missing StartedAt"
 
-                    return!
-                        match status with
-                        | Draft ->
-                            orders
-                            |> Seq.traverseResultA createUnvalidatedOrderItem
-                            |> Result.map (
-                                Seq.choose id
-                                >> Map.ofSeq
-                                >> fun items ->
-                                    ({ BuyerId = buyerId
-                                       UnvalidatedOrderItems = items }
-                                    : Order.Draft)
-                                    |> Order.Draft
-                            )
-                            |> Result.mapError List.ofSeq
-                        | AwaitingStockValidation ->
-                            validation {
-                                let! buyer = orderDto |> createBuyer
-                                and! paymentMethod = orderDto |> createVerifiedPaymentMethod
-                                and! address = orderDto |> createAddress
-                                and! startedAt = orderDto.StartedAt |> Result.requireSome "Missing StartedAt"
+                            and! orderItems =
+                                orders
+                                |> Seq.traverseResultA createOrderItemWithUnconfirmedStock
+                                |> Result.bind (
+                                    Seq.choose id
+                                    >> NonEmptyMap.ofSeq
+                                    >> Result.mapError ((+) "Invalid OrderItems: " >> Seq.singleton)
+                                )
+                                |> Result.mapError (String.concat "; ")
 
-                                and! orderItems =
-                                    orders
-                                    |> Seq.traverseResultA createOrderItemWithUnconfirmedStock
-                                    |> Result.bind (
-                                        Seq.choose id
-                                        >> NonEmptyMap.ofSeq
-                                        >> Result.mapError ((+) "Invalid OrderItems: " >> Seq.singleton)
-                                    )
-                                    |> Result.mapError (String.concat "; ")
+                            return
+                                ({ Buyer = buyer
+                                   PaymentMethod = paymentMethod
+                                   Address = address
+                                   StartedAt = startedAt
+                                   UnconfirmedOrderItems = orderItems }
+                                : Order.AwaitingStockValidation)
+                                |> Order.AwaitingStockValidation
+                        }
+                    | StockConfirmed ->
+                        validation {
+                            let! buyer = orderDto |> createBuyer
+                            and! paymentMethod = orderDto |> createVerifiedPaymentMethod
+                            and! address = orderDto |> createAddress
+                            and! startedAt = orderDto.StartedAt |> Result.requireSome "Missing StartedAt"
 
-                                return
-                                    ({ Buyer = buyer
-                                       PaymentMethod = paymentMethod
-                                       Address = address
-                                       StartedAt = startedAt
-                                       UnconfirmedOrderItems = orderItems }
-                                    : Order.AwaitingStockValidation)
-                                    |> Order.AwaitingStockValidation
-                            }
-                        | StockConfirmed ->
-                            validation {
-                                let! buyer = orderDto |> createBuyer
-                                and! paymentMethod = orderDto |> createVerifiedPaymentMethod
-                                and! address = orderDto |> createAddress
-                                and! startedAt = orderDto.StartedAt |> Result.requireSome "Missing StartedAt"
+                            and! orderItems =
+                                orders
+                                |> Seq.traverseResultA createOrderItemWithConfirmedStock
+                                |> Result.bind (
+                                    Seq.choose id
+                                    >> NonEmptyMap.ofSeq
+                                    >> Result.mapError ((+) "Invalid OrderItems: " >> Seq.singleton)
+                                )
+                                |> Result.mapError (String.concat "; ")
 
-                                and! orderItems =
-                                    orders
-                                    |> Seq.traverseResultA createOrderItemWithConfirmedStock
-                                    |> Result.bind (
-                                        Seq.choose id
-                                        >> NonEmptyMap.ofSeq
-                                        >> Result.mapError ((+) "Invalid OrderItems: " >> Seq.singleton)
-                                    )
-                                    |> Result.mapError (String.concat "; ")
+                            return
+                                ({ Buyer = buyer
+                                   PaymentMethod = paymentMethod
+                                   Address = address
+                                   StartedAt = startedAt
+                                   ConfirmedOrderItems = orderItems }
+                                : Order.WithConfirmedStock)
+                                |> Order.WithConfirmedStock
+                        }
+                    | Paid ->
+                        validation {
+                            let! buyer = orderDto |> createBuyer
+                            and! paymentMethod = orderDto |> createVerifiedPaymentMethod
+                            and! address = orderDto |> createAddress
+                            and! startedAt = orderDto.StartedAt |> Result.requireSome "Missing StartedAt"
 
-                                return
-                                    ({ Buyer = buyer
-                                       PaymentMethod = paymentMethod
-                                       Address = address
-                                       StartedAt = startedAt
-                                       ConfirmedOrderItems = orderItems }
-                                    : Order.WithConfirmedStock)
-                                    |> Order.WithConfirmedStock
-                            }
-                        | Paid ->
-                            validation {
-                                let! buyer = orderDto |> createBuyer
-                                and! paymentMethod = orderDto |> createVerifiedPaymentMethod
-                                and! address = orderDto |> createAddress
-                                and! startedAt = orderDto.StartedAt |> Result.requireSome "Missing StartedAt"
+                            and! orderItems =
+                                orders
+                                |> Seq.traverseResultA createOrderItemWithConfirmedStock
+                                |> Result.bind (
+                                    Seq.choose id
+                                    >> NonEmptyMap.ofSeq
+                                    >> Result.mapError ((+) "Invalid OrderItems: " >> Seq.singleton)
+                                )
+                                |> Result.mapError (String.concat "; ")
 
-                                and! orderItems =
-                                    orders
-                                    |> Seq.traverseResultA createOrderItemWithConfirmedStock
-                                    |> Result.bind (
-                                        Seq.choose id
-                                        >> NonEmptyMap.ofSeq
-                                        >> Result.mapError ((+) "Invalid OrderItems: " >> Seq.singleton)
-                                    )
-                                    |> Result.mapError (String.concat "; ")
+                            return
+                                ({ Buyer = buyer
+                                   PaymentMethod = paymentMethod
+                                   Address = address
+                                   StartedAt = startedAt
+                                   PaidOrderItems = orderItems }
+                                : Order.Paid)
+                                |> Order.Paid
+                        }
+                    | Shipped ->
+                        validation {
+                            let! buyer = orderDto |> createBuyer
+                            and! paymentMethod = orderDto |> createVerifiedPaymentMethod
+                            and! address = orderDto |> createAddress
+                            and! startedAt = orderDto.StartedAt |> Result.requireSome "Missing StartedAt"
 
-                                return
-                                    ({ Buyer = buyer
-                                       PaymentMethod = paymentMethod
-                                       Address = address
-                                       StartedAt = startedAt
-                                       PaidOrderItems = orderItems }
-                                    : Order.Paid)
-                                    |> Order.Paid
-                            }
-                        | Shipped ->
-                            validation {
-                                let! buyer = orderDto |> createBuyer
-                                and! paymentMethod = orderDto |> createVerifiedPaymentMethod
-                                and! address = orderDto |> createAddress
-                                and! startedAt = orderDto.StartedAt |> Result.requireSome "Missing StartedAt"
+                            and! orderItems =
+                                orders
+                                |> Seq.traverseResultA createOrderItemWithConfirmedStock
+                                |> Result.bind (
+                                    Seq.choose id
+                                    >> NonEmptyMap.ofSeq
+                                    >> Result.mapError ((+) "Invalid OrderItems: " >> Seq.singleton)
+                                )
+                                |> Result.mapError (String.concat "; ")
 
-                                and! orderItems =
-                                    orders
-                                    |> Seq.traverseResultA createOrderItemWithConfirmedStock
-                                    |> Result.bind (
-                                        Seq.choose id
-                                        >> NonEmptyMap.ofSeq
-                                        >> Result.mapError ((+) "Invalid OrderItems: " >> Seq.singleton)
-                                    )
-                                    |> Result.mapError (String.concat "; ")
+                            return
+                                ({ Buyer = buyer
+                                   PaymentMethod = paymentMethod
+                                   Address = address
+                                   StartedAt = startedAt
+                                   ShippedOrderItems = orderItems }
+                                : Order.Shipped)
+                                |> Order.Shipped
+                        }
+                    | Cancelled ->
+                        validation {
+                            let! buyer = orderDto |> createBuyer
+                            and! address = orderDto |> createAddress
+                            and! startedAt = orderDto.StartedAt |> Result.requireSome "Missing StartedAt"
 
-                                return
-                                    ({ Buyer = buyer
-                                       PaymentMethod = paymentMethod
-                                       Address = address
-                                       StartedAt = startedAt
-                                       ShippedOrderItems = orderItems }
-                                    : Order.Shipped)
-                                    |> Order.Shipped
-                            }
-                        | Cancelled ->
-                            validation {
-                                let! buyer = orderDto |> createBuyer
-                                and! address = orderDto |> createAddress
-                                and! startedAt = orderDto.StartedAt |> Result.requireSome "Missing StartedAt"
+                            and! orderItems =
+                                orders
+                                |> Seq.traverseResultA createUnvalidatedOrderItem
+                                |> Result.bind (
+                                    Seq.choose id
+                                    >> NonEmptyMap.ofSeq
+                                    >> Result.mapError ((+) "Invalid OrderItems: " >> Seq.singleton)
+                                )
+                                |> Result.mapError (String.concat "; ")
 
-                                and! orderItems =
-                                    orders
-                                    |> Seq.traverseResultA createUnvalidatedOrderItem
-                                    |> Result.bind (
-                                        Seq.choose id
-                                        >> NonEmptyMap.ofSeq
-                                        >> Result.mapError ((+) "Invalid OrderItems: " >> Seq.singleton)
-                                    )
-                                    |> Result.mapError (String.concat "; ")
-
-                                return
-                                    ({ Buyer = buyer
-                                       Address = address
-                                       StartedAt = startedAt
-                                       CancelledOrderItems = orderItems }
-                                    : Order.Cancelled)
-                                    |> Order.Cancelled
-                            }
-                }
-                |> Result.mapError (String.concat "; "))
+                            return
+                                ({ Buyer = buyer
+                                   Address = address
+                                   StartedAt = startedAt
+                                   CancelledOrderItems = orderItems }
+                                : Order.Cancelled)
+                                |> Order.Cancelled
+                        }))
             |> Option.defaultValue (Order.Init |> Ok)
+            |> Result.mapError (String.concat "; ")
+
+    type OrderItem =
+        { ProductId: int
+          ProductName: string
+          UnitPrice: decimal
+          Units: int
+          Discount: decimal
+          PictureUrl: string option }
+
+    type StockToValidate = { ProductId: int; Units: int }
+
+    type OrderStartedEvent = { BuyerId: Guid; BuyerName: string }
+
+    type PaymentMethodVerifiedEvent =
+        { BuyerId: Guid
+          BuyerName: string
+          CardTypeId: int
+          CardTypeName: string
+          CardNumber: string
+          CardHolderName: string
+          Expiration: DateTimeOffset }
+
+    type OrderCancelledEvent = { BuyerId: Guid; BuyerName: string }
+
+    type OrderStatusChangedToAwaitingValidationEvent =
+        { BuyerId: Guid
+          BuyerName: string
+          StockToValidate: StockToValidate list }
+
+    type OrderStockConfirmedEvent =
+        { BuyerId: Guid
+          BuyerName: string
+          ConfirmedOrderItems: OrderItem list }
+
+    type OrderPaidEvent =
+        { BuyerId: Guid
+          BuyerName: string
+          PaidOrderItems: OrderItem list }
+
+    type OrderShippedEvent =
+        { BuyerId: Guid
+          BuyerName: string
+          ShippedOrderItems: OrderItem list }
+
+    type Event =
+        | OrderStarted of OrderStartedEvent
+        | PaymentMethodVerified of PaymentMethodVerifiedEvent
+        | OrderCancelled of OrderCancelledEvent
+        | OrderStatusChangedToAwaitingValidation of OrderStatusChangedToAwaitingValidationEvent
+        | OrderStockConfirmed of OrderStockConfirmedEvent
+        | OrderPaid of OrderPaidEvent
+        | OrderShipped of OrderShippedEvent
+
+    module Event =
+        let ofDomain (event: DomainEvent) : Event =
+            match event with
+            | DomainEvent.OrderStarted ev ->
+                ({ BuyerId = ev.Buyer.Id |> BuyerId.value
+                   BuyerName = ev.Buyer.Name |> BuyerName.value }
+                : OrderStartedEvent)
+                |> Event.OrderStarted
+            | DomainEvent.PaymentMethodVerified ev ->
+                { BuyerId = ev.Buyer.Id |> BuyerId.value
+                  BuyerName = ev.Buyer.Name |> BuyerName.value
+                  CardTypeId = ev.VerifiedPaymentMethod.CardType.Id |> CardTypeId.value
+                  CardTypeName = ev.VerifiedPaymentMethod.CardType.Name |> CardTypeName.value
+                  CardNumber = ev.VerifiedPaymentMethod.CardNumber |> CardNumber.value
+                  CardHolderName = ev.VerifiedPaymentMethod.CardHolderName |> CardHolderName.value
+                  Expiration = ev.VerifiedPaymentMethod.Expiration }
+                |> Event.PaymentMethodVerified
+            | DomainEvent.OrderCancelled ev ->
+                ({ BuyerId = ev.Buyer.Id |> BuyerId.value
+                   BuyerName = ev.Buyer.Name |> BuyerName.value }
+                : OrderCancelledEvent)
+                |> Event.OrderCancelled
+            | DomainEvent.OrderStatusChangedToAwaitingValidation ev ->
+                ({ BuyerId = ev.Buyer.Id |> BuyerId.value
+                   BuyerName = ev.Buyer.Name |> BuyerName.value
+                   StockToValidate =
+                     ev.StockToValidate
+                     |> NonEmptyMap.toList
+                     |> List.map (fun (id, units) ->
+                         { Units = units |> Units.value
+                           ProductId = id |> ProductId.value }) }
+                : OrderStatusChangedToAwaitingValidationEvent)
+                |> Event.OrderStatusChangedToAwaitingValidation
+            | DomainEvent.OrderStockConfirmed ev ->
+                ({ BuyerId = ev.Buyer.Id |> BuyerId.value
+                   BuyerName = ev.Buyer.Name |> BuyerName.value
+                   ConfirmedOrderItems =
+                     ev.ConfirmedOrderItems
+                     |> NonEmptyMap.toList
+                     |> List.map (fun (id, orderItem) ->
+                         { Units = orderItem.Units |> Units.value
+                           ProductId = id |> ProductId.value
+                           Discount = orderItem.Discount |> Discount.value
+                           PictureUrl = orderItem.PictureUrl
+                           ProductName = orderItem.ProductName |> ProductName.value
+                           UnitPrice = orderItem.UnitPrice |> UnitPrice.value }) }
+                : OrderStockConfirmedEvent)
+                |> Event.OrderStockConfirmed
+            | DomainEvent.OrderPaid ev ->
+                ({ BuyerId = ev.Buyer.Id |> BuyerId.value
+                   BuyerName = ev.Buyer.Name |> BuyerName.value
+                   PaidOrderItems =
+                     ev.PaidOrderItems
+                     |> NonEmptyMap.toList
+                     |> List.map (fun (id, orderItem) ->
+                         { Units = orderItem.Units |> Units.value
+                           ProductId = id |> ProductId.value
+                           Discount = orderItem.Discount |> Discount.value
+                           PictureUrl = orderItem.PictureUrl
+                           ProductName = orderItem.ProductName |> ProductName.value
+                           UnitPrice = orderItem.UnitPrice |> UnitPrice.value }) }
+                : OrderPaidEvent)
+                |> Event.OrderPaid
+            | DomainEvent.OrderShipped ev ->
+                ({ BuyerId = ev.Buyer.Id |> BuyerId.value
+                   BuyerName = ev.Buyer.Name |> BuyerName.value
+                   ShippedOrderItems =
+                     ev.ShippedOrderItems
+                     |> NonEmptyMap.toList
+                     |> List.map (fun (id, orderItem) ->
+                         { Units = orderItem.Units |> Units.value
+                           ProductId = id |> ProductId.value
+                           Discount = orderItem.Discount |> Discount.value
+                           PictureUrl = orderItem.PictureUrl
+                           ProductName = orderItem.ProductName |> ProductName.value
+                           UnitPrice = orderItem.UnitPrice |> UnitPrice.value }) }
+                : OrderShippedEvent)
+                |> Event.OrderShipped
+
+        let toDomain (dto: Event) : Result<DomainEvent, string> =
+            match dto with
+            | OrderStarted ev ->
+                validation {
+                    let buyerId = ev.BuyerId |> BuyerId.ofGuid
+
+                    let! buyerName = ev.BuyerName |> BuyerName.create
+
+                    return
+                        ({ Buyer = { Id = buyerId; Name = buyerName } }: DomainEvent.OrderStarted)
+                        |> DomainEvent.OrderStarted
+                }
+            | PaymentMethodVerified ev ->
+                validation {
+                    let buyerId = ev.BuyerId |> BuyerId.ofGuid
+                    let cardTypeId = ev.CardTypeId |> CardTypeId.ofInt
+
+                    let! buyerName = ev.BuyerName |> BuyerName.create
+                    and! cardNumber = ev.CardNumber |> CardNumber.create
+                    and! cardTypeName = ev.CardTypeName |> CardTypeName.create
+                    and! cardHolderName = ev.CardHolderName |> CardHolderName.create
+
+                    return
+                        ({ Buyer = { Id = buyerId; Name = buyerName }
+                           VerifiedPaymentMethod =
+                             { CardType = { Id = cardTypeId; Name = cardTypeName }
+                               Expiration = ev.Expiration
+                               CardNumber = cardNumber
+                               CardHolderName = cardHolderName } }
+                        : DomainEvent.PaymentMethodVerified)
+                        |> DomainEvent.PaymentMethodVerified
+                }
+            | OrderCancelled ev ->
+                validation {
+                    let buyerId = ev.BuyerId |> BuyerId.ofGuid
+
+                    let! buyerName = ev.BuyerName |> BuyerName.create
+
+                    return
+                        ({ Buyer = { Id = buyerId; Name = buyerName } }: DomainEvent.OrderCancelled)
+                        |> DomainEvent.OrderCancelled
+                }
+            | OrderStatusChangedToAwaitingValidation ev ->
+                validation {
+                    let buyerId = ev.BuyerId |> BuyerId.ofGuid
+
+                    let! buyerName = ev.BuyerName |> BuyerName.create
+
+                    and! stockToValidate =
+                        ev.StockToValidate
+                        |> List.traverseResultA (fun stock ->
+                            stock.Units
+                            |> Units.create
+                            |> Result.map (fun units -> stock.ProductId |> ProductId.ofInt, units))
+                        |> Result.bind (
+                            NonEmptyMap.ofSeq
+                            >> Result.mapError ((+) "Invalid StockToValidate: " >> List.singleton)
+                        )
+
+                    return
+                        ({ Buyer = { Id = buyerId; Name = buyerName }
+                           StockToValidate = stockToValidate }
+                        : DomainEvent.OrderStatusChangedToAwaitingValidation)
+                        |> DomainEvent.OrderStatusChangedToAwaitingValidation
+                }
+            | OrderStockConfirmed ev ->
+                validation {
+                    let buyerId = ev.BuyerId |> BuyerId.ofGuid
+
+                    let! buyerName = ev.BuyerName |> BuyerName.create
+
+                    and! orderItems =
+                        ev.ConfirmedOrderItems
+                        |> List.traverseResultA (fun orderItem ->
+                            validation {
+                                let! productName = orderItem.ProductName |> ProductName.create
+                                and! unitPrice = orderItem.UnitPrice |> UnitPrice.create
+                                and! units = orderItem.Units |> Units.create
+                                and! discount = orderItem.Discount |> Discount.create
+
+                                return
+                                    orderItem.ProductId |> ProductId.ofInt,
+                                    ({ Discount = discount
+                                       Units = units
+                                       PictureUrl = orderItem.PictureUrl
+                                       ProductName = productName
+                                       UnitPrice = unitPrice }
+                                    : OrderItemWithConfirmedStock)
+                            }
+                            |> Result.mapError (String.concat "; "))
+                        |> Result.bind (
+                            NonEmptyMap.ofSeq
+                            >> Result.mapError ((+) "Invalid ConfirmedOrderItems: " >> List.singleton)
+                        )
+
+                    return
+                        ({ Buyer = { Id = buyerId; Name = buyerName }
+                           ConfirmedOrderItems = orderItems }
+                        : DomainEvent.OrderStockConfirmed)
+                        |> DomainEvent.OrderStockConfirmed
+                }
+            | OrderPaid ev ->
+                validation {
+                    let buyerId = ev.BuyerId |> BuyerId.ofGuid
+
+                    let! buyerName = ev.BuyerName |> BuyerName.create
+
+                    and! orderItems =
+                        ev.PaidOrderItems
+                        |> List.traverseResultA (fun orderItem ->
+                            validation {
+                                let! productName = orderItem.ProductName |> ProductName.create
+                                and! unitPrice = orderItem.UnitPrice |> UnitPrice.create
+                                and! units = orderItem.Units |> Units.create
+                                and! discount = orderItem.Discount |> Discount.create
+
+                                return
+                                    orderItem.ProductId |> ProductId.ofInt,
+                                    ({ Discount = discount
+                                       Units = units
+                                       PictureUrl = orderItem.PictureUrl
+                                       ProductName = productName
+                                       UnitPrice = unitPrice }
+                                    : OrderItemWithConfirmedStock)
+                            }
+                            |> Result.mapError (String.concat "; "))
+                        |> Result.bind (
+                            NonEmptyMap.ofSeq
+                            >> Result.mapError ((+) "Invalid PaidOrderItems: " >> List.singleton)
+                        )
+
+                    return
+                        ({ Buyer = { Id = buyerId; Name = buyerName }
+                           PaidOrderItems = orderItems }
+                        : DomainEvent.OrderPaid)
+                        |> DomainEvent.OrderPaid
+                }
+            | OrderShipped ev ->
+                validation {
+                    let buyerId = ev.BuyerId |> BuyerId.ofGuid
+
+                    let! buyerName = ev.BuyerName |> BuyerName.create
+
+                    and! orderItems =
+                        ev.ShippedOrderItems
+                        |> List.traverseResultA (fun orderItem ->
+                            validation {
+                                let! productName = orderItem.ProductName |> ProductName.create
+                                and! unitPrice = orderItem.UnitPrice |> UnitPrice.create
+                                and! units = orderItem.Units |> Units.create
+                                and! discount = orderItem.Discount |> Discount.create
+
+                                return
+                                    orderItem.ProductId |> ProductId.ofInt,
+                                    ({ Discount = discount
+                                       Units = units
+                                       PictureUrl = orderItem.PictureUrl
+                                       ProductName = productName
+                                       UnitPrice = unitPrice }
+                                    : OrderItemWithConfirmedStock)
+                            }
+                            |> Result.mapError (String.concat "; "))
+                        |> Result.bind (
+                            NonEmptyMap.ofSeq
+                            >> Result.mapError ((+) "Invalid ShippedOrderItems: " >> List.singleton)
+                        )
+
+                    return
+                        ({ Buyer = { Id = buyerId; Name = buyerName }
+                           ShippedOrderItems = orderItems }
+                        : DomainEvent.OrderShipped)
+                        |> DomainEvent.OrderShipped
+                }
+            |> Result.mapError (String.concat "; ")
 
 module private Sql =
+    let getSupportedCardTypes (DbSchema schema) =
+        $"""
+        SELECT "Id", "Name",
+        FROM "{schema}"."CardTypes"
+        """
+
     let getOrderById (DbSchema schema) =
         $"""
         SELECT
@@ -359,36 +673,142 @@ module private Sql =
         WHERE orders."Id" = @OrderId
         """
 
-let private requireSingleOrEmpty x =
-    x
-    |> Result.requireSingleOrEmpty
-    |> Result.mapError InvalidData
-    |> AsyncResult.ofResult
+    let getOrAddPaymentMethod (DbSchema schema) =
+        $"""
+        BEGIN
+            WITH incoming AS (
+                MERGE INTO "{schema}"."PaymentMethods" AS existing
+                USING (VALUES (UUID(@BuyerId), @CardTypeId, @CardNumber, @CardHolderName, DATE(@Expiration)))
+                    AS pt("BuyerId","CardTypeId","CardNumber","CardHolderName","Expiration")
+                    ON pt."BuyerId" = existing."BuyerId"
+                        AND pt."CardTypeId" = existing."CardTypeId"
+                        AND pt."CardNumber" = existing."CardNumber"
+                        AND pt."CardHolderName" = existing."CardHolderName"
+                        AND pt."Expiration" = existing."Expiration"
+                WHEN MATCHED THEN DO NOTHING
+                WHEN NOT MATCHED THEN INSERT ("BuyerId", "CardTypeId", "CardNumber", "CardHolderName", "Expiration")
+                    VALUES (pt."BuyerId", pt."CardTypeId", pt."CardNumber", pt."CardHolderName", pt."Expiration")
+                RETURNING existing."Id"
+            )
+            SELECT "Id" FROM incoming
+            UNION ALL
+            SELECT "Id" FROM "{schema}"."PaymentMethods"
+            WHERE
+                "BuyerId" = @BuyerId
+                AND "CardTypeId" = @CardTypeId
+                AND "CardNumber" = @CardNumber
+                AND "CardHolderName" = @CardHolderName
+                AND "Expiration" = @Expiration
+        COMMIT
+        """
+
+    let upsertBuyer (DbSchema schema) =
+        $"""
+        INSERT INTO "{schema}"."Buyers" ("Id", "Name") VALUES (@BuyerId, @BuyerName)
+        ON CONFLICT ("Id")
+        DO UPDATE SET "Name" = EXCLUDED."Name"
+        """
+
+    let upsertOrderItem (DbSchema schema) =
+        $"""
+        INSERT INTO "{schema}"."OrderItems" ("ProductId", "OrderId", "ProductName", "UnitPrice", "Units", "Discount", "PictureUrl")
+        VALUES (@ProductId, @OrderId, @ProductName, @UnitPrice, @Units, @Discount, @PictureUrl)
+        ON CONFLICT ("ProductId", "OrderId")
+        DO UPDATE SET
+            "ProductName" = EXCLUDED."ProductName", "UnitPrice" = EXCLUDED."UnitPrice",
+            "Units" = EXCLUDED."Units", "Discount" = EXCLUDED."Discount", "PictureUrl" = EXCLUDED."PictureUrl"
+        """
+
+    let upsertOrder (DbSchema schema) =
+        $"""
+        INSERT INTO "{schema}"."Orders" ("Id", "BuyerId", "PaymentMethodId", "Status", "StartedAt", "Street", "City", "State", "Country", "ZipCode")
+        VALUES (@Id, @BuyerId, @PaymentMethodId, @Status, @StartedAt, @Street, @City, @State, @Country, @ZipCode)
+        ON CONFLICT ("Id")
+        DO UPDATE SET
+            "BuyerId" = EXCLUDED."BuyerId", "PaymentMethodId" = EXCLUDED."PaymentMethodId",
+            "Status" = EXCLUDED."Status", "StartedAt" = EXCLUDED."StartedAt", "Street" = EXCLUDED."Street",
+            "City" = EXCLUDED."City", "State" = EXCLUDED."State", "Country" = EXCLUDED."Country", "ZipCode" = EXCLUDED."ZipCode"
+        """
 
 type ReadOrderAggregate = OrderManagementPort.ReadOrderAggregate<SqlIoError>
 
 let readOrderAggregate dbSchema sqlSession : ReadOrderAggregate =
     fun aggregateId ->
-        {| OrderId = aggregateId |> AggregateId.value |}
-        |> Dapper.query<Dto.Order> sqlSession (Sql.getOrderById dbSchema)
-        |> AsyncResult.map (Seq.groupBy _.Id)
-        |> AsyncResult.bind requireSingleOrEmpty
-        |> Async.map (Result.bind (Dto.Order.toDomain >> Result.mapError InvalidData))
+        asyncResult {
+            let! orderDtos =
+                {| OrderId = aggregateId |> AggregateId.value |}
+                |> Dapper.query<Dto.Order> sqlSession (Sql.getOrderById dbSchema)
+                |> AsyncResult.map (Seq.groupBy _.Id)
+
+            return!
+                orderDtos
+                |> Result.requireSingleOrEmpty
+                |> Result.mapError InvalidData
+                |> Result.bind (Dto.Order.toDomain >> Result.mapError InvalidData)
+        }
 
 type PersistOrderAggregate = OrderManagementPort.PersistOrderAggregate<SqlIoError>
 
-let persistOrderAggregate dbSchema sqlSession: PersistOrderAggregate =
-    fun aggregateId state ->
+let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
+    fun (AggregateId aggregateId) order ->
         asyncResult {
-            return!
-                match state with
-                | Order.Init -> AsyncResult.ok()
-                | Order.Draft draft -> failwith "todo"
-                | Order.AwaitingStockValidation awaitingStockValidation -> failwith "todo"
-                | Order.WithConfirmedStock withConfirmedStock -> failwith "todo"
-                | Order.Paid paid -> failwith "todo"
-                | Order.Shipped shipped -> failwith "todo"
-                | Order.Cancelled cancelled -> failwith "todo"
+            let sqlSession = dbTransaction |> SqlSession.Sustained
+
+            do!
+                order
+                |> Order.getOrderItems
+                |> Map.toList
+                |> List.traverseAsyncResultM (fun (id, item) ->
+                    {| ProductId = id |> ProductId.value
+                       OrderId = aggregateId
+                       ProductName = item |> OrderItem.getProductName |> ProductName.value
+                       UnitPrice = item |> OrderItem.getUnitPrice |> UnitPrice.value
+                       Units = item |> OrderItem.getUnits |> Units.value
+                       Discount = item |> OrderItem.getDiscount |> Discount.value
+                       PictureUrl = item |> OrderItem.getPictureUrl |> Option.toObj |}
+                    |> Dapper.execute sqlSession (Sql.upsertOrderItem dbSchema))
+                |> AsyncResult.ignore
+
+            let! maybePaymentMethodId =
+                order
+                |> Order.getPaymentMethod
+                |> Option.map (fun paymentMethod ->
+                    {| BuyerId = order |> Order.getBuyerId |> Option.map BuyerId.value |> Option.toNullable
+                       CardTypeId = paymentMethod.CardType.Id |> CardTypeId.value
+                       CardNumber = paymentMethod.CardNumber |> CardNumber.value
+                       CardHolderName = paymentMethod.CardHolderName |> CardHolderName.value
+                       Expiration = paymentMethod.Expiration |}
+                    |> Dapper.executeScalar<Guid> sqlSession (Sql.getOrAddPaymentMethod dbSchema)
+                    |> AsyncResult.map Some)
+                |> Option.defaultValue (AsyncResult.ok None)
+
+            // Upsert order
+            return failwith ""
         }
 
+type GetSupportedCardTypes = OrderManagementPort.GetSupportedCardTypes<SqlIoError>
 
+let getSupportedCardTypes dbSchema sqlSession : GetSupportedCardTypes =
+    fun () ->
+        asyncResult {
+            let! cardTypeDtos = Dapper.query<Dto.CardType> sqlSession (Sql.getSupportedCardTypes dbSchema) null
+
+            return!
+                cardTypeDtos
+                |> Seq.traverseResultA (fun dto ->
+                    dto.Name
+                    |> CardTypeName.create
+                    |> Result.map (fun name -> dto.Id |> CardTypeId.ofInt, name))
+                |> Result.map (Map.ofSeq >> SupportedCardTypes)
+                |> Result.mapError (String.concat "; " >> InvalidData)
+        }
+
+type PersistOrderEvents = OrderManagementPort.PersistOrderEvents<Postgres.EventId, SqlIoError>
+
+let persistOrderEvents dbSchema dbTransaction : PersistOrderEvents =
+    Postgres.persistEvents Dto.Event.ofDomain dbSchema dbTransaction
+
+type ReadUnprocessedOrderEvents = OrderManagementPort.ReadUnprocessedOrderEvents<Postgres.EventId, SqlIoError>
+
+let readUnprocessedOrderEvents dbSchema sqlSession : ReadUnprocessedOrderEvents =
+    Postgres.readUnprocessedEvents Dto.Event.toDomain dbSchema sqlSession

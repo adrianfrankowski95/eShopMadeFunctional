@@ -8,8 +8,7 @@ var redis = builder.AddRedis("redis");
 var rabbitMq = builder.AddRabbitMQ("eventbus")
     .WithLifetime(ContainerLifetime.Persistent);
 var postgres = builder.AddPostgres("postgres")
-    .WithImage("ankane/pgvector")
-    .WithImageTag("latest")
+    .WithImage("pgvector/pgvector")
     .WithLifetime(ContainerLifetime.Persistent);
 
 var catalogDb = postgres.AddDatabase("catalogdb");

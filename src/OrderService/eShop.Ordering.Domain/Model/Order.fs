@@ -3,6 +3,7 @@
 open System
 open eShop.Ordering.Domain.Model.ValueObjects
 open eShop.ConstrainedTypes
+open eShop.Prelude
 
 type InvalidOrderStateError =
     | OnlyPaidOrderCanBeShipped
@@ -75,7 +76,7 @@ module Order =
                   ({ Buyer = newState.Buyer
                      VerifiedPaymentMethod = cmd.PaymentMethod }
                   : DomainEvent.PaymentMethodVerified)
-                  |> DomainEvent.BuyerPaymentMethodVerified
+                  |> DomainEvent.PaymentMethodVerified
                   ({ Buyer = newState.Buyer
                      StockToValidate =
                        newState.UnconfirmedOrderItems
@@ -111,7 +112,7 @@ module Order =
                   PaidOrderItems = withConfirmedStock.ConfirmedOrderItems }
 
             let event: DomainEvent.OrderPaid =
-                { PaidBy = newState.Buyer
+                { Buyer = newState.Buyer
                   PaidOrderItems = newState.PaidOrderItems }
 
             (newState |> T.Paid, [ event |> DomainEvent.OrderPaid ]) |> Ok
@@ -125,7 +126,7 @@ module Order =
                   ShippedOrderItems = paid.PaidOrderItems }
 
             let event: DomainEvent.OrderShipped =
-                { ShippedTo = newState.Buyer
+                { Buyer = newState.Buyer
                   ShippedOrderItems = newState.ShippedOrderItems }
 
             (newState |> T.Shipped, [ event |> DomainEvent.OrderShipped ]) |> Ok
@@ -173,5 +174,86 @@ module Order =
         | Shipped _, CancelOrder -> ShippedOrderCannotBeCancelled |> Error
 
         | state, _ -> (state, []) |> Ok
+
+    let getBuyerId =
+        function
+        | Init -> None
+        | Draft draft -> draft.BuyerId |> Some
+        | AwaitingStockValidation awaitingStockValidation -> awaitingStockValidation.Buyer.Id |> Some
+        | WithConfirmedStock withConfirmedStock -> withConfirmedStock.Buyer.Id |> Some
+        | Paid paid -> paid.Buyer.Id |> Some
+        | Shipped shipped -> shipped.Buyer.Id |> Some
+        | Cancelled cancelled -> cancelled.Buyer.Id |> Some
+
+    let getBuyerName =
+        function
+        | Init -> None
+        | Draft _ -> None
+        | AwaitingStockValidation awaitingStockValidation -> awaitingStockValidation.Buyer.Name |> Some
+        | WithConfirmedStock withConfirmedStock -> withConfirmedStock.Buyer.Name |> Some
+        | Paid paid -> paid.Buyer.Name |> Some
+        | Shipped shipped -> shipped.Buyer.Name |> Some
+        | Cancelled cancelled -> cancelled.Buyer.Name |> Some
+
+    let getAddress =
+        function
+        | Init -> None
+        | Draft _ -> None
+        | AwaitingStockValidation awaitingStockValidation -> awaitingStockValidation.Address |> Some
+        | WithConfirmedStock withConfirmedStock -> withConfirmedStock.Address |> Some
+        | Paid paid -> paid.Address |> Some
+        | Shipped shipped -> shipped.Address |> Some
+        | Cancelled cancelled -> cancelled.Address |> Some
+
+    let getStartedAt =
+        function
+        | Init -> None
+        | Draft _ -> None
+        | AwaitingStockValidation awaitingStockValidation -> awaitingStockValidation.StartedAt |> Some
+        | WithConfirmedStock withConfirmedStock -> withConfirmedStock.StartedAt |> Some
+        | Paid paid -> paid.StartedAt |> Some
+        | Shipped shipped -> shipped.StartedAt |> Some
+        | Cancelled cancelled -> cancelled.StartedAt |> Some
+
+    let getOrderItems =
+        function
+        | Init -> Map.empty
+
+        | Draft draft -> draft.UnvalidatedOrderItems |> Map.mapValues OrderItem.Unvalidated
+
+        | AwaitingStockValidation awaitingStockValidation ->
+            awaitingStockValidation.UnconfirmedOrderItems
+            |> NonEmptyMap.mapValues OrderItem.WithUnconfirmedStock
+            |> NonEmptyMap.toMap
+
+        | WithConfirmedStock withConfirmedStock ->
+            withConfirmedStock.ConfirmedOrderItems
+            |> NonEmptyMap.mapValues OrderItem.WithConfirmedStock
+            |> NonEmptyMap.toMap
+
+        | Paid paid ->
+            paid.PaidOrderItems
+            |> NonEmptyMap.mapValues OrderItem.WithConfirmedStock
+            |> NonEmptyMap.toMap
+
+        | Shipped shipped ->
+            shipped.ShippedOrderItems
+            |> NonEmptyMap.mapValues OrderItem.WithConfirmedStock
+            |> NonEmptyMap.toMap
+
+        | Cancelled cancelled ->
+            cancelled.CancelledOrderItems
+            |> NonEmptyMap.mapValues OrderItem.Unvalidated
+            |> NonEmptyMap.toMap
+
+    let getPaymentMethod =
+        function
+        | Init -> None
+        | Draft _ -> None
+        | AwaitingStockValidation awaitingStockValidation -> awaitingStockValidation.PaymentMethod |> Some
+        | WithConfirmedStock withConfirmedStock -> withConfirmedStock.PaymentMethod |> Some
+        | Paid paid -> paid.PaymentMethod |> Some
+        | Shipped shipped -> shipped.PaymentMethod |> Some
+        | Cancelled _ -> None
 
 type Order = Order.T

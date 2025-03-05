@@ -14,11 +14,15 @@ type ProductId = int<productId>
 module ProductId =
     let ofInt (int: int) : ProductId = %int
 
+    let value (id: ProductId) : int = %id
+
 type ProductName = String.NonWhiteSpace
 
 [<RequireQualifiedAccess>]
 module ProductName =
     let create = String.NonWhiteSpace.create (nameof ProductName)
+
+    let value = String.NonWhiteSpace.value
 
 
 type UnitPrice = Decimal.NonNegative
@@ -51,7 +55,7 @@ module Discount =
 type PictureUrl = string option
 
 type OrderItemWithConfirmedStock =
-    private
+    internal
         { ProductName: ProductName
           PictureUrl: PictureUrl
           UnitPrice: UnitPrice
@@ -63,7 +67,7 @@ type TotalPrice = Decimal.NonNegative
 type DiscountHigherThanTotalPriceError = DiscountHigherThanTotalPriceError of (TotalPrice * Discount)
 
 type OrderItemWithUnconfirmedStock =
-    private
+    internal
         { ProductName: ProductName
           PictureUrl: PictureUrl
           UnitPrice: UnitPrice
@@ -131,3 +135,34 @@ type OrderItem =
     | Unvalidated of UnvalidatedOrderItem
     | WithUnconfirmedStock of OrderItemWithUnconfirmedStock
     | WithConfirmedStock of OrderItemWithConfirmedStock
+
+module OrderItem =
+    let getProductName =
+        function
+        | Unvalidated unvalidated -> unvalidated.ProductName
+        | WithUnconfirmedStock withUnconfirmedStock -> withUnconfirmedStock.ProductName
+        | WithConfirmedStock withConfirmedStock -> withConfirmedStock.ProductName
+
+    let getUnitPrice =
+        function
+        | Unvalidated unvalidated -> unvalidated.UnitPrice
+        | WithUnconfirmedStock withUnconfirmedStock -> withUnconfirmedStock.UnitPrice
+        | WithConfirmedStock withConfirmedStock -> withConfirmedStock.UnitPrice
+
+    let getUnits =
+        function
+        | Unvalidated unvalidated -> unvalidated.Units
+        | WithUnconfirmedStock withUnconfirmedStock -> withUnconfirmedStock.Units
+        | WithConfirmedStock withConfirmedStock -> withConfirmedStock.Units
+
+    let getDiscount =
+        function
+        | Unvalidated unvalidated -> unvalidated.Discount
+        | WithUnconfirmedStock withUnconfirmedStock -> withUnconfirmedStock.Discount
+        | WithConfirmedStock withConfirmedStock -> withConfirmedStock.Discount
+
+    let getPictureUrl =
+        function
+        | Unvalidated unvalidated -> unvalidated.PictureUrl
+        | WithUnconfirmedStock withUnconfirmedStock -> withUnconfirmedStock.PictureUrl
+        | WithConfirmedStock withConfirmedStock -> withConfirmedStock.PictureUrl

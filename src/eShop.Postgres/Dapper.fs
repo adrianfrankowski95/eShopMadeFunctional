@@ -4,31 +4,35 @@ module eShop.Postgres.Dapper
 open System
 open Dapper
 open FsToolkit.ErrorHandling
+open Npgsql
+open NpgsqlTypes
 
 let private (|SqlSession|) =
     function
     | SqlSession.Sustained dbTransaction -> (dbTransaction.Connection, dbTransaction)
     | SqlSession.Standalone dbConnection -> (dbConnection, null)
 
-let inline private toAsyncResult x =
+let inline private toAsyncResult f =
     try
-        x |> Async.AwaitTask |> Async.map Ok
+        f () |> Async.AwaitTask |> Async.map Ok
     with e ->
         e |> SqlException |> AsyncResult.error
 
 let query<'t> (SqlSession(dbConnection, transaction)) sql param =
-    dbConnection.QueryAsync<'t>(sql, param, transaction) |> toAsyncResult
+    (fun () -> dbConnection.QueryAsync<'t>(sql, param, transaction))
+    |> toAsyncResult
 
 let execute (SqlSession(dbConnection, transaction)) sql param =
-    dbConnection.ExecuteAsync(sql, param, transaction) |> toAsyncResult
+    (fun () -> dbConnection.ExecuteAsync(sql, param, transaction)) |> toAsyncResult
 
 let executeScalar<'t> (SqlSession(dbConnection, transaction)) sql param =
-    dbConnection.ExecuteScalarAsync<'t>(sql, param, transaction) |> toAsyncResult
+    (fun () -> dbConnection.ExecuteScalarAsync<'t>(sql, param, transaction))
+    |> toAsyncResult
 
 [<RequireQualifiedAccess>]
 module TypeHandlers =
-    type OptionHandler<'T>() =
-        inherit SqlMapper.TypeHandler<option<'T>>()
+    type OptionHandler<'t>() =
+        inherit SqlMapper.TypeHandler<option<'t>>()
 
         override _.SetValue(param, value) =
             let valueOrNull =
@@ -42,7 +46,7 @@ module TypeHandlers =
             if isNull value || value = box DBNull.Value then
                 None
             else
-                Some(value :?> 'T)
+                Some(value :?> 't)
 
     let register () =
         SqlMapper.AddTypeHandler(OptionHandler<Guid>())
@@ -63,3 +67,15 @@ module TypeHandlers =
         SqlMapper.AddTypeHandler(OptionHandler<bool>())
         SqlMapper.AddTypeHandler(OptionHandler<TimeSpan>())
         SqlMapper.AddTypeHandler(OptionHandler<byte[]>())
+
+module Parameters =
+    type JsonbParameter<'t>(value: 't) =
+
+        interface SqlMapper.ICustomQueryParameter with
+            member this.AddParameter(command, name) =
+                let parameter = NpgsqlParameter<'t>()
+                parameter.TypedValue <- value
+                parameter.NpgsqlDbType <- NpgsqlDbType.Jsonb
+                parameter.ParameterName <- name
+
+                command.Parameters.Add(parameter) |> ignore
