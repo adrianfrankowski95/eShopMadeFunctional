@@ -773,13 +773,18 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                 order
                 |> Order.getPaymentMethod
                 |> Option.map (fun paymentMethod ->
-                    {| BuyerId = order |> Order.getBuyerId |> Option.map BuyerId.value |> Option.toNullable
-                       CardTypeId = paymentMethod.CardType.Id |> CardTypeId.value
-                       CardNumber = paymentMethod.CardNumber |> CardNumber.value
-                       CardHolderName = paymentMethod.CardHolderName |> CardHolderName.value
-                       Expiration = paymentMethod.Expiration |}
-                    |> Dapper.executeScalar<Guid> sqlSession (Sql.getOrAddPaymentMethod dbSchema)
-                    |> AsyncResult.map Some)
+                    order
+                    |> Order.getBuyerId
+                    |> Result.requireSome ("Missing BuyerId for existing Payment Method" |> InvalidData)
+                    |> AsyncResult.ofResult
+                    |> AsyncResult.bind (fun buyerId ->
+                        {| BuyerId = buyerId |> BuyerId.value
+                           CardTypeId = paymentMethod.CardType.Id |> CardTypeId.value
+                           CardNumber = paymentMethod.CardNumber |> CardNumber.value
+                           CardHolderName = paymentMethod.CardHolderName |> CardHolderName.value
+                           Expiration = paymentMethod.Expiration |}
+                        |> Dapper.executeScalar<Guid> sqlSession (Sql.getOrAddPaymentMethod dbSchema)
+                        |> AsyncResult.map Some))
                 |> Option.defaultValue (AsyncResult.ok None)
 
             // Upsert order
