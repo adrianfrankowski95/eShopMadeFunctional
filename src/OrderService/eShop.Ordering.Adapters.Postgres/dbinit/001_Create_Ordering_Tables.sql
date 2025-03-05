@@ -3,7 +3,7 @@
 CREATE TABLE "$Schema$"."Buyers"
 (
     "Id"                 UUID PRIMARY KEY,
-    "Name"               VARCHAR(200) NOT NULL
+    "Name"               VARCHAR(200) NULL
 );
 
 CREATE TABLE "$Schema$"."CardTypes"

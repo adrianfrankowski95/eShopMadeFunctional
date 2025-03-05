@@ -675,31 +675,29 @@ module private Sql =
 
     let getOrAddPaymentMethod (DbSchema schema) =
         $"""
-        BEGIN
-            WITH incoming AS (
-                MERGE INTO "{schema}"."PaymentMethods" AS existing
-                USING (VALUES (UUID(@BuyerId), @CardTypeId, @CardNumber, @CardHolderName, DATE(@Expiration)))
-                    AS pt("BuyerId","CardTypeId","CardNumber","CardHolderName","Expiration")
-                    ON pt."BuyerId" = existing."BuyerId"
-                        AND pt."CardTypeId" = existing."CardTypeId"
-                        AND pt."CardNumber" = existing."CardNumber"
-                        AND pt."CardHolderName" = existing."CardHolderName"
-                        AND pt."Expiration" = existing."Expiration"
-                WHEN MATCHED THEN DO NOTHING
-                WHEN NOT MATCHED THEN INSERT ("BuyerId", "CardTypeId", "CardNumber", "CardHolderName", "Expiration")
-                    VALUES (pt."BuyerId", pt."CardTypeId", pt."CardNumber", pt."CardHolderName", pt."Expiration")
-                RETURNING existing."Id"
-            )
-            SELECT "Id" FROM incoming
-            UNION ALL
-            SELECT "Id" FROM "{schema}"."PaymentMethods"
-            WHERE
-                "BuyerId" = @BuyerId
-                AND "CardTypeId" = @CardTypeId
-                AND "CardNumber" = @CardNumber
-                AND "CardHolderName" = @CardHolderName
-                AND "Expiration" = @Expiration
-        COMMIT
+        WITH incoming AS (
+            MERGE INTO "{schema}"."PaymentMethods" AS existing
+            USING (VALUES (UUID(@BuyerId), @CardTypeId, @CardNumber, @CardHolderName, DATE(@Expiration)))
+                AS pt("BuyerId","CardTypeId","CardNumber","CardHolderName","Expiration")
+                ON pt."BuyerId" = existing."BuyerId"
+                    AND pt."CardTypeId" = existing."CardTypeId"
+                    AND pt."CardNumber" = existing."CardNumber"
+                    AND pt."CardHolderName" = existing."CardHolderName"
+                    AND pt."Expiration" = existing."Expiration"
+            WHEN MATCHED THEN DO NOTHING
+            WHEN NOT MATCHED THEN INSERT ("BuyerId", "CardTypeId", "CardNumber", "CardHolderName", "Expiration")
+                VALUES (pt."BuyerId", pt."CardTypeId", pt."CardNumber", pt."CardHolderName", pt."Expiration")
+            RETURNING existing."Id"
+        )
+        SELECT "Id" FROM incoming
+        UNION ALL
+        SELECT "Id" FROM "{schema}"."PaymentMethods"
+        WHERE
+            "BuyerId" = @BuyerId
+            AND "CardTypeId" = @CardTypeId
+            AND "CardNumber" = @CardNumber
+            AND "CardHolderName" = @CardHolderName
+            AND "Expiration" = @Expiration
         """
 
     let upsertBuyer (DbSchema schema) =
@@ -753,6 +751,16 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
     fun (AggregateId aggregateId) order ->
         asyncResult {
             let sqlSession = dbTransaction |> SqlSession.Sustained
+
+            do!
+                order
+                |> Order.getBuyerId
+                |> Option.map (fun buyerId ->
+                    {| BuyerId = buyerId |> BuyerId.value
+                       BuyerName = order |> Order.getBuyerName |> Option.map BuyerName.value |> Option.toObj |}
+                    |> Dapper.execute sqlSession (Sql.upsertBuyer dbSchema)
+                    |> AsyncResult.ignore)
+                |> Option.defaultValue (AsyncResult.ok ())
 
             do!
                 order
