@@ -11,22 +11,17 @@ open eShop.Prelude
 
 [<RequireQualifiedAccess>]
 module StartOrderWorkflow =
-    type NewOrExistingBuyer =
-        | New of BuyerName
-        | Existing of BuyerId
-
     type Command =
-        { Buyer: NewOrExistingBuyer
+        { Buyer: Buyer
           Address: Address
           OrderItems: NonEmptyMap<ProductId, UnvalidatedOrderItem>
           CardTypeId: CardTypeId
           CardNumber: CardNumber
           CardSecurityNumber: CardSecurityNumber
           CardHolderName: CardHolderName
-          Expiration: DateTimeOffset }
+          CardExpiration: DateTimeOffset }
 
     type DomainError =
-        | BuyerNotFound of BuyerId
         | UnsupportedCardType of CardTypeId
         | PaymentMethodExpired
         | InvalidPaymentMethod of UnverifiedPaymentMethod
@@ -36,28 +31,14 @@ module StartOrderWorkflow =
     type T<'ioError> = Workflow<Command, Order, DomainEvent, DomainError, 'ioError>
 
     let build
-        (generateBuyerId: GenerateId<buyerId>)
-        (getBuyer: BuyerManagementPort.GetBuyer<'ioError>)
-        (getSupportedCardTypes: BuyerManagementPort.GetSupportedCardTypes<'ioError>)
-        (verifyPaymentMethod: BuyerManagementPort.VerifyPaymentMethod<'ioError>)
+        (getSupportedCardTypes: OrderManagementPort.GetSupportedCardTypes<'ioError>)
+        (verifyPaymentMethod: OrderManagementPort.VerifyPaymentMethod<'ioError>)
         : T<'ioError> =
         fun now state command ->
             asyncResult {
                 let inline mapToIoError x = x |> AsyncResult.mapError Right
 
-                let! buyer =
-                    match command.Buyer with
-                    | New buyerName ->
-                        { Id = generateBuyerId ()
-                          Name = buyerName }
-                        |> AsyncResult.ok
-                    | Existing buyerId ->
-                        buyerId
-                        |> getBuyer
-                        |> mapToIoError
-                        |> AsyncResultOption.requireSome (buyerId |> BuyerNotFound |> Left)
-
-                and! supportedCardTypes = getSupportedCardTypes () |> mapToIoError
+                let! supportedCardTypes = getSupportedCardTypes () |> mapToIoError
 
                 let! cardType =
                     command.CardTypeId
@@ -71,7 +52,7 @@ module StartOrderWorkflow =
                         command.CardNumber
                         command.CardSecurityNumber
                         command.CardHolderName
-                        command.Expiration
+                        command.CardExpiration
                         now
                     |> Result.mapError (fun (_: PaymentMethodExpiredError) -> PaymentMethodExpired |> Left)
 
@@ -80,7 +61,7 @@ module StartOrderWorkflow =
                     |> verifyPaymentMethod
                     |> AsyncResult.mapError (function
                         | Right ioError -> ioError |> Right
-                        | Left(_: BuyerManagementPort.InvalidPaymentMethodError) ->
+                        | Left(_: OrderManagementPort.InvalidPaymentMethodError) ->
                             unverifiedPaymentMethod |> InvalidPaymentMethod |> Left)
 
                 and! validatedOrderItems =
@@ -93,7 +74,7 @@ module StartOrderWorkflow =
                     |> Result.mapError (Map.ofList >> InvalidOrderItems >> Left)
 
                 let createOrderCommand: Command.CreateOrder =
-                    { Buyer = buyer
+                    { Buyer = command.Buyer
                       Address = command.Address
                       PaymentMethod = verifiedPaymentMethod
                       OrderItems = validatedOrderItems

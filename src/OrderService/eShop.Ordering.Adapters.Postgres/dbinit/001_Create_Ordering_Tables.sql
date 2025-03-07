@@ -21,7 +21,7 @@ CREATE TABLE "$Schema$"."PaymentMethods"
     "CardTypeId"         INTEGER NOT NULL REFERENCES "$Schema$"."CardTypes"("Id"),
     "CardNumber"         VARCHAR(25) NOT NULL,
     "CardHolderName"     VARCHAR(200) NOT NULL,
-    "Expiration"         DATE NOT NULL
+    "CardExpiration"     DATE NOT NULL
 );
 
 CREATE UNIQUE INDEX UIX_PaymentMethod ON "$Schema$"."PaymentMethods" ("BuyerId", "CardTypeId", "CardNumber", "CardHolderName", "Expiration");

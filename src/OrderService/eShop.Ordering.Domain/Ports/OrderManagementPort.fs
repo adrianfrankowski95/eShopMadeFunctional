@@ -18,3 +18,8 @@ type ReadUnprocessedOrderEvents<'eventId, 'ioError when 'eventId: comparison> =
     ReadUnprocessedEvents<'eventId, DomainEvent, 'ioError>
 
 type GetSupportedCardTypes<'ioError> = unit -> AsyncResult<SupportedCardTypes, 'ioError>
+
+type InvalidPaymentMethodError = InvalidPaymentMethodError
+
+type VerifyPaymentMethod<'ioError> =
+    UnverifiedPaymentMethod -> AsyncResult<VerifiedPaymentMethod, Either<InvalidPaymentMethodError, 'ioError>>

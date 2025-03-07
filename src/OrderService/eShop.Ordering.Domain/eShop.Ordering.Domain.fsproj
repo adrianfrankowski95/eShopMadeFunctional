@@ -20,7 +20,6 @@
         <Compile Include="Model\DomainEvent.fs" />
         <Compile Include="Model\Order.fs" />
         <Compile Include="Ports\OrderManagementPort.fs" />
-        <Compile Include="Ports\BuyerManagementPort.fs" />
         <Compile Include="Workflows\PayOrderWorkflow.fs" />
         <Compile Include="Workflows\CancelOrderWorkflow.fs" />
         <Compile Include="Workflows\ShipOrderWorkflow.fs" />

@@ -12,7 +12,7 @@ type UnverifiedPaymentMethod =
           CardNumber: CardNumber
           CardSecurityNumber: CardSecurityNumber
           CardHolderName: CardHolderName
-          Expiration: DateTimeOffset }
+          CardExpiration: DateTimeOffset }
 
 [<RequireQualifiedAccess>]
 module UnverifiedPaymentMethod =
@@ -25,7 +25,7 @@ module UnverifiedPaymentMethod =
                   CardNumber = cardNumber
                   CardSecurityNumber = securityNumber
                   CardHolderName = cardHolderName
-                  Expiration = expiration }
+                  CardExpiration = expiration }
         }
 
 
@@ -35,4 +35,4 @@ type VerifiedPaymentMethod =
         { CardType: CardType
           CardNumber: CardNumber
           CardHolderName: CardHolderName
-          Expiration: DateTimeOffset }
+          CardExpiration: DateTimeOffset }

@@ -40,6 +40,16 @@ module internal Dto =
         let toString status =
             statusMap |> Map.findKey (fun _ v -> v = status)
 
+        let ofOrder =
+            function
+            | Order.Init -> None
+            | Order.Draft _ -> OrderStatus.Draft |> Some
+            | Order.AwaitingStockValidation _ -> OrderStatus.AwaitingStockValidation |> Some
+            | Order.WithConfirmedStock _ -> OrderStatus.StockConfirmed |> Some
+            | Order.Paid _ -> OrderStatus.Paid |> Some
+            | Order.Shipped _ -> OrderStatus.Shipped |> Some
+            | Order.Cancelled _ -> OrderStatus.Cancelled |> Some
+
     [<CLIMutable>]
     type CardType = { Id: int; Name: string }
 
@@ -174,7 +184,7 @@ module internal Dto =
                     ({ CardType = { Id = cardTypeId; Name = cardTypeName }
                        CardNumber = cardNumber
                        CardHolderName = cardHolderName
-                       Expiration = expiration }
+                       CardExpiration = expiration }
                     : VerifiedPaymentMethod)
             }
             |> Result.mapError (String.concat "; ")
@@ -409,7 +419,7 @@ module internal Dto =
                   CardTypeName = ev.VerifiedPaymentMethod.CardType.Name |> CardTypeName.value
                   CardNumber = ev.VerifiedPaymentMethod.CardNumber |> CardNumber.value
                   CardHolderName = ev.VerifiedPaymentMethod.CardHolderName |> CardHolderName.value
-                  Expiration = ev.VerifiedPaymentMethod.Expiration }
+                  Expiration = ev.VerifiedPaymentMethod.CardExpiration }
                 |> Event.PaymentMethodVerified
             | DomainEvent.OrderCancelled ev ->
                 ({ BuyerId = ev.Buyer.Id |> BuyerId.value
@@ -499,7 +509,7 @@ module internal Dto =
                         ({ Buyer = { Id = buyerId; Name = buyerName }
                            VerifiedPaymentMethod =
                              { CardType = { Id = cardTypeId; Name = cardTypeName }
-                               Expiration = ev.Expiration
+                               CardExpiration = ev.Expiration
                                CardNumber = cardNumber
                                CardHolderName = cardHolderName } }
                         : DomainEvent.PaymentMethodVerified)
@@ -677,16 +687,16 @@ module private Sql =
         $"""
         WITH incoming AS (
             MERGE INTO "{schema}"."PaymentMethods" AS existing
-            USING (VALUES (UUID(@BuyerId), @CardTypeId, @CardNumber, @CardHolderName, DATE(@Expiration)))
-                AS pt("BuyerId","CardTypeId","CardNumber","CardHolderName","Expiration")
+            USING (VALUES (@BuyerId, @CardTypeId, @CardNumber, @CardHolderName, @CardExpiration))
+                AS pt("BuyerId", "CardTypeId", "CardNumber", "CardHolderName", "CardExpiration")
                 ON pt."BuyerId" = existing."BuyerId"
                     AND pt."CardTypeId" = existing."CardTypeId"
                     AND pt."CardNumber" = existing."CardNumber"
                     AND pt."CardHolderName" = existing."CardHolderName"
-                    AND pt."Expiration" = existing."Expiration"
+                    AND pt."CardExpiration" = existing."CardExpiration"
             WHEN MATCHED THEN DO NOTHING
-            WHEN NOT MATCHED THEN INSERT ("BuyerId", "CardTypeId", "CardNumber", "CardHolderName", "Expiration")
-                VALUES (pt."BuyerId", pt."CardTypeId", pt."CardNumber", pt."CardHolderName", pt."Expiration")
+            WHEN NOT MATCHED THEN INSERT ("BuyerId", "CardTypeId", "CardNumber", "CardHolderName", "CardExpiration")
+                VALUES (pt."BuyerId", pt."CardTypeId", pt."CardNumber", pt."CardHolderName", pt."CardExpiration")
             RETURNING existing."Id"
         )
         SELECT "Id" FROM incoming
@@ -762,6 +772,43 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                     |> AsyncResult.ignore)
                 |> Option.defaultValue (AsyncResult.ok ())
 
+            let! maybePaymentMethodId =
+                order
+                |> Order.getPaymentMethod
+                |> Option.map (fun paymentMethod ->
+                    order
+                    |> Order.getBuyerId
+                    |> Result.requireSome ("Missing BuyerId for existing Payment Method" |> InvalidData)
+                    |> AsyncResult.ofResult
+                    |> AsyncResult.bind (fun buyerId ->
+                        {| BuyerId = buyerId |> BuyerId.value
+                           CardTypeId = paymentMethod.CardType.Id |> CardTypeId.value
+                           CardNumber = paymentMethod.CardNumber |> CardNumber.value
+                           CardHolderName = paymentMethod.CardHolderName |> CardHolderName.value
+                           CardExpiration = paymentMethod.CardExpiration |}
+                        |> Dapper.executeScalar<Guid> sqlSession (Sql.getOrAddPaymentMethod dbSchema)
+                        |> AsyncResult.map Some))
+                |> Option.defaultValue (AsyncResult.ok None)
+
+            do!
+                order
+                |> Dto.OrderStatus.ofOrder
+                |> Option.map (fun status ->
+                    let maybeAddress = order |> Order.getAddress
+
+                    {| Id = aggregateId
+                       BuyerId = order |> Order.getBuyerId |> Option.map BuyerId.value |> Option.toNullable
+                       PaymentMethodId = maybePaymentMethodId |> Option.toNullable
+                       Status = status |> Dto.OrderStatus.toString
+                       StartedAt = order |> Order.getStartedAt |> Option.toNullable
+                       Street = maybeAddress |> Option.map (_.Street >> Street.value) |> Option.toObj
+                       City = maybeAddress |> Option.map (_.City >> City.value) |> Option.toObj
+                       Country = maybeAddress |> Option.map (_.Country >> Country.value) |> Option.toObj
+                       ZipCode = maybeAddress |> Option.map (_.ZipCode >> ZipCode.value) |> Option.toObj |}
+                    |> Dapper.execute sqlSession (Sql.upsertOrder dbSchema)
+                    |> AsyncResult.ignore)
+                |> Option.defaultValue (AsyncResult.ok ())
+
             do!
                 order
                 |> Order.getOrderItems
@@ -776,27 +823,6 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                        PictureUrl = item |> OrderItem.getPictureUrl |> Option.toObj |}
                     |> Dapper.execute sqlSession (Sql.upsertOrderItem dbSchema))
                 |> AsyncResult.ignore
-
-            let! maybePaymentMethodId =
-                order
-                |> Order.getPaymentMethod
-                |> Option.map (fun paymentMethod ->
-                    order
-                    |> Order.getBuyerId
-                    |> Result.requireSome ("Missing BuyerId for existing Payment Method" |> InvalidData)
-                    |> AsyncResult.ofResult
-                    |> AsyncResult.bind (fun buyerId ->
-                        {| BuyerId = buyerId |> BuyerId.value
-                           CardTypeId = paymentMethod.CardType.Id |> CardTypeId.value
-                           CardNumber = paymentMethod.CardNumber |> CardNumber.value
-                           CardHolderName = paymentMethod.CardHolderName |> CardHolderName.value
-                           Expiration = paymentMethod.Expiration |}
-                        |> Dapper.executeScalar<Guid> sqlSession (Sql.getOrAddPaymentMethod dbSchema)
-                        |> AsyncResult.map Some))
-                |> Option.defaultValue (AsyncResult.ok None)
-
-            // Upsert order
-            return failwith ""
         }
 
 type GetSupportedCardTypes = OrderManagementPort.GetSupportedCardTypes<SqlIoError>
