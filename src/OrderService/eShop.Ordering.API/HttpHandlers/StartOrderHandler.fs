@@ -32,7 +32,7 @@ type Request =
       Street: string
       CardNumber: string
       CardHolderName: string
-      CardExpiration: DateTimeOffset
+      CardExpiration: DateOnly
       CardSecurityNumber: string
       CardTypeId: int
       OrderItems: OrderItemDto list }

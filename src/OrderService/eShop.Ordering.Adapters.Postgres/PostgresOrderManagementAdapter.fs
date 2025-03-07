@@ -1,5 +1,5 @@
 ﻿[<RequireQualifiedAccess>]
-module Ordering.Adapters.Postgres.PostgresOrderManagementAdapter
+module eShop.Ordering.Adapters.Postgres.PostgresOrderManagementAdapter
 
 open System
 open FsToolkit.ErrorHandling
@@ -69,7 +69,7 @@ module internal Dto =
           CardTypeName: string option
           PaymentMethodCardNumber: string option
           PaymentMethodCardHolderName: string option
-          PaymentMethodExpiration: DateTimeOffset option
+          PaymentMethodExpiration: DateOnly option
           Street: string option
           City: string option
           State: string option
@@ -371,7 +371,7 @@ module internal Dto =
           CardTypeName: string
           CardNumber: string
           CardHolderName: string
-          Expiration: DateTimeOffset }
+          CardExpiration: DateOnly }
 
     type OrderCancelledEvent = { BuyerId: Guid; BuyerName: string }
 
@@ -419,7 +419,7 @@ module internal Dto =
                   CardTypeName = ev.VerifiedPaymentMethod.CardType.Name |> CardTypeName.value
                   CardNumber = ev.VerifiedPaymentMethod.CardNumber |> CardNumber.value
                   CardHolderName = ev.VerifiedPaymentMethod.CardHolderName |> CardHolderName.value
-                  Expiration = ev.VerifiedPaymentMethod.CardExpiration }
+                  CardExpiration = ev.VerifiedPaymentMethod.CardExpiration }
                 |> Event.PaymentMethodVerified
             | DomainEvent.OrderCancelled ev ->
                 ({ BuyerId = ev.Buyer.Id |> BuyerId.value
@@ -486,15 +486,15 @@ module internal Dto =
         let toDomain (dto: Event) : Result<DomainEvent, string> =
             match dto with
             | OrderStarted ev ->
-                validation {
-                    let buyerId = ev.BuyerId |> BuyerId.ofGuid
-
-                    let! buyerName = ev.BuyerName |> BuyerName.create
-
-                    return
-                        ({ Buyer = { Id = buyerId; Name = buyerName } }: DomainEvent.OrderStarted)
-                        |> DomainEvent.OrderStarted
-                }
+                ev.BuyerName
+                |> BuyerName.create
+                |> Result.mapError List.singleton
+                |> Result.map (fun buyerName ->
+                    ({ Buyer =
+                        { Id = ev.BuyerId |> BuyerId.ofGuid
+                          Name = buyerName } }
+                    : DomainEvent.OrderStarted)
+                    |> DomainEvent.OrderStarted)
             | PaymentMethodVerified ev ->
                 validation {
                     let buyerId = ev.BuyerId |> BuyerId.ofGuid
@@ -509,7 +509,7 @@ module internal Dto =
                         ({ Buyer = { Id = buyerId; Name = buyerName }
                            VerifiedPaymentMethod =
                              { CardType = { Id = cardTypeId; Name = cardTypeName }
-                               CardExpiration = ev.Expiration
+                               CardExpiration = ev.CardExpiration
                                CardNumber = cardNumber
                                CardHolderName = cardHolderName } }
                         : DomainEvent.PaymentMethodVerified)
@@ -851,3 +851,6 @@ type ReadUnprocessedOrderEvents = OrderManagementPort.ReadUnprocessedOrderEvents
 
 let readUnprocessedOrderEvents dbSchema sqlSession : ReadUnprocessedOrderEvents =
     Postgres.readUnprocessedEvents Dto.Event.toDomain dbSchema sqlSession
+
+type OrderEventsProcessor<'eventHandlerIoError> =
+    EventsProcessor<Order, Postgres.EventId, DomainEvent, SqlIoError, 'eventHandlerIoError>

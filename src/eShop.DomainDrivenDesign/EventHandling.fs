@@ -51,11 +51,10 @@ module EventsProcessor =
         { options with
             EventHandlerRegistry = options.EventHandlerRegistry |> Map.add handlerName handler }
 
-    type EventsProcessorError<'eventId, 'eventPayload, 'readUnprocessedEventsIoError, 'persistEventHandlersIoError, 'markEventsAsProcessedIoError, 'eventHandlerIoError>
-        =
-        | ReadingUnprocessedEventsFailed of 'readUnprocessedEventsIoError
-        | PersistingSuccessfulEventHandlersFailed of 'eventId * SuccessfulEventHandlers * 'persistEventHandlersIoError
-        | MarkingEventAsProcessedFailed of 'markEventsAsProcessedIoError
+    type EventsProcessorError<'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlerIoError> =
+        | ReadingUnprocessedEventsFailed of 'eventLogIoError
+        | PersistingSuccessfulEventHandlersFailed of 'eventId * SuccessfulEventHandlers * 'eventLogIoError
+        | MarkingEventAsProcessedFailed of 'eventLogIoError
         | EventHandlerFailed of Attempt * 'eventId * Event<'eventPayload> * EventHandlerName * 'eventHandlerIoError
         | MaxEventProcessingRetriesReached of Attempt * 'eventId * Event<'eventPayload> * EventHandlerName Set
 
@@ -63,26 +62,16 @@ module EventsProcessor =
         | Publish of Map<'eventId, Event<'eventPayload> * EventHandlerRegistry<'eventPayload, 'ioError>>
         | Retry of Attempt * 'eventId * Event<'eventPayload> * EventHandlerRegistry<'eventPayload, 'ioError>
 
-    type T<'state, 'eventId, 'eventPayload, 'readUnprocessedEventsIoError, 'persistEventHandlersIoError, 'markEventAsProcessedIoError, 'eventHandlerIoError
-        when 'eventId: comparison>
+    type T<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlerIoError when 'eventId: comparison>
         internal
         (
-            readUnprocessedEvents: ReadUnprocessedEvents<'eventId, 'eventPayload, 'readUnprocessedEventsIoError>,
-            persistSuccessfulHandlers: PersistSuccessfulEventHandlers<'eventId, 'persistEventHandlersIoError>,
-            markEventAsProcessed: MarkEventAsProcessed<'eventId, 'markEventAsProcessedIoError>,
+            readUnprocessedEvents: ReadUnprocessedEvents<'eventId, 'eventPayload, 'eventLogIoError>,
+            persistSuccessfulHandlers: PersistSuccessfulEventHandlers<'eventId, 'eventLogIoError>,
+            markEventAsProcessed: MarkEventAsProcessed<'eventId, 'eventLogIoError>,
             options: EventsProcessorOptions<'state, 'eventPayload, 'eventHandlerIoError>
         ) =
         let errorEvent =
-            Event<
-                EventsProcessorError<
-                    'eventId,
-                    'eventPayload,
-                    'readUnprocessedEventsIoError,
-                    'persistEventHandlersIoError,
-                    'markEventAsProcessedIoError,
-                    'eventHandlerIoError
-                 >
-             >()
+            Event<EventsProcessorError<'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlerIoError>>()
 
         let scheduleRetry postCommand attempt eventId eventData failedHandlers =
             async {
@@ -192,21 +181,12 @@ module EventsProcessor =
             |> processor.Post
 
     let build
-        (readUnprocessedEvents: ReadUnprocessedEvents<'eventId, 'eventPayload, 'readUnprocessedEventsIoError>)
-        (persistSuccessfulHandlers: PersistSuccessfulEventHandlers<'eventId, 'persistEventHandlersIoError>)
-        (markEventAsProcessed: MarkEventAsProcessed<'eventId, 'markEventAsProcessedIoError>)
+        (readUnprocessedEvents: ReadUnprocessedEvents<'eventId, 'eventPayload, 'eventLogIoError>)
+        (persistSuccessfulHandlers: PersistSuccessfulEventHandlers<'eventId, 'eventLogIoError>)
+        (markEventAsProcessed: MarkEventAsProcessed<'eventId, 'eventLogIoError>)
         (options: EventsProcessorOptions<'state, 'eventPayload, 'eventHandlerIoError>)
         =
         T(readUnprocessedEvents, persistSuccessfulHandlers, markEventAsProcessed, options)
 
-type EventsProcessor<'state, 'eventId, 'eventPayload, 'readUnprocessedEventsIoError, 'persistEventHandlersIoError, 'markEventsAsProcessedIoError, 'eventHandlerIoError
-    when 'eventId: comparison and 'eventPayload: comparison> =
-    EventsProcessor.T<
-        'state,
-        'eventId,
-        'eventPayload,
-        'readUnprocessedEventsIoError,
-        'persistEventHandlersIoError,
-        'markEventsAsProcessedIoError,
-        'eventHandlerIoError
-     >
+type EventsProcessor<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlerIoError when 'eventId: comparison>
+    = EventsProcessor.T<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlerIoError>

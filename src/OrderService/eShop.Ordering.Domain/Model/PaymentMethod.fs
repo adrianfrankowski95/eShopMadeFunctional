@@ -1,6 +1,7 @@
 ﻿namespace eShop.Ordering.Domain.Model
 
 open System
+open eShop.DomainDrivenDesign
 open eShop.Ordering.Domain.Model.ValueObjects
 open FsToolkit.ErrorHandling
 
@@ -12,13 +13,17 @@ type UnverifiedPaymentMethod =
           CardNumber: CardNumber
           CardSecurityNumber: CardSecurityNumber
           CardHolderName: CardHolderName
-          CardExpiration: DateTimeOffset }
+          CardExpiration: DateOnly }
 
 [<RequireQualifiedAccess>]
 module UnverifiedPaymentMethod =
-    let create cardType cardNumber securityNumber cardHolderName expiration now =
+    let create cardType cardNumber securityNumber cardHolderName (expiration: DateOnly) (now: UtcNow) =
         result {
-            do! expiration > now |> Result.requireTrue PaymentMethodExpiredError
+            do!
+                now.Date
+                |> DateOnly.FromDateTime
+                |> ((>) expiration)
+                |> Result.requireTrue PaymentMethodExpiredError
 
             return
                 { CardType = cardType
@@ -35,4 +40,4 @@ type VerifiedPaymentMethod =
         { CardType: CardType
           CardNumber: CardNumber
           CardHolderName: CardHolderName
-          CardExpiration: DateTimeOffset }
+          CardExpiration: DateOnly }
