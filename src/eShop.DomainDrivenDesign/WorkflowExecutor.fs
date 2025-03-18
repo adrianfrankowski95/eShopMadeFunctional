@@ -12,26 +12,36 @@ type PersistAggregate<'state, 'ioError> = AggregateId<'state> -> 'state -> Async
 type PersistEvents<'state, 'eventId, 'event, 'ioError> =
     AggregateId<'state> -> Event<'event> list -> AsyncResult<('eventId * Event<'event>) list, 'ioError>
 
-type PublishEvents<'eventId, 'event, 'ioError> = ('eventId * Event<'event>) list -> AsyncResult<unit, 'ioError>
+type PublishEvents<'state, 'eventId, 'event, 'ioError> =
+    AggregateId<'state> -> ('eventId * Event<'event>) list -> AsyncResult<unit, 'ioError>
 
-type WorkflowExecutorError<'domainError, 'workflowIoError, 'readAggregateIoError, 'persistAggregateIoError, 'persistEventsIoError, 'publishEventsIoError>
-    =
+type WorkflowExecutorError<'domainError, 'workflowIoError, 'persistenceIoError, 'publishEventsIoError> =
     | WorkflowError of Either<'domainError, 'workflowIoError>
-    | ReadAggregateIoError of 'readAggregateIoError
-    | PersistAggregateIoError of 'persistAggregateIoError
-    | PersistEventsIoError of 'persistEventsIoError
+    | ReadAggregateIoError of 'persistenceIoError
+    | PersistAggregateIoError of 'persistenceIoError
+    | PersistEventsIoError of 'persistenceIoError
     | PublishEventsIoError of 'publishEventsIoError
+
+type WorkflowExecution<'state, 'command, 'domainError, 'workflowIoError, 'persistenceIoError, 'publishEventsIoError> =
+    AggregateId<'state>
+        -> 'command
+        -> Async<
+            Result<
+                unit,
+                WorkflowExecutorError<'domainError, 'workflowIoError, 'persistenceIoError, 'publishEventsIoError>
+             >
+         >
 
 [<RequireQualifiedAccess>]
 module WorkflowExecutor =
     let execute
         (getNow: GetUtcNow)
-        (readAggregate: ReadAggregate<'state, 'readAggregateIoError>)
-        (persistAggregate: PersistAggregate<'state, 'persistAggregateIoError>)
-        (persistEvents: PersistEvents<'state, 'eventId, 'event, 'persistEventsIoError>)
-        (publishEvents: PublishEvents<'eventId, 'event, 'publishEventsIoError>)
-        (workflow: Workflow<'command, 'state, 'event, 'domainError, 'ioError>)
-        =
+        (readAggregate: ReadAggregate<'state, 'persistenceIoError>)
+        (persistAggregate: PersistAggregate<'state, 'persistenceIoError>)
+        (persistEvents: PersistEvents<'state, 'eventId, 'event, 'persistenceIoError>)
+        (publishEvents: PublishEvents<'state, 'eventId, 'event, 'publishEventsIoError>)
+        (workflow: Workflow<'command, 'state, 'event, 'domainError, 'workflowIoError>)
+        : WorkflowExecution<'state, 'command, 'domainError, 'workflowIoError, 'persistenceIoError, 'publishEventsIoError> =
         fun aggregateId command ->
             asyncResult {
                 let now = getNow ()
@@ -50,5 +60,5 @@ module WorkflowExecutor =
                     |> persistEvents aggregateId
                     |> mapError PersistEventsIoError
 
-                do! eventsWithIds |> publishEvents |> mapError PublishEventsIoError
+                do! eventsWithIds |> publishEvents aggregateId |> mapError PublishEventsIoError
             }

@@ -8,6 +8,7 @@
       "src\\eShop.DomainDrivenDesign\\eShop.DomainDrivenDesign.fsproj",
       "src\\eShop.Postgres\\eShop.Postgres.fsproj",
       "src\\eShop.Prelude\\eShop.Prelude.fsproj",
+      "src\\eShop.RabbitMQ\\eShop.RabbitMQ.fsproj",
       "src\\eShop.ServiceDefaults\\eShop.ServiceDefaults.csproj",
       "src\\EventBusRabbitMQ\\EventBusRabbitMQ.csproj",
       "src\\EventBus\\EventBus.csproj",

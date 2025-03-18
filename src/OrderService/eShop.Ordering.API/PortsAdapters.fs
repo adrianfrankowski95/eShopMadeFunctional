@@ -20,8 +20,8 @@ type ISqlOrderManagementPort<'eventId when 'eventId: comparison> =
 
 type IPostgresOrderManagementAdapter = ISqlOrderManagementPort<Postgres.EventId>
 
-type PostgresOrderManagementAdapter<'eventHandlerIoError>
-    (dbSchema: DbSchema, eventsProcessor: PostgresOrderManagementAdapter.OrderEventsProcessor<'eventHandlerIoError>) =
+type PostgresOrderManagementAdapter<'eventHandlingIoError>
+    (dbSchema: DbSchema, eventsProcessor: PostgresOrderManagementAdapter.OrderEventsProcessor<'eventHandlingIoError>) =
     interface IPostgresOrderManagementAdapter with
         member this.ReadOrderAggregate(sqlSession) =
             PostgresOrderManagementAdapter.readOrderAggregate dbSchema sqlSession
@@ -32,10 +32,10 @@ type PostgresOrderManagementAdapter<'eventHandlerIoError>
         member this.PersistOrderEvents(dbTransaction) =
             PostgresOrderManagementAdapter.persistOrderEvents dbSchema dbTransaction
 
-        member this.PublishOrderEvents = eventsProcessor.Publish >> AsyncResult.ok
-
         member this.ReadUnprocessedOrderEvents(sqlSession) =
             PostgresOrderManagementAdapter.readUnprocessedOrderEvents dbSchema sqlSession
 
         member this.GetSupportedCardTypes(sqlSession) =
             PostgresOrderManagementAdapter.getSupportedCardTypes dbSchema sqlSession
+
+        member this.PublishOrderEvents = eventsProcessor.Publish >> AsyncResult.ok

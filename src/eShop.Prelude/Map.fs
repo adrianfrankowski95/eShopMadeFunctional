@@ -5,7 +5,7 @@ module Map =
     let inline mapValues ([<InlineIfLambda>] mapping) map =
         map |> Map.map (fun _ k -> k |> mapping)
 
-    let rec removeKeys map (keysToRemove: seq<_>) =
+    let rec removeKeys (keysToRemove: seq<_>) map =
         match keysToRemove |> Seq.toList with
-        | head :: tail -> removeKeys (map |> Map.remove head) tail
+        | head :: tail -> map |> Map.remove head |> removeKeys tail
         | [] -> map

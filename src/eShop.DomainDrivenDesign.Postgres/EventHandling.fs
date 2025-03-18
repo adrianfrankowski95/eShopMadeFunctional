@@ -34,7 +34,7 @@ module Postgres =
             RETURNING "EventId";"""
 
         let inline readUnprocessedEvents (DbSchema schema) =
-            $"""SELECT "EventId", "AggregateType", "EventData", "OccurredAt", "SuccessfulHandlers"
+            $"""SELECT "EventId", "AggregateId", "AggregateType", "EventData", "OccurredAt", "SuccessfulHandlers"
             FROM "%s{schema}"."EventProcessingLog"
             WHERE "AggregateType" = @AggregateType
             AND "ProcessedAt" IS NULL
@@ -54,22 +54,24 @@ module Postgres =
         [<CLIMutable>]
         type Event<'eventPayloadDto> =
             { EventId: Guid
+              AggregateId: int
               EventData: 'eventPayloadDto
               OccurredAt: DateTimeOffset
               SuccessfulHandlers: string array }
 
         module Event =
-            let toDomain<'eventPayloadDto, 'eventPayload>
+            let toDomain<'state, 'eventPayloadDto, 'eventPayload>
                 (toDomain: 'eventPayloadDto -> Result<'eventPayload, string>)
                 dto
                 =
                 dto.EventData
                 |> toDomain
                 |> Result.map (fun evData ->
+                    dto.AggregateId |> AggregateId.ofInt<'state>,
                     dto.EventId |> EventId,
-                    ({ Data = evData
-                       OccurredAt = dto.OccurredAt },
-                     dto.SuccessfulHandlers |> Set.ofArray))
+                    { Data = evData
+                      OccurredAt = dto.OccurredAt },
+                    dto.SuccessfulHandlers |> Set.ofArray)
 
     type PersistEvents<'state, 'eventPayload> = PersistEvents<'state, EventId, 'eventPayload, SqlIoError>
 
@@ -87,19 +89,20 @@ module Postgres =
                 |> Dapper.executeScalar<Guid> (SqlSession.Sustained dbTransaction) (Sql.persistEvent dbSchema)
                 |> AsyncResult.map (fun evId -> evId |> EventId, ev))
 
-    type ReadUnprocessedEvents<'eventPayload> = ReadUnprocessedEvents<EventId, 'eventPayload, SqlIoError>
+    type ReadUnprocessedEvents<'state, 'eventPayload> =
+        ReadUnprocessedEvents<'state, EventId, 'eventPayload, SqlIoError>
 
     let readUnprocessedEvents
         (dtoToEventPayload: 'eventPayloadDto -> Result<'eventPayload, string>)
         (dbSchema: DbSchema)
         (sqlSession: SqlSession)
-        : ReadUnprocessedEvents<'eventPayload> =
-        fun aggregateType ->
-            {| AggregateType = aggregateType |}
+        : ReadUnprocessedEvents<'state, 'eventPayload> =
+        fun () ->
+            {| AggregateType = typeof<'state>.Name |}
             |> Dapper.query<Dto.Event<'eventPayloadDto>> sqlSession (Sql.readUnprocessedEvents dbSchema)
             |> AsyncResult.bind (
-                Seq.traverseResultA (Dto.Event.toDomain<'eventPayloadDto, 'eventPayload> dtoToEventPayload)
-                >> Result.map Map.ofSeq
+                Seq.traverseResultA (Dto.Event.toDomain<'state, 'eventPayloadDto, 'eventPayload> dtoToEventPayload)
+                >> Result.map Seq.toList
                 >> Result.mapError (String.concat "; " >> InvalidData)
                 >> AsyncResult.ofResult
             )

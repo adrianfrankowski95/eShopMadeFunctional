@@ -3,10 +3,12 @@
 CREATE TABLE "$Schema$"."EventProcessingLog"
 (
     "EventId"            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    "AggregateId"        BIGINT NOT NULL,
+    "AggregateId"        INTEGER NOT NULL,
     "AggregateType"      VARCHAR(50) NOT NULL,
     "EventData"          JSONB       NOT NULL,
     "OccurredAt"         TIMESTAMPTZ NOT NULL,
     "SuccessfulHandlers" TEXT[] NOT NULL DEFAULT '{}',
     "ProcessedAt"        TIMESTAMPTZ NULL
 );
+
+CREATE INDEX IX_AggregateType

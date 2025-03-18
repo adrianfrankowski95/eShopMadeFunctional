@@ -2,6 +2,7 @@
 
 open System
 open System.Data
+open eShop.DomainDrivenDesign
 open eShop.Postgres
 open eShop.Prelude
 open FsToolkit.ErrorHandling
@@ -27,7 +28,7 @@ module TransactionalWorkflowExecutor =
         { options with
             IsolationLevel = isolationLevel }
 
-    let execute workflow (options: Options) =
+    let execute workflow (options: Options) : WorkflowExecution<_, _, _, _, _, _> =
         fun state command ->
             let rec executeInTransaction workflow (retries: Delay list) =
                 asyncResult {
