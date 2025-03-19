@@ -23,6 +23,3 @@ module Result =
         | 1 -> x |> Seq.head |> ResultOption.retn
         | 0 -> None |> Ok
         | length -> $"Expected single item, but received %d{length}" |> Error
-
-module Operators =
-    let (>=>) f g = f >> Result.bind g

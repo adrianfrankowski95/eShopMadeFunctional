@@ -2,6 +2,7 @@
 
 open eShop.ConstrainedTypes
 
+// A workaround for proper operator overload inference
 type Operators = Operators
     with
 

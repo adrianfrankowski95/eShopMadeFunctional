@@ -7,12 +7,12 @@ open eShop.Prelude
 
 [<RequireQualifiedAccess>]
 module PayOrderWorkflow =
-    type T<'ioError> = Workflow<unit, Order, DomainEvent, InvalidOrderStateError, 'ioError>
+    type T<'ioError> = Workflow<unit, Order.State, Order.Event, Order.InvalidStateError, 'ioError>
 
     let build: T<'ioError> =
         fun _ state _ ->
-            Command.SetPaidOrderStatus
-            |> Order.evolve state
+            Order.Command.SetPaidOrderStatus
+            |> Order.State.evolve state
             |> Result.mapError Left
             |> AsyncResult.ofResult
 

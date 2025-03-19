@@ -7,12 +7,12 @@ open eShop.Prelude
 
 [<RequireQualifiedAccess>]
 module ConfirmOrderItemsStockWorkflow =
-    type T<'ioError> = Workflow<unit, Order, DomainEvent, InvalidOrderStateError, 'ioError>
+    type T<'ioError> = Workflow<unit, Order.State, Order.Event, Order.InvalidStateError, 'ioError>
 
     let build: T<'ioError> =
         fun _ state _ ->
-            Command.SetStockConfirmedOrderStatus
-            |> Order.evolve state
+            Order.Command.SetStockConfirmedOrderStatus
+            |> Order.State.evolve state
             |> Result.mapError Left
             |> AsyncResult.ofResult
 

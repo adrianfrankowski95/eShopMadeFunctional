@@ -19,16 +19,16 @@ module StartOrderWorkflow =
           CardNumber: CardNumber
           CardSecurityNumber: CardSecurityNumber
           CardHolderName: CardHolderName
-          CardExpiration: DateTimeOffset }
+          CardExpiration: DateOnly }
 
     type DomainError =
         | UnsupportedCardType of CardTypeId
         | PaymentMethodExpired
         | InvalidPaymentMethod of UnverifiedPaymentMethod
         | InvalidOrderItems of Map<ProductId, DiscountHigherThanTotalPriceError>
-        | InvalidOrderState of InvalidOrderStateError
+        | InvalidOrderState of Order.InvalidStateError
 
-    type T<'ioError> = Workflow<Command, Order, DomainEvent, DomainError, 'ioError>
+    type T<'ioError> = Workflow<Command, Order.State, Order.Event, DomainError, 'ioError>
 
     let build
         (getSupportedCardTypes: OrderManagementPort.GetSupportedCardTypes<'ioError>)
@@ -73,7 +73,7 @@ module StartOrderWorkflow =
                         |> Result.mapError (fun err -> productId, err))
                     |> Result.mapError (Map.ofList >> InvalidOrderItems >> Left)
 
-                let createOrderCommand: Command.CreateOrder =
+                let createOrderCommand: Order.Command.CreateOrder =
                     { Buyer = command.Buyer
                       Address = command.Address
                       PaymentMethod = verifiedPaymentMethod
@@ -82,8 +82,8 @@ module StartOrderWorkflow =
 
                 return!
                     createOrderCommand
-                    |> Command.CreateOrder
-                    |> Order.evolve state
+                    |> Order.Command.CreateOrder
+                    |> Order.State.evolve state
                     |> Result.mapError (InvalidOrderState >> Left)
             }
 

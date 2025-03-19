@@ -118,9 +118,9 @@ module Postgres =
             |> AsyncResult.ignore
 
     let markEventAsProcessed
-        (getNow: GetUtcNow)
         (dbSchema: DbSchema)
         (sqlSession: SqlSession)
+        (getNow: GetUtcNow)
         : MarkEventAsProcessed<EventId, SqlIoError> =
         fun (EventId eventId) ->
             {| EventId = eventId

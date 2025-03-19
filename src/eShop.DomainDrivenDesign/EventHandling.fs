@@ -209,20 +209,24 @@ module EventsProcessor =
 
         member this.OnError = errorEvent.Publish.Add
 
-        member this.Publish(aggregateId, events) =
-            events
-            |> List.sortBy (snd >> _.OccurredAt)
-            |> List.map (fun (eventId, eventData) -> aggregateId, eventId, eventData, options.EventHandlerRegistry)
-            |> Publish
-            |> processor.Post
+        member this.Publish =
+            fun aggregateId events ->
+                events
+                |> List.sortBy (snd >> _.OccurredAt)
+                |> List.map (fun (eventId, eventData) -> aggregateId, eventId, eventData, options.EventHandlerRegistry)
+                |> Publish
+                |> processor.Post
+
+        interface IDisposable with
+            member this.Dispose() = processor.Dispose()
 
     let build
         (readUnprocessedEvents: ReadUnprocessedEvents<'state, 'eventId, 'eventPayload, 'eventLogIoError>)
         (persistSuccessfulHandlers: PersistSuccessfulEventHandlers<'eventId, 'eventLogIoError>)
         (markEventAsProcessed: MarkEventAsProcessed<'eventId, 'eventLogIoError>)
-        (options: EventsProcessorOptions<'state, 'eventPayload, 'eventHandlerIoError>)
+        (options: EventsProcessorOptions<'state, 'eventPayload, 'eventHandlingIoError>)
         =
-        T(readUnprocessedEvents, persistSuccessfulHandlers, markEventAsProcessed, options)
+        new T<_, _, _, _, _>(readUnprocessedEvents, persistSuccessfulHandlers, markEventAsProcessed, options)
 
 type EventsProcessor<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError when 'eventId: comparison>
     = EventsProcessor.T<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>

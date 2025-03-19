@@ -1,17 +1,83 @@
-﻿namespace eShop.Ordering.Domain.Model
+﻿[<RequireQualifiedAccess>]
+module eShop.Ordering.Domain.Model.Order
 
 open System
 open eShop.Ordering.Domain.Model.ValueObjects
 open eShop.ConstrainedTypes
 open eShop.Prelude
 
-type InvalidOrderStateError =
+[<RequireQualifiedAccess>]
+module Command =
+    type CreateOrderDraft =
+        { BuyerId: BuyerId
+          OrderItems: Map<ProductId, UnvalidatedOrderItem> }
+
+    type CreateOrder =
+        { Buyer: Buyer
+          Address: Address
+          PaymentMethod: VerifiedPaymentMethod
+          OrderedAt: DateTimeOffset
+          OrderItems: NonEmptyMap<ProductId, OrderItemWithUnconfirmedStock> }
+
+    type SetStockRejectedOrderStatus =
+        { RejectedOrderItems: NonEmptyList<ProductId> }
+
+    type T =
+        | CreateOrderDraft of CreateOrderDraft
+        | CreateOrder of CreateOrder
+        | SetStockConfirmedOrderStatus
+        | SetStockRejectedOrderStatus of SetStockRejectedOrderStatus
+        | SetPaidOrderStatus
+        | ShipOrder
+        | CancelOrder
+
+type Command = Command.T
+
+[<RequireQualifiedAccess>]
+module Event =
+    type OrderStarted = { Buyer: Buyer }
+
+    type PaymentMethodVerified =
+        { Buyer: Buyer
+          VerifiedPaymentMethod: VerifiedPaymentMethod }
+
+    type OrderCancelled = { Buyer: Buyer }
+
+    type OrderStatusChangedToAwaitingValidation =
+        { Buyer: Buyer
+          StockToValidate: NonEmptyMap<ProductId, Units> }
+
+    type OrderStockConfirmed =
+        { Buyer: Buyer
+          ConfirmedOrderItems: NonEmptyMap<ProductId, OrderItemWithConfirmedStock> }
+
+    type OrderPaid =
+        { Buyer: Buyer
+          PaidOrderItems: NonEmptyMap<ProductId, OrderItemWithConfirmedStock> }
+
+    type OrderShipped =
+        { Buyer: Buyer
+          ShippedOrderItems: NonEmptyMap<ProductId, OrderItemWithConfirmedStock> }
+
+    type T =
+        internal
+        | OrderStarted of OrderStarted
+        | PaymentMethodVerified of PaymentMethodVerified
+        | OrderCancelled of OrderCancelled
+        | OrderStatusChangedToAwaitingValidation of OrderStatusChangedToAwaitingValidation
+        | OrderStockConfirmed of OrderStockConfirmed
+        | OrderPaid of OrderPaid
+        | OrderShipped of OrderShipped
+
+type Event = Event.T
+
+type InvalidStateError =
     | OnlyPaidOrderCanBeShipped
     | PaidOrderCannotBeCancelled
     | ShippedOrderCannotBeCancelled
 
 [<RequireQualifiedAccess>]
-module Order =
+module State =
     type Draft =
         { BuyerId: BuyerId
           UnvalidatedOrderItems: Map<ProductId, UnvalidatedOrderItem> }
@@ -60,9 +126,9 @@ module Order =
         | Shipped of Shipped
         | Cancelled of Cancelled
 
-    let evolve (state: T) (command: Command) : Result<T * DomainEvent list, InvalidOrderStateError> =
+    let evolve (state: T) (command: Command) : Result<T * Event list, InvalidStateError> =
         match state, command with
-        | Init, CreateOrder cmd ->
+        | Init, Command.CreateOrder cmd ->
             let newState =
                 { Buyer = cmd.Buyer
                   Address = cmd.Address
@@ -71,22 +137,21 @@ module Order =
                   UnconfirmedOrderItems = cmd.OrderItems }
 
             let events =
-                [ ({ Buyer = newState.Buyer }: DomainEvent.OrderStarted)
-                  |> DomainEvent.OrderStarted
+                [ ({ Buyer = newState.Buyer }: Event.OrderStarted) |> Event.OrderStarted
                   ({ Buyer = newState.Buyer
                      VerifiedPaymentMethod = cmd.PaymentMethod }
-                  : DomainEvent.PaymentMethodVerified)
-                  |> DomainEvent.PaymentMethodVerified
+                  : Event.PaymentMethodVerified)
+                  |> Event.PaymentMethodVerified
                   ({ Buyer = newState.Buyer
                      StockToValidate =
                        newState.UnconfirmedOrderItems
                        |> NonEmptyMap.map (fun _ orderItem -> orderItem.Units) }
-                  : DomainEvent.OrderStatusChangedToAwaitingValidation)
-                  |> DomainEvent.OrderStatusChangedToAwaitingValidation ]
+                  : Event.OrderStatusChangedToAwaitingValidation)
+                  |> Event.OrderStatusChangedToAwaitingValidation ]
 
             (newState |> T.AwaitingStockValidation, events) |> Ok
 
-        | AwaitingStockValidation awaitingValidation, SetStockConfirmedOrderStatus ->
+        | AwaitingStockValidation awaitingValidation, Command.SetStockConfirmedOrderStatus ->
             let newState =
                 { Buyer = awaitingValidation.Buyer
                   Address = awaitingValidation.Address
@@ -96,14 +161,13 @@ module Order =
                     awaitingValidation.UnconfirmedOrderItems
                     |> NonEmptyMap.mapValues OrderItemWithUnconfirmedStock.confirmStock }
 
-            let event: DomainEvent.OrderStockConfirmed =
+            let event: Event.OrderStockConfirmed =
                 { Buyer = newState.Buyer
                   ConfirmedOrderItems = newState.ConfirmedOrderItems }
 
-            (newState |> T.WithConfirmedStock, [ event |> DomainEvent.OrderStockConfirmed ])
-            |> Ok
+            (newState |> T.WithConfirmedStock, [ event |> Event.OrderStockConfirmed ]) |> Ok
 
-        | WithConfirmedStock withConfirmedStock, SetPaidOrderStatus ->
+        | WithConfirmedStock withConfirmedStock, Command.SetPaidOrderStatus ->
             let newState =
                 { Buyer = withConfirmedStock.Buyer
                   Address = withConfirmedStock.Address
@@ -111,13 +175,13 @@ module Order =
                   StartedAt = withConfirmedStock.StartedAt
                   PaidOrderItems = withConfirmedStock.ConfirmedOrderItems }
 
-            let event: DomainEvent.OrderPaid =
+            let event: Event.OrderPaid =
                 { Buyer = newState.Buyer
                   PaidOrderItems = newState.PaidOrderItems }
 
-            (newState |> T.Paid, [ event |> DomainEvent.OrderPaid ]) |> Ok
+            (newState |> T.Paid, [ event |> Event.OrderPaid ]) |> Ok
 
-        | Paid paid, ShipOrder ->
+        | Paid paid, Command.ShipOrder ->
             let newState =
                 { Buyer = paid.Buyer
                   Address = paid.Address
@@ -125,15 +189,15 @@ module Order =
                   StartedAt = paid.StartedAt
                   ShippedOrderItems = paid.PaidOrderItems }
 
-            let event: DomainEvent.OrderShipped =
+            let event: Event.OrderShipped =
                 { Buyer = newState.Buyer
                   ShippedOrderItems = newState.ShippedOrderItems }
 
-            (newState |> T.Shipped, [ event |> DomainEvent.OrderShipped ]) |> Ok
+            (newState |> T.Shipped, [ event |> Event.OrderShipped ]) |> Ok
 
-        | _, ShipOrder -> OnlyPaidOrderCanBeShipped |> Error
+        | _, Command.ShipOrder -> OnlyPaidOrderCanBeShipped |> Error
 
-        | AwaitingStockValidation awaitingValidation, CancelOrder ->
+        | AwaitingStockValidation awaitingValidation, Command.CancelOrder ->
             let newState =
                 { Buyer = awaitingValidation.Buyer
                   Address = awaitingValidation.Address
@@ -147,11 +211,11 @@ module Order =
                           ProductName = item.ProductName
                           UnitPrice = item.UnitPrice }) }
 
-            let event: DomainEvent.OrderCancelled = { Buyer = newState.Buyer }
+            let event: Event.OrderCancelled = { Buyer = newState.Buyer }
 
-            (newState |> T.Cancelled, [ event |> DomainEvent.OrderCancelled ]) |> Ok
+            (newState |> T.Cancelled, [ event |> Event.OrderCancelled ]) |> Ok
 
-        | WithConfirmedStock withConfirmedStock, CancelOrder ->
+        | WithConfirmedStock withConfirmedStock, Command.CancelOrder ->
             let newState =
                 { Buyer = withConfirmedStock.Buyer
                   Address = withConfirmedStock.Address
@@ -165,13 +229,13 @@ module Order =
                           ProductName = item.ProductName
                           UnitPrice = item.UnitPrice }) }
 
-            let event: DomainEvent.OrderCancelled = { Buyer = newState.Buyer }
+            let event: Event.OrderCancelled = { Buyer = newState.Buyer }
 
-            (newState |> T.Cancelled, [ event |> DomainEvent.OrderCancelled ]) |> Ok
+            (newState |> T.Cancelled, [ event |> Event.OrderCancelled ]) |> Ok
 
-        | Paid _, CancelOrder -> PaidOrderCannotBeCancelled |> Error
+        | Paid _, Command.CancelOrder -> PaidOrderCannotBeCancelled |> Error
 
-        | Shipped _, CancelOrder -> ShippedOrderCannotBeCancelled |> Error
+        | Shipped _, Command.CancelOrder -> ShippedOrderCannotBeCancelled |> Error
 
         | state, _ -> (state, []) |> Ok
 
@@ -256,4 +320,4 @@ module Order =
         | Shipped shipped -> shipped.PaymentMethod |> Some
         | Cancelled _ -> None
 
-type Order = Order.T
+type State = State.T

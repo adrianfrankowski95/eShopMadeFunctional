@@ -11,4 +11,4 @@ CREATE TABLE "$Schema$"."EventProcessingLog"
     "ProcessedAt"        TIMESTAMPTZ NULL
 );
 
-CREATE INDEX IX_AggregateType
+CREATE INDEX IX_AggregateType_ProcessedAt ON "$Schema$"."EventProcessingLog" ("AggregateType", "ProcessedAt") NULLS FIRST ASC
