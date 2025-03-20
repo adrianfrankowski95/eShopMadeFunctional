@@ -3,8 +3,8 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
     <AspnetVersion>9.0.1</AspnetVersion>
-    <MicrosoftExtensionsVersion>9.0.1</MicrosoftExtensionsVersion>
-    <AspireVersion>9.0.0</AspireVersion>
+    <MicrosoftExtensionsVersion>9.0.2</MicrosoftExtensionsVersion>
+    <AspireVersion>9.1.0</AspireVersion>
     <AspireUnstablePackagesVersion>9.0.0-preview.5.24551.3</AspireUnstablePackagesVersion>
     <GrpcVersion>2.67.0</GrpcVersion>
     <DuendeVersion>7.0.8</DuendeVersion>
@@ -99,7 +99,7 @@
     <PackageVersion Include="FluentValidation.AspNetCore" Version="11.3.0" />
     <PackageVersion Include="MediatR" Version="12.4.1" />
     <PackageVersion Include="Microsoft.Web.LibraryManager.Build" Version="2.1.175" />
-    <PackageVersion Include="Polly.Core" Version="8.5.0" />
+    <PackageVersion Include="Polly.Core" Version="8.5.1" />
     <PackageVersion Include="System.Reflection.TypeExtensions" Version="4.7.0" />
     <PackageVersion Include="xunit" Version="2.9.2" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />

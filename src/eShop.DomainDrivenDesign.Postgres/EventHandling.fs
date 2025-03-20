@@ -98,7 +98,7 @@ module Postgres =
         (sqlSession: SqlSession)
         : ReadUnprocessedEvents<'state, 'eventPayload> =
         fun () ->
-            {| AggregateType = typeof<'state>.Name |}
+            {| AggregateType = typeof<'state>.DeclaringType.Name + typeof<'state>.Name |}
             |> Dapper.query<Dto.Event<'eventPayloadDto>> sqlSession (Sql.readUnprocessedEvents dbSchema)
             |> AsyncResult.bind (
                 Seq.traverseResultA (Dto.Event.toDomain<'state, 'eventPayloadDto, 'eventPayload> dtoToEventPayload)

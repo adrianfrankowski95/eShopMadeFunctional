@@ -2,6 +2,7 @@
 module eShop.ConstrainedTypes.String
 
 open System
+open System.Text
 open eShop.Prelude.Operators
 open FsToolkit.ErrorHandling
 
@@ -17,6 +18,21 @@ module Constraints =
         rawString
         |> String.IsNullOrWhiteSpace
         |> Result.requireFalse $"%s{fieldName} is invalid: Expected non-whitespace value, actual value: %s{rawString}"
+        |> Result.map (fun _ -> rawString |> ctor)
+
+    let hasMaxUtf8Bytes maxByteCount ctor fieldName =
+        let hasMaxUtf8Bytes (rawString: string) =
+            rawString
+            |> Encoding.UTF8.GetByteCount
+            |> ((>=) maxByteCount)
+            |> Result.requireTrue $"%s{fieldName} is invalid: UTF8 byte count %d{maxByteCount} exceeded"
+            |> Result.map (fun _ -> rawString |> ctor)
+
+        nonNull id fieldName >=> hasMaxUtf8Bytes
+
+    let doesntStartWith phrase ctor fieldName (rawString: string) =
+        rawString[0 .. (phrase |> String.length |> (+) 1)] = phrase
+        |> Result.requireFalse $"%s{fieldName} is invalid: It must not start with %s{phrase}"
         |> Result.map (fun _ -> rawString |> ctor)
 
     let private lengthConstraint comparison length ctor fieldName error =
@@ -56,18 +72,22 @@ module Constraints =
             $"%s{fieldName} is invalid: Expected length: %d{length}, actual value: %s{rawString}"
             rawString
 
-    module Operators =
-        let (>=>)
-            (f: (string -> _) -> string -> string -> Result<string, string>)
-            (g: (string -> 'a) -> string -> string -> Result<'a, string>)
-            =
-            fun ctor fieldName -> f id fieldName >=> (g ctor fieldName)
+    let inline evaluateM ctor fieldName constraints =
+        fun rawString ->
+            constraints
+            |> Seq.traverseResultM (fun c -> c id fieldName rawString)
+            |> Result.map (fun _ -> rawString |> ctor)
 
+    let inline evaluateA ctor fieldName constraints =
+        fun rawString ->
+            constraints
+            |> Seq.traverseResultA (fun c -> c id fieldName rawString)
+            |> Result.map (fun _ -> rawString |> ctor)
 
 type NonWhiteSpace = private NonWhiteSpace of string
 
 [<RequireQualifiedAccess>]
 module NonWhiteSpace =
     let create = Constraints.nonWhiteSpace NonWhiteSpace
-    
+
     let value (NonWhiteSpace value) = value

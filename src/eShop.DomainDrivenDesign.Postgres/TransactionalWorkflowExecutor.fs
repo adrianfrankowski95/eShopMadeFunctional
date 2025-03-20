@@ -20,7 +20,7 @@ module TransactionalWorkflowExecutor =
     let init getDbConnection =
         { GetDbConnection = getDbConnection
           IsolationLevel = IsolationLevel.ReadCommitted
-          Retries = ([ 1; 3; 5; 15 ]: float list) |> List.map TimeSpan.FromSeconds }
+          Retries = [ (1: float); 3; 5; 15 ] |> List.map TimeSpan.FromSeconds }
 
     let withRetries retries options = { options with Retries = retries }
 
