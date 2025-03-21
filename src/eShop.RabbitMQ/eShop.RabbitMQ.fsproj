@@ -8,6 +8,11 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="Types.fs" />
+        <Compile Include="Configuration.fs" />
+        <Compile Include="Connection.fs" />
+        <Compile Include="Consumer.fs" />
+        <Compile Include="Publisher.fs" />
         <Compile Include="Adapter.fs" />
     </ItemGroup>
 
