@@ -17,7 +17,7 @@ open eShop.Ordering.API.WebApp
 open System.Text.Json.Serialization
 open FSharp.Data.LiteralProviders
 
-let private dbScriptsMap =
+let private dbScripts =
     let getRelativeDirectoryPath path =
         Path.GetRelativePath(__SOURCE_DIRECTORY__, path) |> Path.GetDirectoryName
 
@@ -37,7 +37,7 @@ let private configurePostgres (config: IConfiguration) (env: IWebHostEnvironment
     let schema = "ordering" |> DbSchema
     let connectionString = config.GetConnectionString("orderingdb")
 
-    services.AddPostgres connectionString schema dbScriptsMap env
+    services.AddPostgres connectionString schema dbScripts env
 
 let private configureSerialization (services: IServiceCollection) =
     JsonFSharpOptions.Default().ToJsonSerializerOptions() |> services.AddSingleton
