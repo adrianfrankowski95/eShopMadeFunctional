@@ -7,9 +7,12 @@ open Microsoft.Extensions.Hosting
 open Npgsql
 open Microsoft.AspNetCore.Hosting
 
+type ScriptName = string
+type ScriptRelativePath = string
+
 type IServiceCollection with
     member this.AddPostgres =
-        fun connectionString dbSchema dbScripts (env: IWebHostEnvironment) ->
+        fun connectionString dbSchema (dbScripts: Map<ScriptName, ScriptRelativePath>) (env: IWebHostEnvironment) ->
             Dapper.TypeHandlers.register ()
 
             dbScripts
