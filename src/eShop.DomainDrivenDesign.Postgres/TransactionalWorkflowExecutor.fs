@@ -28,8 +28,8 @@ module TransactionalWorkflowExecutor =
         { options with
             IsolationLevel = isolationLevel }
 
-    let execute workflow (options: Options) : WorkflowExecution<_, _, _, _, _, _> =
-        fun state command ->
+    let execute workflow (options: Options) : Workflow<_, _, _, _, _, _> =
+        fun aggregateId command ->
             let rec executeInTransaction workflow (retries: Delay list) =
                 asyncResult {
                     let connection = options.GetDbConnection()
@@ -39,7 +39,7 @@ module TransactionalWorkflowExecutor =
 
                     return!
                         command
-                        |> workflow transaction state
+                        |> workflow transaction aggregateId
                         |> AsyncResult.teeAsync (fun _ -> transaction.CommitAsync() |> Async.AwaitTask)
                         |> AsyncResult.teeErrorAsync (fun _ -> transaction.RollbackAsync() |> Async.AwaitTask)
                         |> AsyncResult.teeAnyAsync (connection.CloseAsync >> Async.AwaitTask)

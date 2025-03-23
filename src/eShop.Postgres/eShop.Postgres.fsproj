@@ -10,12 +10,17 @@
     <ItemGroup>
         <Compile Include="Adapter.fs" />
         <Compile Include="Dapper.fs" />
+        <Compile Include="DependencyInjection.fs" />
     </ItemGroup>
     
     <ItemGroup>
       <PackageReference Include="Dapper"/>
       <PackageReference Include="dbup-postgresql" />
       <PackageReference Include="FsToolkit.ErrorHandling" />
+    </ItemGroup>
+    
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
     </ItemGroup>
 
 </Project>

@@ -8,7 +8,13 @@ open eShop.Prelude
 [<RequireQualifiedAccess>]
 module RejectOrderItemsStockWorkflow =
     type T<'ioError> =
-        Workflow<Order.Command.SetStockRejectedOrderStatus, Order.State, Order.Event, Order.InvalidStateError, 'ioError>
+        ExecutableWorkflow<
+            Order.Command.SetStockRejectedOrderStatus,
+            Order.State,
+            Order.Event,
+            Order.InvalidStateError,
+            'ioError
+         >
 
     let build: T<'ioError> =
         fun _ state command ->

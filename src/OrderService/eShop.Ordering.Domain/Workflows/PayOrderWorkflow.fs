@@ -7,7 +7,7 @@ open eShop.Prelude
 
 [<RequireQualifiedAccess>]
 module PayOrderWorkflow =
-    type T<'ioError> = Workflow<unit, Order.State, Order.Event, Order.InvalidStateError, 'ioError>
+    type T<'ioError> = ExecutableWorkflow<unit, Order.State, Order.Event, Order.InvalidStateError, 'ioError>
 
     let build: T<'ioError> =
         fun _ state _ ->

@@ -28,7 +28,7 @@ module StartOrderWorkflow =
         | InvalidOrderItems of Map<ProductId, DiscountHigherThanTotalPriceError>
         | InvalidOrderState of Order.InvalidStateError
 
-    type T<'ioError> = Workflow<Command, Order.State, Order.Event, DomainError, 'ioError>
+    type T<'ioError> = ExecutableWorkflow<Command, Order.State, Order.Event, DomainError, 'ioError>
 
     let build
         (getSupportedCardTypes: OrderManagementPort.GetSupportedCardTypes<'ioError>)

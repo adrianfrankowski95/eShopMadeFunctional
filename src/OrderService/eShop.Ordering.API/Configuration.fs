@@ -1,7 +1,6 @@
 ﻿[<RequireQualifiedAccess>]
 module eShop.Ordering.API.Configuration
 
-open System.Data.Common
 open System.IO
 open System.Text.Json
 open Giraffe
@@ -9,9 +8,8 @@ open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Hosting
 open Microsoft.Extensions.Configuration
 open Microsoft.Extensions.DependencyInjection
-open Microsoft.Extensions.Hosting
-open Npgsql
 open eShop.Postgres
+open eShop.Postgres.DependencyInjection
 open eShop.ServiceDefaults
 open eShop.EventBusRabbitMQ
 open eShop.Prelude
@@ -35,29 +33,11 @@ let private dbScriptsMap =
         TextFile<"../eShop.Ordering.Adapters.Postgres/dbinit/001_Create_Ordering_Tables.sql", EnsureExists=true>.Path
     |> Map.mapValues getRelativeDirectoryPath
 
-let private configureDb (config: IConfiguration) (env: IWebHostEnvironment) (services: IServiceCollection) =
+let private configurePostgres (config: IConfiguration) (env: IWebHostEnvironment) (services: IServiceCollection) =
     let schema = "ordering" |> DbSchema
     let connectionString = config.GetConnectionString("orderingdb")
 
-    Dapper.TypeHandlers.register ()
-
-    dbScriptsMap
-    |> Map.map Postgres.executeScripts
-    |> Map.values
-    |> Seq.map ((|>) schema >> ((|>) connectionString))
-    |> Seq.toList
-    |> ignore
-
-    services
-        .AddSingleton<NpgsqlDataSource>(fun sp ->
-            sp.GetRequiredService<JsonSerializerOptions>()
-            |> NpgsqlDataSourceBuilder(connectionString)
-                .EnableParameterLogging(env.IsDevelopment())
-                .EnableDynamicJson()
-                .ConfigureJsonOptions
-            |> _.Build())
-        .AddTransient<DbConnection>(_.GetRequiredService<NpgsqlDataSource>().CreateConnection())
-        .AddSingleton<DbSchema>(schema)
+    services.AddPostgres connectionString schema dbScriptsMap env
 
 let private configureSerialization (services: IServiceCollection) =
     JsonFSharpOptions.Default().ToJsonSerializerOptions() |> services.AddSingleton
@@ -71,12 +51,12 @@ let private configureGiraffe (services: IServiceCollection) =
 let private configureServices (config: IConfiguration) (env: IWebHostEnvironment) (services: IServiceCollection) =
     services.AddProblemDetails().AddGiraffe()
     |> configureSerialization
-    |> configureDb config env
+    |> configurePostgres config env
     |> ignore
 
 let configureBuilder (builder: WebApplicationBuilder) =
     let config = builder.Configuration
-
+    
     builder.AddServiceDefaults().AddDefaultAuthentication()
     |> configureServices config builder.Environment
 
