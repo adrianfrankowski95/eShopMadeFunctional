@@ -8,7 +8,6 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="Types.fs" />
         <Compile Include="Configuration.fs" />
         <Compile Include="Connection.fs" />
         <Compile Include="Consumer.fs" />
@@ -23,6 +22,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\eShop.ConstrainedTypes\eShop.ConstrainedTypes.fsproj" />
+      <ProjectReference Include="..\eShop.DomainDrivenDesign\eShop.DomainDrivenDesign.fsproj" />
     </ItemGroup>
 
 </Project>

@@ -8,7 +8,7 @@ open eShop.DomainDrivenDesign.Postgres
 open eShop.Ordering.Adapters.Postgres
 open eShop.Prelude.Operators
 
-type ISqlOrderManagementPort<'eventId when 'eventId: comparison> =
+type ISqlOrderManagementPort<'eventId> =
     abstract member ReadOrderAggregate: SqlSession -> OrderManagementPort.ReadOrderAggregate<SqlIoError>
     abstract member PersistOrderAggregate: DbTransaction -> OrderManagementPort.PersistOrderAggregate<SqlIoError>
     abstract member PersistOrderEvents: DbTransaction -> OrderManagementPort.PersistOrderEvents<'eventId, SqlIoError>
@@ -39,4 +39,4 @@ type PostgresOrderManagementAdapter<'eventHandlingIoError>
         member this.GetSupportedCardTypes(sqlSession) =
             PostgresOrderManagementAdapter.getSupportedCardTypes dbSchema sqlSession
 
-        member this.PublishOrderEvents = eventsProcessor.Publish >>> AsyncResult.ok
+        member this.PublishOrderEvents = eventsProcessor.Process >>> AsyncResult.ok

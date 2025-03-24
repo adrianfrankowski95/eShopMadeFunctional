@@ -4,39 +4,32 @@ open RabbitMQ.Client
 open System.Text
 open System.Text.Json
 open System
+open eShop.DomainDrivenDesign
 
 let publishEvent<'T>
     (channel: IModel)
-    (exchangeName: string)
     (eventName: string)
-    (payload: 'T)
+    (eventId: string)
+    (event: Event<'T>)
     (metadata: Map<string, string>)
     =
     try
-        let eventMessage =
-            { Id = Guid.NewGuid()
-              CorrelationId = None
-              CreatedAt = DateTimeOffset.UtcNow
-              EventName = eventName
-              Payload = payload
-              Metadata = metadata }
-
-        let json = JsonSerializer.Serialize(eventMessage)
+        let json = JsonSerializer.Serialize(event)
         let body = Encoding.UTF8.GetBytes(json)
 
         let properties = channel.CreateBasicProperties()
-        properties.MessageId <- eventMessage.Id.ToString()
+        properties.MessageId <- eventId
+        properties.Timestamp <- AmqpTimestamp(event.OccurredAt.ToUnixTimeSeconds())
         properties.ContentType <- "application/json"
         properties.Persistent <- true
 
-        // With direct exchange, the routing key must exactly match the binding key (eventName)
         channel.BasicPublish(
-            exchange = exchangeName,
-            routingKey = eventName, // Using eventName as the exact routing key
+            exchange = Configuration.ExchangeName,
+            routingKey = eventName,
             basicProperties = properties,
             body = ReadOnlyMemory<byte>(body)
         )
 
-        Ok eventMessage.Id
+        Ok()
     with ex ->
         Error(sprintf "Failed to publish event: %s" ex.Message)

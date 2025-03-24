@@ -77,7 +77,7 @@ module EventsProcessor =
             EventHandlerName Set
 
     type private Command<'state, 'eventId, 'eventPayload, 'ioError> =
-        | Publish of
+        | Process of
             (AggregateId<'state> *
             'eventId *
             Event<'eventPayload> *
@@ -160,11 +160,11 @@ module EventsProcessor =
 
             async {
                 match cmd with
-                | Publish(publishData) ->
+                | Process(processingData) ->
                     let attempt = 1
 
                     do!
-                        publishData
+                        processingData
                         |> List.map (fun (aggregateId, eventId, eventData, handlers) ->
                             handlers |> processEvent aggregateId eventId eventData attempt)
                         |> Async.Sequential
@@ -202,19 +202,19 @@ module EventsProcessor =
                 async {
                     let! state = restoreState ()
 
-                    inbox.Post(state |> Publish)
+                    inbox.Post(state |> Process)
 
                     do! loop ()
                 })
 
         member this.OnError = errorEvent.Publish.Add
 
-        member this.Publish =
+        member this.Process =
             fun aggregateId events ->
                 events
                 |> List.sortBy (snd >> _.OccurredAt)
                 |> List.map (fun (eventId, eventData) -> aggregateId, eventId, eventData, options.EventHandlerRegistry)
-                |> Publish
+                |> Process
                 |> processor.Post
 
         interface IDisposable with
@@ -228,5 +228,5 @@ module EventsProcessor =
         =
         new T<_, _, _, _, _>(readUnprocessedEvents, persistSuccessfulHandlers, markEventAsProcessed, options)
 
-type EventsProcessor<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError when 'eventId: comparison>
+type EventsProcessor<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
     = EventsProcessor.T<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
