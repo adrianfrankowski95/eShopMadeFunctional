@@ -1,4 +1,5 @@
-﻿module eShop.RabbitMQ.Publisher
+﻿[<RequireQualifiedAccess>]
+module internal eShop.RabbitMQ.Publisher
 
 open RabbitMQ.Client
 open System.Text

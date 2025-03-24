@@ -1,4 +1,5 @@
-﻿module eShop.RabbitMQ.Consumer
+﻿[<RequireQualifiedAccess>]
+module internal eShop.RabbitMQ.Consumer
 
 open RabbitMQ.Client
 open RabbitMQ.Client.Events

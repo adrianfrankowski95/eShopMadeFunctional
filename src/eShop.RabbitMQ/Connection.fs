@@ -1,4 +1,5 @@
-﻿module eShop.RabbitMQ.Connection
+﻿[<RequireQualifiedAccess>]
+module internal eShop.RabbitMQ.Connection
 
 open RabbitMQ.Client
 open eShop.Prelude

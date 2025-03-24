@@ -1,5 +1,5 @@
 ﻿[<RequireQualifiedAccess>]
-module eShop.RabbitMQ.Adapter
+module eShop.RabbitMq
 
 open System
 open Microsoft.Extensions.Configuration
