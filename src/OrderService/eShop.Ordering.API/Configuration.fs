@@ -11,11 +11,11 @@ open Microsoft.Extensions.DependencyInjection
 open eShop.Postgres
 open eShop.Postgres.DependencyInjection
 open eShop.ServiceDefaults
-open eShop.EventBusRabbitMQ
 open eShop.Prelude
 open eShop.Ordering.API.WebApp
 open System.Text.Json.Serialization
 open FSharp.Data.LiteralProviders
+open eShop.RabbitMQ.DependencyInjection
 
 let private dbScripts =
     let getRelativeDirectoryPath path =
@@ -56,12 +56,11 @@ let private configureServices (config: IConfiguration) (env: IWebHostEnvironment
 
 let configureBuilder (builder: WebApplicationBuilder) =
     let config = builder.Configuration
-    
+
     builder.AddServiceDefaults().AddDefaultAuthentication()
     |> configureServices config builder.Environment
 
-    builder.AddRabbitMqEventBus("eventbus") |> ignore
-    builder
+    builder.AddRabbitMQ "eventbus" Set.empty |> ignore
 
 let configureApp (app: WebApplication) =
     app.MapDefaultEndpoints().UseAuthorization() |> ignore

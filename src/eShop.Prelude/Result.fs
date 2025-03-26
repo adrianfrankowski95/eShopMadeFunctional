@@ -23,3 +23,9 @@ module Result =
         | 1 -> x |> Seq.head |> ResultOption.retn
         | 0 -> None |> Ok
         | length -> $"Expected single item, but received %d{length}" |> Error
+
+    let inline catch f =
+        try
+            f () |> Ok
+        with ex ->
+            ex |> Error

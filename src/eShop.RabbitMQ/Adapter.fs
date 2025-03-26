@@ -1,80 +1,184 @@
-﻿[<RequireQualifiedAccess>]
-module eShop.RabbitMq
+﻿namespace eShop.RabbitMQ
 
 open System
-open Microsoft.Extensions.Configuration
-open Microsoft.Extensions.Hosting
 open RabbitMQ.Client
-open Microsoft.Extensions.DependencyInjection
 open FsToolkit.ErrorHandling
 open eShop.RabbitMQ
 open eShop.ConstrainedTypes
+open eShop.DomainDrivenDesign
+open eShop.Prelude
 
-type RabbitMQContext =
-    { Connection: IConnection
-      Channel: IModel
-      Config: Configuration.RabbitMqOptions }
+type RabbitMQIoError =
+    | DeserializationError of exn
+    | SerializationError of exn
+    | ChannelCreationError of exn
+    | ExchangeDeclarationError of exn
+    | EventDispatchError of exn
 
-type QueueName = private QueueName of string
+type RabbitMQDispatcher<'eventId, 'eventPayload> =
+    'eventId -> Event<'eventPayload> -> AsyncResult<unit, RabbitMQIoError>
 
-module QueueName =
-    let create =
-        [ String.Constraints.nonWhiteSpace
-          String.Constraints.hasMaxUtf8Bytes 255
-          String.Constraints.doesntStartWith "amqp." ]
-        |> String.Constraints.evaluateM QueueName (nameof QueueName)
+[<RequireQualifiedAccess>]
+module RabbitMQ =
+    type QueueName = private QueueName of string
 
-type EventName = private EventName of string
+    module QueueName =
+        let create =
+            [ String.Constraints.nonWhiteSpace
+              String.Constraints.hasMaxUtf8Bytes 255
+              String.Constraints.doesntStartWith "amqp." ]
+            |> String.Constraints.evaluateM QueueName (nameof QueueName)
 
-module EventName =
-    let create = String.Constraints.nonWhiteSpace EventName (nameof EventName)
-    let value (EventName name) = name
+    type EventName = private EventName of string
 
-let initialize (connection: IConnection) (config: Configuration.RabbitMqOptions) (events: EventName Set) =
-    asyncResult {
-        let rec ensureIsOpen (retries: TimeSpan list) =
-            match connection.IsOpen, retries with
-            | true, _ -> true |> Async.retn
-            | false, head :: tail ->
-                async {
-                    do! Async.Sleep head
-                    return! ensureIsOpen tail
-                }
-            | false, [] -> false |> Async.retn
+    module EventName =
+        let create = String.Constraints.nonWhiteSpace EventName (nameof EventName)
 
-        do!
-            [ (1: float); 2; 5 ]
-            |> List.map TimeSpan.FromSeconds
-            |> ensureIsOpen
-            |> AsyncResult.requireTrue "Connection to RabbitMQ was not open"
+    let private createConnection (factory: ConnectionFactory) = Result.catch factory.CreateConnection
 
-        use! channel = Connection.createChannel connection
+    let private createChannel (connection: IConnection) = Result.catch connection.CreateModel
 
-        // TODO: bind queue for each event type, enumerate union + IntegrationEvent
+    let private ensureExchange (channel: IModel) =
+        Result.catch (fun () -> channel.ExchangeDeclare(exchange = Configuration.ExchangeName, ``type`` = "direct"))
 
-        do!
+    let private ensureDeadLetterExchange (channel: IModel) =
+        Result.catch (fun () ->
+            channel.ExchangeDeclare(
+                exchange = Configuration.DeadLetterExchangeName,
+                ``type`` = "direct",
+                durable = true,
+                autoDelete = false
+            ))
 
-            [ Connection.ensureDeadLetterExchange
-              Connection.ensureDeadLetterQueue
-              Connection.bindDeadLetterQueue
+    let private ensureDeadLetterQueue (channel: IModel) =
+        Result.catch (fun () ->
+            channel.QueueDeclare(
+                queue = Configuration.DeadLetterQueueName,
+                durable = true,
+                exclusive = false,
+                autoDelete = false,
+                arguments = null
+            )
+            |> ignore)
 
-              Connection.ensureExchange
-              Connection.ensureQueue config.SubscriptionClientName ]
-            |> List.traverseResultM ((|>) channel)
-            |> Result.ignore
+    let private ensureQueue (QueueName queueName) (channel: IModel) =
+        Result.catch (fun () ->
+            let arguments: Map<string, obj> =
+                Map.empty
+                |> Map.add "x-dead-letter-exchange" Configuration.DeadLetterExchangeName
+                |> Map.add "x-dead-letter-routing-key" queueName
+                |> Map.mapValues box
 
-        do!
-            events
-            |> Set.toList
-            |> List.map (EventName.value >> Connection.bindQueue config.SubscriptionClientName)
-            |> List.traverseResultM ((|>) channel)
-            |> Result.ignore
+            channel.QueueDeclare(
+                queue = queueName,
+                durable = true,
+                exclusive = false,
+                autoDelete = false,
+                arguments = arguments
+            )
+            |> ignore)
 
-        return
-            { Connection = connection
-              Channel = channel
-              Config = config }
-    }
+    let private bindDeadLetterQueue (QueueName queueName) (channel: IModel) =
+        Result.catch (fun () ->
+            channel.QueueBind(Configuration.DeadLetterQueueName, Configuration.DeadLetterExchangeName, queueName))
+
+    let private bindQueue (QueueName queueName) routingKey (channel: IModel) =
+        Result.catch (fun () -> channel.QueueBind(queueName, Configuration.ExchangeName, routingKey))
+
+    let private publish (EventName eventName) body properties (channel: IModel) =
+        Result.catch (fun () ->
+            channel.BasicPublish(
+                exchange = Configuration.ExchangeName,
+                routingKey = eventName,
+                mandatory = true,
+                basicProperties = properties,
+                body = body
+            ))
+
+    let internal init
+        (connectionFactory: ConnectionFactory)
+        (config: Configuration.RabbitMqOptions)
+        (eventsToConfigure: EventName Set)
+        =
+        asyncResult {
+            let rec ensureIsOpen (connection: IConnection) (retries: TimeSpan list) =
+                match connection.IsOpen, retries with
+                | true, _ -> true |> Async.retn
+                | false, head :: tail ->
+                    async {
+                        do! Async.Sleep head
+                        return! ensureIsOpen connection tail
+                    }
+                | false, [] -> false |> Async.retn
+
+            let inline exnToMsg msg : Result<_, exn> -> Result<_, string> =
+                Result.mapError (_.Message >> sprintf "%s: %s" msg)
+
+            let! queueName = config.SubscriptionClientName |> QueueName.create
+
+            use! connection =
+                createConnection connectionFactory
+                |> exnToMsg "Failed to create RabbitMQ connection"
+
+            do!
+                [ (1: float); 2; 5 ]
+                |> List.map TimeSpan.FromSeconds
+                |> ensureIsOpen connection
+                |> AsyncResult.requireTrue "Connection to RabbitMQ was closed"
+
+            use! channel = createChannel connection |> exnToMsg "Failed to create RabbitMQ channel"
+
+            do!
+
+                [ ensureDeadLetterExchange >> exnToMsg "Failed to declare RabbitMQ exchange"
+                  ensureDeadLetterQueue >> exnToMsg "Failed to declare RabbitMQ queue"
+                  bindDeadLetterQueue queueName >> exnToMsg "Failed to bind RabbitMQ queue"
+                  ensureExchange >> exnToMsg "Failed to declare RabbitMQ exchange"
+                  ensureQueue queueName >> exnToMsg "Failed to declare RabbitMQ queue" ]
+                |> List.traverseResultM ((|>) channel)
+                |> Result.ignore
+
+            do!
+                eventsToConfigure
+                |> Set.toList
+                |> List.map (fun (EventName eventName) ->
+                    bindQueue queueName eventName >> exnToMsg "Failed to bind RabbitMQ queue")
+                |> List.traverseResultM ((|>) channel)
+                |> Result.ignore
+        }
+
+    let dispatchEvent
+        (connection: IConnection)
+        (eventName: EventName)
+        (serializeEvent: 'eventPayload -> Result<byte array, exn>)
+        : RabbitMQDispatcher<'eventId, 'eventPayload> =
+        fun (eventId: 'eventId) (event: Event<'eventPayload>) ->
+            asyncResult {
+                let! body =
+                    event.Data
+                    |> serializeEvent
+                    |> Result.map ReadOnlyMemory
+                    |> Result.mapError SerializationError
+
+                use! channel = createChannel connection |> Result.mapError ChannelCreationError
+
+                do! channel |> ensureExchange |> Result.mapError ExchangeDeclarationError
+
+                let properties = channel.CreateBasicProperties()
+                properties.MessageId <- (eventId |> box |> string)
+                properties.Type <- (typeof<'eventPayload>.DeclaringType.Name + typeof<'eventPayload>.Name)
+                properties.DeliveryMode <- 2 |> byte
+                properties.Timestamp <- AmqpTimestamp(event.OccurredAt.ToUnixTimeSeconds())
+                properties.ContentType <- "application/json"
+                properties.Persistent <- true
+
+                return!
+                    channel
+                    |> publish eventName body properties
+                    |> Result.mapError EventDispatchError
+            }
+
+//    let consumeEvent
 //
 // // let registerEventHandler<'T> (context: RabbitMQContext) (eventName: string) (handler: Consumer.EventHandler<'T>) =
 // //     // Bind queue to exchange with routing key = eventName (exact match for direct exchange)
@@ -107,28 +211,9 @@ let initialize (connection: IConnection) (config: Configuration.RabbitMqOptions)
 //     with ex ->
 //         Error $"Failed to shutdown RabbitMQ context: %s{ex.Message}"
 //
-type IHostApplicationBuilder with
-    member this.AddRabbitMq =
-        fun connectionName events ->
-            this.AddRabbitMQClient(
-                connectionName,
-                configureConnectionFactory = fun factory -> factory.DispatchConsumersAsync <- true
-            )
 
-            this.Services
-            // .AddOpenTelemetry()
-            // .WithTracing(_.AddSource(Configuration.OpenTelemetry.ActivitySourceName) >> ignore)
-            // .Services.AddSingleton<Configuration.OpenTelemetry>(Configuration.OpenTelemetry.init)
-                .AddSingleton<RabbitMQContext>
-                    (fun sp ->
-                        let config =
-                            sp
-                                .GetRequiredService<IConfiguration>()
-                                .GetRequiredSection(Configuration.SectionName)
-                                .Get<Configuration.RabbitMqOptions>()
 
-                        let connection = sp.GetRequiredService<IConnection>()
-
-                        initialize connection config events
-                        |> Async.RunSynchronously
-                        |> Result.valueOr failwith)
+// this.Services
+// .AddOpenTelemetry()
+// .WithTracing(_.AddSource(Configuration.OpenTelemetry.ActivitySourceName) >> ignore)
+// .Services.AddSingleton<Configuration.OpenTelemetry>(Configuration.OpenTelemetry.init)
