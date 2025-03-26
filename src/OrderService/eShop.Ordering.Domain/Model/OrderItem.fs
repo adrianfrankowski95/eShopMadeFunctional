@@ -15,6 +15,8 @@ module ProductId =
     let ofInt (int: int) : ProductId = %int
 
     let value (id: ProductId) : int = %id
+    
+    let toString = value >> string
 
 type ProductName = String.NonWhiteSpace
 

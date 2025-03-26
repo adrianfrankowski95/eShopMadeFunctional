@@ -12,11 +12,11 @@ type ReadAggregate<'state, 'ioError> = AggregateId<'state> -> AsyncResult<'state
 
 type PersistAggregate<'state, 'ioError> = AggregateId<'state> -> 'state -> AsyncResult<unit, 'ioError>
 
-type PersistEvents<'state, 'eventId, 'event, 'ioError> =
-    AggregateId<'state> -> Event<'event> list -> AsyncResult<('eventId * Event<'event>) list, 'ioError>
+type PersistEvents<'state, 'eventId, 'eventPayload, 'ioError> =
+    AggregateId<'state> -> Event<'eventPayload> list -> AsyncResult<('eventId * Event<'eventPayload>) list, 'ioError>
 
-type PublishEvents<'state, 'eventId, 'event, 'ioError> =
-    AggregateId<'state> -> ('eventId * Event<'event>) list -> AsyncResult<unit, 'ioError>
+type PublishEvents<'state, 'eventId, 'eventPayload, 'ioError> =
+    AggregateId<'state> -> ('eventId * Event<'eventPayload>) list -> AsyncResult<unit, 'ioError>
 
 type WorkflowExecutorError<'domainError, 'workflowIoError, 'persistenceIoError, 'publishEventsIoError> =
     | WorkflowError of Either<'domainError, 'workflowIoError>

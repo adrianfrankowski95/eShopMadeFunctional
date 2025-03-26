@@ -6,7 +6,13 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="Library.fs"/>
+        <Compile Include="IntegrationEvent.fs" />
+        <Compile Include="RabbitMQOrderEventHandler.fs" />
     </ItemGroup>
 
+    <ItemGroup>
+        <ProjectReference Include="..\..\eShop.RabbitMQ\eShop.RabbitMQ.fsproj"/>
+        <ProjectReference Include="..\eShop.Ordering.Domain\eShop.Ordering.Domain.fsproj" />
+    </ItemGroup>
+    
 </Project>

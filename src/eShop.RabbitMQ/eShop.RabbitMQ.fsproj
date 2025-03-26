@@ -9,7 +9,6 @@
 
     <ItemGroup>
         <Compile Include="Configuration.fs" />
-        <Compile Include="Consumer.fs" />
         <Compile Include="Adapter.fs" />
         <Compile Include="DependencyInjection.fs" />
     </ItemGroup>
@@ -24,4 +23,7 @@
       <ProjectReference Include="..\eShop.DomainDrivenDesign\eShop.DomainDrivenDesign.fsproj" />
     </ItemGroup>
 
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
 </Project>

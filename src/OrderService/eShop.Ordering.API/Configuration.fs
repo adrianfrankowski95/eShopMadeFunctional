@@ -8,6 +8,7 @@ open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Hosting
 open Microsoft.Extensions.Configuration
 open Microsoft.Extensions.DependencyInjection
+open eShop.Ordering.Adapters.RabbitMQ
 open eShop.Postgres
 open eShop.Postgres.DependencyInjection
 open eShop.ServiceDefaults
@@ -62,18 +63,13 @@ let configureBuilder (builder: WebApplicationBuilder) =
     builder.AddServiceDefaults().AddDefaultAuthentication()
     |> configureServices config builder.Environment
 
-    "GracePeriodConfirmedIntegrationEvent"
-    |> RabbitMQ.EventName.create
-    |> Result.valueOr failwith
-    |> List.singleton
-    |> set
-    |> builder.AddRabbitMQ "eventbus"
-    |> ignore
+    builder.AddRabbitMQ "eventbus"
 
     builder
 
 let configureApp (app: WebApplication) =
     app.MapDefaultEndpoints().UseAuthorization() |> ignore
     app.UseGiraffe webApp
-
+    app.UseRabbitMQ
+    
     app

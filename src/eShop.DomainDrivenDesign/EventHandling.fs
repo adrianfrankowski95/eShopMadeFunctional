@@ -9,6 +9,11 @@ type Event<'payload> =
     { Data: 'payload
       OccurredAt: DateTimeOffset }
 
+module Event =
+    let mapData (newData: 'b) (ev: Event<'a>) : Event<'b> =
+        { Data = newData
+          OccurredAt = ev.OccurredAt }
+
 type EventHandler<'state, 'eventId, 'eventPayload, 'ioError> =
     AggregateId<'state> -> 'eventId -> Event<'eventPayload> -> AsyncResult<unit, 'ioError>
 

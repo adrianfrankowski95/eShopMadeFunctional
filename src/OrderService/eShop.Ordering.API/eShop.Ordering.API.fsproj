@@ -28,6 +28,7 @@
       <ProjectReference Include="..\..\eShop.ServiceDefaults\eShop.ServiceDefaults.csproj" />
       <ProjectReference Include="..\..\EventBusRabbitMQ\EventBusRabbitMQ.csproj" />
       <ProjectReference Include="..\eShop.Ordering.Adapters.Postgres\eShop.Ordering.Adapters.Postgres.fsproj" />
+      <ProjectReference Include="..\eShop.Ordering.Adapters.RabbitMQ\eShop.Ordering.Adapters.RabbitMQ.fsproj" />
       <ProjectReference Include="..\eShop.Ordering.Domain\eShop.Ordering.Domain.fsproj" />
     </ItemGroup>
 

@@ -1,12 +1,19 @@
 ﻿namespace eShop.RabbitMQ
 
 open System
+open System.Text
+open System.Threading.Tasks
+open Microsoft.Extensions.Logging
 open RabbitMQ.Client
+open RabbitMQ.Client.Events
 open FsToolkit.ErrorHandling
 open eShop.RabbitMQ
 open eShop.ConstrainedTypes
 open eShop.DomainDrivenDesign
 open eShop.Prelude
+
+type MessageId = string
+type MessageType = string
 
 type RabbitMQIoError =
     | DeserializationError of exn
@@ -14,8 +21,9 @@ type RabbitMQIoError =
     | ChannelCreationError of exn
     | ExchangeDeclarationError of exn
     | EventDispatchError of exn
+    | InvalidEventName of string
 
-type RabbitMQDispatcher<'eventId, 'eventPayload> =
+type RabbitMQEventDispatcher<'eventId, 'eventPayload> =
     'eventId -> Event<'eventPayload> -> AsyncResult<unit, RabbitMQIoError>
 
 [<RequireQualifiedAccess>]
@@ -33,8 +41,6 @@ module RabbitMQ =
 
     module EventName =
         let create = String.Constraints.nonWhiteSpace EventName (nameof EventName)
-
-    let private createConnection (factory: ConnectionFactory) = Result.catch factory.CreateConnection
 
     let private createChannel (connection: IConnection) = Result.catch connection.CreateModel
 
@@ -95,10 +101,35 @@ module RabbitMQ =
                 body = body
             ))
 
+    let private consume (QueueName queueName) consumer (channel: IModel) =
+        channel.BasicConsume(queue = queueName, autoAck = false, consumer = consumer)
+        |> ignore
+
+    let private ack (ea: BasicDeliverEventArgs) (channel: IModel) =
+        channel.BasicAck(ea.DeliveryTag, multiple = false)
+
+    let private nack
+        (ea: BasicDeliverEventArgs)
+        (logger: ILogger<RabbitMQEventDispatcher<'eventId, 'eventPayload>>)
+        (channel: IModel)
+        error
+        =
+        let messageId = ea.BasicProperties.MessageId
+        let messageType = ea.BasicProperties.Type
+
+        logger.LogError(
+            "An error occurred for MessageId {MessageId} with type {MessageType}: {Error}",
+            messageId,
+            messageType,
+            error
+        )
+
+        channel.BasicNack(ea.DeliveryTag, multiple = false, requeue = false)
+
     let internal init
-        (connectionFactory: ConnectionFactory)
+        (connection: IConnection)
         (config: Configuration.RabbitMqOptions)
-        (eventsToConfigure: EventName Set)
+        (eventsToConsume: EventName Set)
         =
         asyncResult {
             let rec ensureIsOpen (connection: IConnection) (retries: TimeSpan list) =
@@ -116,17 +147,13 @@ module RabbitMQ =
 
             let! queueName = config.SubscriptionClientName |> QueueName.create
 
-            use! connection =
-                createConnection connectionFactory
-                |> exnToMsg "Failed to create RabbitMQ connection"
-
             do!
                 [ (1: float); 2; 5 ]
                 |> List.map TimeSpan.FromSeconds
                 |> ensureIsOpen connection
                 |> AsyncResult.requireTrue "Connection to RabbitMQ was closed"
 
-            use! channel = createChannel connection |> exnToMsg "Failed to create RabbitMQ channel"
+            let! channel = createChannel connection |> exnToMsg "Failed to create RabbitMQ channel"
 
             do!
 
@@ -139,19 +166,71 @@ module RabbitMQ =
                 |> Result.ignore
 
             do!
-                eventsToConfigure
+                eventsToConsume
                 |> Set.toList
                 |> List.map (fun (EventName eventName) ->
                     bindQueue queueName eventName >> exnToMsg "Failed to bind RabbitMQ queue")
                 |> List.traverseResultM ((|>) channel)
                 |> Result.ignore
+
+            return channel
         }
 
+    let internal addConsumer
+        (logger: ILogger<RabbitMQEventDispatcher<'eventId, 'eventPayload>>)
+        (config: Configuration.RabbitMqOptions)
+        (channel: IModel)
+        (persistEvents: PersistEvents<'state, 'eventId, 'eventPayload, _>)
+        (processEvents: PublishEvents<'state, 'eventId, 'eventPayload, _>)
+        (aggregateIdSelector: 'eventPayload -> AggregateId<'state>)
+        (deserializeEvent: EventName -> string -> Result<'eventPayload, exn>)
+        =
+        let queueName =
+            config.SubscriptionClientName |> QueueName.create |> Result.valueOr failwith
+
+        channel.BasicQos(0u, 1us, false)
+
+        let consumer = AsyncEventingBasicConsumer(channel)
+
+        consumer.add_Received (fun _ ea ->
+            asyncResult {
+                let timestamp =
+                    ea.BasicProperties.Timestamp.UnixTime |> DateTimeOffset.FromUnixTimeSeconds
+
+                let! eventName =
+                    ea.RoutingKey
+                    |> EventName.create
+                    |> Result.mapError (InvalidEventName >> Choice1Of3)
+
+                let! eventPayload =
+                    Encoding.UTF8.GetString(ea.Body.Span)
+                    |> deserializeEvent eventName
+                    |> Result.mapError (DeserializationError >> Choice1Of3)
+
+                let aggregateId = eventPayload |> aggregateIdSelector
+
+                let! eventsWithIds =
+                    [ { Data = eventPayload
+                        OccurredAt = timestamp } ]
+                    |> persistEvents aggregateId
+                    |> AsyncResult.mapError Choice2Of3
+
+                do! eventsWithIds |> processEvents aggregateId |> AsyncResult.mapError Choice3Of3
+            }
+            |> AsyncResult.tee (fun _ -> ack ea channel)
+            |> AsyncResult.teeError (nack ea logger channel)
+            |> AsyncResult.ignoreError
+            |> Async.StartImmediateAsTask
+            :> Task)
+
+        channel |> consume queueName consumer
+
+
     let createEventDispatcher
-        (connection: IConnection)
-        (eventName: EventName)
+        (createEventName: 'eventPayload -> Result<EventName, string>)
         (serializeEvent: 'eventPayload -> Result<byte array, exn>)
-        : RabbitMQDispatcher<'eventId, 'eventPayload> =
+        (connection: IConnection)
+        : RabbitMQEventDispatcher<'eventId, 'eventPayload> =
         fun (eventId: 'eventId) (event: Event<'eventPayload>) ->
             asyncResult {
                 let! body =
@@ -160,14 +239,16 @@ module RabbitMQ =
                     |> Result.map ReadOnlyMemory
                     |> Result.mapError SerializationError
 
+                let! eventName = event.Data |> createEventName |> Result.mapError InvalidEventName
+
                 use! channel = createChannel connection |> Result.mapError ChannelCreationError
 
                 do! channel |> ensureExchange |> Result.mapError ExchangeDeclarationError
 
                 let properties = channel.CreateBasicProperties()
                 properties.MessageId <- (eventId |> box |> string)
-                properties.Type <- (typeof<'eventPayload>.DeclaringType.Name + typeof<'eventPayload>.Name)
-                properties.DeliveryMode <- 2 |> byte
+                properties.Type <- typeof<'eventPayload>.DeclaringType.Name + typeof<'eventPayload>.Name
+                properties.DeliveryMode <- 2uy
                 properties.Timestamp <- AmqpTimestamp(event.OccurredAt.ToUnixTimeSeconds())
                 properties.ContentType <- "application/json"
                 properties.Persistent <- true
