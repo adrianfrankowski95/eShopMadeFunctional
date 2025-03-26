@@ -147,7 +147,7 @@ module RabbitMQ =
                 |> Result.ignore
         }
 
-    let dispatchEvent
+    let createEventDispatcher
         (connection: IConnection)
         (eventName: EventName)
         (serializeEvent: 'eventPayload -> Result<byte array, exn>)

@@ -16,6 +16,8 @@ open eShop.Ordering.API.WebApp
 open System.Text.Json.Serialization
 open FSharp.Data.LiteralProviders
 open eShop.RabbitMQ.DependencyInjection
+open eShop.RabbitMQ
+open FsToolkit.ErrorHandling
 
 let private dbScripts =
     let getRelativeDirectoryPath path =
@@ -60,7 +62,15 @@ let configureBuilder (builder: WebApplicationBuilder) =
     builder.AddServiceDefaults().AddDefaultAuthentication()
     |> configureServices config builder.Environment
 
-    builder.AddRabbitMQ "eventbus" Set.empty |> ignore
+    "GracePeriodConfirmedIntegrationEvent"
+    |> RabbitMQ.EventName.create
+    |> Result.valueOr failwith
+    |> List.singleton
+    |> set
+    |> builder.AddRabbitMQ "eventbus"
+    |> ignore
+
+    builder
 
 let configureApp (app: WebApplication) =
     app.MapDefaultEndpoints().UseAuthorization() |> ignore
