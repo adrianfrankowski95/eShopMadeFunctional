@@ -42,6 +42,8 @@ module RabbitMQ =
     module EventName =
         let create = String.Constraints.nonWhiteSpace EventName (nameof EventName)
 
+        let value (EventName eventName) = eventName
+
     let private createChannel (connection: IConnection) = Result.catch connection.CreateModel
 
     let private ensureExchange (channel: IModel) =
@@ -126,11 +128,7 @@ module RabbitMQ =
 
         channel.BasicNack(ea.DeliveryTag, multiple = false, requeue = false)
 
-    let internal init
-        (connection: IConnection)
-        (config: Configuration.RabbitMqOptions)
-        (eventsToConsume: EventName Set)
-        =
+    let internal initConsumerChannel (connection: IConnection) (config: Configuration.RabbitMQOptions) =
         asyncResult {
             let rec ensureIsOpen (connection: IConnection) (retries: TimeSpan list) =
                 match connection.IsOpen, retries with
@@ -165,66 +163,72 @@ module RabbitMQ =
                 |> List.traverseResultM ((|>) channel)
                 |> Result.ignore
 
-            do!
-                eventsToConsume
-                |> Set.toList
-                |> List.map (fun (EventName eventName) ->
-                    bindQueue queueName eventName >> exnToMsg "Failed to bind RabbitMQ queue")
-                |> List.traverseResultM ((|>) channel)
-                |> Result.ignore
+            channel.BasicQos(0u, 1us, false)
 
-            return channel
+            let consumer = AsyncEventingBasicConsumer(channel)
+
+            channel |> consume queueName consumer
+
+            return consumer
         }
 
-    let internal addConsumer
-        (logger: ILogger<RabbitMQEventDispatcher<'eventId, 'eventPayload>>)
-        (config: Configuration.RabbitMqOptions)
-        (channel: IModel)
-        (persistEvents: PersistEvents<'state, 'eventId, 'eventPayload, _>)
-        (processEvents: PublishEvents<'state, 'eventId, 'eventPayload, _>)
+    let internal registerConsumer
+        (eventNamesToConsume: EventName Set)
         (aggregateIdSelector: 'eventPayload -> AggregateId<'state>)
         (deserializeEvent: EventName -> string -> Result<'eventPayload, exn>)
+        (consumer: AsyncEventingBasicConsumer)
+        (config: Configuration.RabbitMQOptions)
+        (logger: ILogger<RabbitMQEventDispatcher<'eventId, 'eventPayload>>)
+        (persistEvents: PersistEvents<'state, 'eventId, 'eventPayload, _>)
+        (processEvents: PublishEvents<'state, 'eventId, 'eventPayload, _>)      
         =
-        let queueName =
-            config.SubscriptionClientName |> QueueName.create |> Result.valueOr failwith
+        result {
+            let! queueName = config.SubscriptionClientName |> QueueName.create
 
-        channel.BasicQos(0u, 1us, false)
+            do!
+                consumer.IsRunning
+                |> Result.requireTrue $"""Consumer %s{consumer.ConsumerTags |> String.concat " "} is not running"""
 
-        let consumer = AsyncEventingBasicConsumer(channel)
+            consumer.add_Received (fun _ ea ->
+                asyncResult {
+                    let timestamp =
+                        ea.BasicProperties.Timestamp.UnixTime |> DateTimeOffset.FromUnixTimeSeconds
 
-        consumer.add_Received (fun _ ea ->
-            asyncResult {
-                let timestamp =
-                    ea.BasicProperties.Timestamp.UnixTime |> DateTimeOffset.FromUnixTimeSeconds
+                    let! eventName =
+                        ea.RoutingKey
+                        |> EventName.create
+                        |> Result.mapError (InvalidEventName >> Choice1Of3)
 
-                let! eventName =
-                    ea.RoutingKey
-                    |> EventName.create
-                    |> Result.mapError (InvalidEventName >> Choice1Of3)
+                    let! eventPayload =
+                        Encoding.UTF8.GetString(ea.Body.Span)
+                        |> deserializeEvent eventName
+                        |> Result.mapError (DeserializationError >> Choice1Of3)
 
-                let! eventPayload =
-                    Encoding.UTF8.GetString(ea.Body.Span)
-                    |> deserializeEvent eventName
-                    |> Result.mapError (DeserializationError >> Choice1Of3)
+                    let aggregateId = eventPayload |> aggregateIdSelector
 
-                let aggregateId = eventPayload |> aggregateIdSelector
+                    let! eventsWithIds =
+                        [ { Data = eventPayload
+                            OccurredAt = timestamp } ]
+                        |> persistEvents aggregateId
+                        |> AsyncResult.mapError Choice2Of3
 
-                let! eventsWithIds =
-                    [ { Data = eventPayload
-                        OccurredAt = timestamp } ]
-                    |> persistEvents aggregateId
-                    |> AsyncResult.mapError Choice2Of3
+                    do! eventsWithIds |> processEvents aggregateId |> AsyncResult.mapError Choice3Of3
+                }
+                |> AsyncResult.tee (fun _ -> ack ea consumer.Model)
+                |> AsyncResult.teeError (nack ea logger consumer.Model)
+                |> AsyncResult.ignoreError
+                |> Async.StartImmediateAsTask
+                :> Task)
 
-                do! eventsWithIds |> processEvents aggregateId |> AsyncResult.mapError Choice3Of3
-            }
-            |> AsyncResult.tee (fun _ -> ack ea channel)
-            |> AsyncResult.teeError (nack ea logger channel)
-            |> AsyncResult.ignoreError
-            |> Async.StartImmediateAsTask
-            :> Task)
-
-        channel |> consume queueName consumer
-
+            do!
+                eventNamesToConsume
+                |> Set.toList
+                |> List.map (fun (EventName eventName) ->
+                    bindQueue queueName eventName
+                    >> Result.mapError (_.Message >> sprintf "Failed to bind RabbitMQ queue: %s"))
+                |> List.traverseResultM ((|>) consumer.Model)
+                |> Result.ignore
+        }
 
     let createEventDispatcher
         (createEventName: 'eventPayload -> Result<EventName, string>)

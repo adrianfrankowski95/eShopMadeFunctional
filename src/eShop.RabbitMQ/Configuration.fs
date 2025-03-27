@@ -14,6 +14,6 @@ let DeadLetterExchangeName = "eshop_event_bus_dlx"
 let DeadLetterQueueName = "eshop_event_bus_dlq"
 
 [<CLIMutable>]
-type RabbitMqOptions =
+type RabbitMQOptions =
     { SubscriptionClientName: string
       RetryCount: int }

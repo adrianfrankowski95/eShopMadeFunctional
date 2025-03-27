@@ -54,7 +54,7 @@ module Consumed =
             eventName, (unionCaseType, caseInfo))
         |> Map.ofArray
 
-    let eventNames = nameTypeMap |> Map.keys |> Set.ofSeq
+    let names = nameTypeMap |> Map.keys |> Set.ofSeq
 
     let deserialize (jsonOptions: JsonSerializerOptions) (eventName: RabbitMQ.EventName) (json: string) =
         let deserialize targetType =
@@ -66,7 +66,7 @@ module Consumed =
         fun () -> nameTypeMap |> Map.find eventName |> Tuple.mapFst deserialize |> createUnion
         |> Result.catch
 
-    let getOrderAggregateId (integrationEvent: T) =
+    let getOrderId (integrationEvent: T) =
         match integrationEvent with
         | GracePeriodConfirmed ev -> ev.OrderId
         | OrderStockConfirmed ev -> ev.OrderId
@@ -214,8 +214,9 @@ module Published =
         |> Result.catch
 
     let getEventName (integrationEvent: T) =
-        match FSharpValue.GetUnionFields(integrationEvent, typeof<T>) with
-        | case, _ -> case.Name
+        FSharpValue.GetUnionFields(integrationEvent, typeof<T>)
+        |> fst
+        |> _.Name
         |> createEventName
 
 type Published = Published.T

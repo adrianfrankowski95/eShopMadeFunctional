@@ -846,7 +846,7 @@ type PersistOrderEvents = OrderManagementPort.PersistOrderEvents<Postgres.EventI
 let persistOrderEvents dbSchema dbTransaction : PersistOrderEvents =
     Postgres.persistEvents Dto.Event.ofDomain dbSchema dbTransaction
 
-type ReadUnprocessedOrderEvents = OrderManagementPort.ReadUnprocessedOrderEvents<Postgres.EventId, SqlIoError>
+type ReadUnprocessedOrderEvents = ReadUnprocessedEvents<Order.State, Postgres.EventId, Order.Event, SqlIoError>
 
 let readUnprocessedOrderEvents dbSchema sqlSession : ReadUnprocessedOrderEvents =
     Postgres.readUnprocessedEvents Dto.Event.toDomain dbSchema sqlSession

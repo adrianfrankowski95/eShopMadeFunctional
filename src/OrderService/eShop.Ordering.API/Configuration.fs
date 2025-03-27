@@ -8,7 +8,9 @@ open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Hosting
 open Microsoft.Extensions.Configuration
 open Microsoft.Extensions.DependencyInjection
+open eShop.DomainDrivenDesign
 open eShop.Ordering.Adapters.RabbitMQ
+open eShop.Ordering.Domain.Model
 open eShop.Postgres
 open eShop.Postgres.DependencyInjection
 open eShop.ServiceDefaults
@@ -17,7 +19,6 @@ open eShop.Ordering.API.WebApp
 open System.Text.Json.Serialization
 open FSharp.Data.LiteralProviders
 open eShop.RabbitMQ.DependencyInjection
-open eShop.RabbitMQ
 open FsToolkit.ErrorHandling
 
 let private dbScripts =
@@ -42,6 +43,20 @@ let private configurePostgres (config: IConfiguration) (env: IWebHostEnvironment
 
     services.AddPostgres connectionString schema dbScripts env
 
+let private configureRabbitMQ (services: IServiceCollection) =
+    services.RegisterRabbitMQConsumer(
+        IntegrationEvent.Consumed.names,
+        IntegrationEvent.Consumed.getOrderId,
+        IntegrationEvent.Consumed.deserialize,
+        fun _ ->
+            let persistEvent: PersistEvents<_, _, _, _> =
+                fun _ events -> events |> List.mapi (fun i ev -> i, ev) |> AsyncResult.ok
+
+            let processEvent: PublishEvents<_, _, _, _> = fun _ _ -> AsyncResult.ok ()
+
+            persistEvent, processEvent
+    )
+
 let private configureSerialization (services: IServiceCollection) =
     JsonFSharpOptions.Default().ToJsonSerializerOptions() |> services.AddSingleton
 
@@ -55,6 +70,7 @@ let private configureServices (config: IConfiguration) (env: IWebHostEnvironment
     services.AddProblemDetails().AddGiraffe()
     |> configureSerialization
     |> configurePostgres config env
+    |> configureRabbitMQ
     |> ignore
 
 let configureBuilder (builder: WebApplicationBuilder) =
@@ -70,6 +86,5 @@ let configureBuilder (builder: WebApplicationBuilder) =
 let configureApp (app: WebApplication) =
     app.MapDefaultEndpoints().UseAuthorization() |> ignore
     app.UseGiraffe webApp
-    app.UseRabbitMQ
-    
+
     app

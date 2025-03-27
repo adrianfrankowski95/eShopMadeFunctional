@@ -14,9 +14,6 @@ type PersistOrderEvents<'eventId, 'ioError> = PersistEvents<Order.State, 'eventI
 
 type PublishOrderEvents<'eventId, 'ioError> = PublishEvents<Order.State, 'eventId, Order.Event, 'ioError>
 
-type ReadUnprocessedOrderEvents<'eventId, 'ioError> =
-    ReadUnprocessedEvents<Order.State, 'eventId, Order.Event, 'ioError>
-
 type GetSupportedCardTypes<'ioError> = unit -> AsyncResult<SupportedCardTypes, 'ioError>
 
 type InvalidPaymentMethodError = InvalidPaymentMethodError

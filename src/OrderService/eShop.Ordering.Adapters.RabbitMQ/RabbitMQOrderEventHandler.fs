@@ -10,9 +10,9 @@ type RabbitMQOrderEventHandler<'eventId> = EventHandler<Order.State, 'eventId, O
 [<RequireQualifiedAccess>]
 module RabbitMQOrderEventHandler =
     let create
-        (eventDispatcher: RabbitMQEventDispatcher<'eventId, IntegrationEvent.Published>)
+        (dispatchEvent: RabbitMQEventDispatcher<'eventId, IntegrationEvent.Published>)
         : RabbitMQOrderEventHandler<'eventId> =
         fun aggregateId eventId event ->
             event
             |> Event.mapData (event.Data |> IntegrationEvent.Published.ofDomain aggregateId)
-            |> eventDispatcher eventId
+            |> dispatchEvent eventId

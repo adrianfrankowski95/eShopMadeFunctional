@@ -3,8 +3,8 @@ module eShop.Ordering.API.Program
 open Microsoft.AspNetCore.Builder
 
 [<EntryPoint>]
-let main _ =
-    let builder = WebApplication.CreateBuilder() |> Configuration.configureBuilder
+let main args =
+    let builder = WebApplication.CreateBuilder(args) |> Configuration.configureBuilder
 
     let app = builder.Build() |> Configuration.configureApp
 
