@@ -1,23 +1,22 @@
 ﻿[<RequireQualifiedAccess>]
-module eShop.Ordering.Adapters.Postgres.PostgresOrderIntegrationEventsManagementAdapter
+module eShop.Ordering.Adapters.Postgres.PostgresOrderIntegrationEventManagementAdapter
 
 open eShop.Ordering.Domain.Model
-open eShop.Ordering.Domain.Ports
 open eShop.DomainDrivenDesign
 open eShop.DomainDrivenDesign.Postgres
 open eShop.Postgres
+open eShop.Ordering.Adapters.Common
 
-type PersistOrderIntegrationEvents<'eventPayload> =
-    PersistEvents<Order.State, Postgres.EventId, 'eventPayload, SqlIoError>
+type PersistOrderIntegrationEvents = PersistEvents<OrderAggregate.State, Postgres.EventId, IntegrationEvent.Consumed, SqlIoError>
 
-let persistOrderIntegrationEvents dbSchema dbTransaction : PersistOrderIntegrationEvents<_> =
+let persistOrderIntegrationEvents dbSchema dbTransaction : PersistOrderIntegrationEvents =
     Postgres.persistEvents id dbSchema dbTransaction
 
-type ReadUnprocessedOrderIntegrationEvents<'eventPayload> =
-    ReadUnprocessedEvents<Order.State, Postgres.EventId, 'eventPayload, SqlIoError>
+type ReadUnprocessedOrderIntegrationEvents =
+    ReadUnprocessedEvents<OrderAggregate.State, Postgres.EventId, IntegrationEvent.Consumed, SqlIoError>
 
-let readUnprocessedOrderIntegrationEvents dbSchema sqlSession : ReadUnprocessedOrderIntegrationEvents<_> =
+let readUnprocessedOrderIntegrationEvents dbSchema sqlSession : ReadUnprocessedOrderIntegrationEvents =
     Postgres.readUnprocessedEvents id dbSchema sqlSession
 
-type OrderIntegrationEventsProcessor<'eventPayload, 'eventHandlerIoError> =
-    EventsProcessor<Order.State, Postgres.EventId, 'eventPayload, SqlIoError, 'eventHandlerIoError>
+type OrderIntegrationEventsProcessor<'eventHandlerIoError> =
+    EventsProcessor<OrderAggregate.State, Postgres.EventId, IntegrationEvent.Consumed, SqlIoError, 'eventHandlerIoError>

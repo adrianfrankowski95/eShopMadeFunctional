@@ -7,7 +7,7 @@ namespace eShop.ServiceDefaults;
 
 public static class AuthenticationExtensions
 {
-    public static IServiceCollection AddDefaultAuthentication(this IHostApplicationBuilder builder)
+    public static IHostApplicationBuilder AddDefaultAuthentication(this IHostApplicationBuilder builder)
     {
         var services = builder.Services;
         var configuration = builder.Configuration;
@@ -24,7 +24,7 @@ public static class AuthenticationExtensions
         if (!identitySection.Exists())
         {
             // No identity section, so no authentication
-            return services;
+            return builder;
         }
 
         // prevent from mapping "sub" claim to nameidentifier.
@@ -51,6 +51,6 @@ public static class AuthenticationExtensions
 
         services.AddAuthorization();
 
-        return services;
+        return builder;
     }
 }

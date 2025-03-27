@@ -8,12 +8,12 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="RabbitMQOrderEventHandler.fs" />
+        <Compile Include="RabbitMQOrderAggregateEventHandler.fs" />
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\..\..\eShop.Ordering.Adapters.Common\eShop.Ordering.Adapters.Common.fsproj" />
         <ProjectReference Include="..\..\eShop.RabbitMQ\eShop.RabbitMQ.fsproj"/>
+        <ProjectReference Include="..\eShop.Ordering.Adapters.Common\eShop.Ordering.Adapters.Common.fsproj" />
         <ProjectReference Include="..\eShop.Ordering.Domain\eShop.Ordering.Domain.fsproj" />
     </ItemGroup>
     

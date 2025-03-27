@@ -1,5 +1,5 @@
 ﻿[<RequireQualifiedAccess>]
-module eShop.Ordering.Adapters.RabbitMQ.IntegrationEvent
+module eShop.Ordering.Adapters.Common.IntegrationEvent
 
 open System.Text.Json
 open Microsoft.FSharp.Reflection
@@ -51,7 +51,7 @@ module Consumed =
             let eventName = caseInfo.Name |> forceEventName
             let unionCaseType = caseInfo.GetFields() |> Array.head |> _.PropertyType
 
-            eventName, (unionCaseType, caseInfo))
+            eventName, (caseInfo, unionCaseType))
         |> Map.ofArray
 
     let names = nameTypeMap |> Map.keys |> Set.ofSeq
@@ -60,10 +60,10 @@ module Consumed =
         let deserialize targetType =
             JsonSerializer.Deserialize(json, targetType, jsonOptions)
 
-        let createUnion (data, targetUnionCase) =
+        let createUnion (targetUnionCase, data) =
             FSharpValue.MakeUnion(targetUnionCase, [| data |]) :?> T
 
-        fun () -> nameTypeMap |> Map.find eventName |> Tuple.mapFst deserialize |> createUnion
+        fun () -> nameTypeMap |> Map.find eventName |> Tuple.mapSnd deserialize |> createUnion
         |> Result.catch
 
     let getOrderId (integrationEvent: T) =
@@ -73,7 +73,7 @@ module Consumed =
         | OrderStockRejected ev -> ev.OrderId
         | OrderPaymentFailed ev -> ev.OrderId
         | OrderPaymentSucceeded ev -> ev.OrderId
-        |> AggregateId.ofInt<Order.State>
+        |> AggregateId.ofInt<OrderAggregate.State>
 
 type Consumed = Consumed.T
 
@@ -135,30 +135,30 @@ module Published =
         | OrderStatusChangedToStockConfirmed of OrderStatusChangedToStockConfirmed
         | OrderStatusChangedToSubmitted of OrderStatusChangedToSubmitted
 
-    let ofDomain (AggregateId aggregateId) (domainEvent: Order.Event) =
+    let ofDomain (AggregateId aggregateId) (domainEvent: OrderAggregate.Event) =
         match domainEvent with
-        | Order.Event.OrderStarted ev ->
+        | OrderAggregate.Event.OrderStarted ev ->
             ({ OrderId = aggregateId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString }
             : OrderStatusChangedToStarted)
             |> T.OrderStatusChangedToStarted
 
-        | Order.Event.PaymentMethodVerified ev ->
+        | OrderAggregate.Event.PaymentMethodVerified ev ->
             ({ OrderId = aggregateId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString }
             : OrderStatusChangedToSubmitted)
             |> T.OrderStatusChangedToSubmitted
 
-        | Order.Event.OrderCancelled ev ->
+        | OrderAggregate.Event.OrderCancelled ev ->
             ({ OrderId = aggregateId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString }
             : OrderStatusChangedToCancelled)
             |> T.OrderStatusChangedToCancelled
 
-        | Order.Event.OrderStatusChangedToAwaitingValidation ev ->
+        | OrderAggregate.Event.OrderStatusChangedToAwaitingValidation ev ->
             ({ OrderId = aggregateId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString
@@ -171,14 +171,14 @@ module Published =
             : OrderStatusChangedToAwaitingValidation)
             |> T.OrderStatusChangedToAwaitingValidation
 
-        | Order.Event.OrderStockConfirmed ev ->
+        | OrderAggregate.Event.OrderStockConfirmed ev ->
             ({ OrderId = aggregateId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString }
             : OrderStatusChangedToStockConfirmed)
             |> T.OrderStatusChangedToStockConfirmed
 
-        | Order.Event.OrderPaid ev ->
+        | OrderAggregate.Event.OrderPaid ev ->
             ({ OrderId = aggregateId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString
@@ -191,7 +191,7 @@ module Published =
             : OrderStatusChangedToPaid)
             |> T.OrderStatusChangedToPaid
 
-        | Order.Event.OrderShipped ev ->
+        | OrderAggregate.Event.OrderShipped ev ->
             ({ OrderId = aggregateId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString }

@@ -9,18 +9,18 @@ open eShop.Prelude
 module RejectOrderItemsStockWorkflow =
     type T<'ioError> =
         ExecutableWorkflow<
-            Order.Command.SetStockRejectedOrderStatus,
-            Order.State,
-            Order.Event,
-            Order.InvalidStateError,
+            OrderAggregate.Command.SetStockRejectedOrderStatus,
+            OrderAggregate.State,
+            OrderAggregate.Event,
+            OrderAggregate.InvalidStateError,
             'ioError
          >
 
     let build: T<'ioError> =
         fun _ state command ->
             command
-            |> Order.Command.SetStockRejectedOrderStatus
-            |> Order.State.evolve state
+            |> OrderAggregate.Command.SetStockRejectedOrderStatus
+            |> OrderAggregate.State.evolve state
             |> Result.mapError Left
             |> AsyncResult.ofResult
 

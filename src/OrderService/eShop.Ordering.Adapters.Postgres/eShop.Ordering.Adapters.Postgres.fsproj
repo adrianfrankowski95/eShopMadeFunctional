@@ -8,8 +8,8 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="PostgresOrderAggregateManagementAdapter.fs" />
         <Compile Include="PostgresOrderIntegrationEventManagementAdapter.fs" />
-        <Compile Include="PostgresOrderManagementAdapter.fs" />
     </ItemGroup>
 
     <ItemGroup>
@@ -17,9 +17,9 @@
     </ItemGroup>
     
     <ItemGroup>
-        <ProjectReference Include="..\..\..\eShop.Ordering.Adapters.Common\eShop.Ordering.Adapters.Common.fsproj" />
         <ProjectReference Include="..\..\eShop.DomainDrivenDesign.Postgres\eShop.DomainDrivenDesign.Postgres.fsproj" />
         <ProjectReference Include="..\..\eShop.Postgres\eShop.Postgres.fsproj"/>
+        <ProjectReference Include="..\eShop.Ordering.Adapters.Common\eShop.Ordering.Adapters.Common.fsproj" />
         <ProjectReference Include="..\eShop.Ordering.Domain\eShop.Ordering.Domain.fsproj" />
     </ItemGroup>
 

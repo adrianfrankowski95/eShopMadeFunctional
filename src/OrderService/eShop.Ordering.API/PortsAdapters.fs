@@ -2,7 +2,9 @@
 
 open System.Data.Common
 open FsToolkit.ErrorHandling
+open Microsoft.Extensions.Options
 open eShop.DomainDrivenDesign
+open eShop.Ordering.Adapters.Common
 open eShop.Ordering.Domain.Model
 open eShop.Ordering.Domain.Ports
 open eShop.Postgres
@@ -10,22 +12,22 @@ open eShop.DomainDrivenDesign.Postgres
 open eShop.Ordering.Adapters.Postgres
 open eShop.Prelude.Operators
 open eShop.RabbitMQ
-open eShop.Ordering.Adapters.RabbitMQ
 
 type ISqlOrderEventsProcessorPort<'eventId, 'eventPayload> =
     abstract member ReadUnprocessedOrderEvents:
-        SqlSession -> ReadUnprocessedEvents<Order.State, 'eventId, 'eventPayload, SqlIoError>
+        SqlSession -> ReadUnprocessedEvents<OrderAggregate.State, 'eventId, 'eventPayload, SqlIoError>
 
     abstract member PersistSuccessfulEventHandlers: SqlSession -> PersistSuccessfulEventHandlers<'eventId, SqlIoError>
 
     abstract member MarkEventAsProcessed: SqlSession -> MarkEventAsProcessed<'eventId, SqlIoError>
 
-type IPostgresOrderAggregateEventsProcessorPort = ISqlOrderEventsProcessorPort<Postgres.EventId, Order.Event>
+type IPostgresOrderAggregateEventsProcessorAdapter =
+    ISqlOrderEventsProcessorPort<Postgres.EventId, OrderAggregate.Event>
 
 type PostgresOrderAggregateEventsProcessorAdapter(dbSchema: DbSchema, getNow: GetUtcNow) =
-    interface IPostgresOrderAggregateEventsProcessorPort with
+    interface IPostgresOrderAggregateEventsProcessorAdapter with
         member this.ReadUnprocessedOrderEvents(sqlSession) =
-            PostgresOrderManagementAdapter.readUnprocessedOrderEvents dbSchema sqlSession
+            PostgresOrderAggregateManagementAdapter.readUnprocessedOrderAggregateEvents dbSchema sqlSession
 
         member this.PersistSuccessfulEventHandlers(sqlSession) =
             Postgres.persistSuccessfulEventHandlers dbSchema sqlSession
@@ -33,60 +35,96 @@ type PostgresOrderAggregateEventsProcessorAdapter(dbSchema: DbSchema, getNow: Ge
         member this.MarkEventAsProcessed(sqlSession) =
             Postgres.markEventAsProcessed dbSchema sqlSession getNow
 
-type IPostgresOrderIntegrationEventsProcessorPort = ISqlOrderEventsProcessorPort<Postgres.EventId, IntegrationEvent.Consumed>
+type IPostgresOrderIntegrationEventsProcessorAdapter =
+    inherit ISqlOrderEventsProcessorPort<Postgres.EventId, IntegrationEvent.Consumed>
+
+    abstract member PersistOrderIntegrationEvents:
+        DbTransaction -> PostgresOrderIntegrationEventManagementAdapter.PersistOrderIntegrationEvents
 
 type PostgresOrderIntegrationEventsProcessorAdapter(dbSchema: DbSchema, getNow: GetUtcNow) =
-    interface IPostgresOrderIntegrationEventsProcessorPort with
+    interface IPostgresOrderIntegrationEventsProcessorAdapter with
         member this.ReadUnprocessedOrderEvents(sqlSession) =
-            PostgresOrderManagementAdapter.readUnprocessedOrderEvents dbSchema sqlSession
+            PostgresOrderIntegrationEventManagementAdapter.readUnprocessedOrderIntegrationEvents dbSchema sqlSession
 
         member this.PersistSuccessfulEventHandlers(sqlSession) =
             Postgres.persistSuccessfulEventHandlers dbSchema sqlSession
 
         member this.MarkEventAsProcessed(sqlSession) =
             Postgres.markEventAsProcessed dbSchema sqlSession getNow
-//
-// type ISqlOrderManagementPort<'eventId> =
-//     abstract member ReadOrderAggregate: SqlSession -> OrderManagementPort.ReadOrderAggregate<SqlIoError>
-//     abstract member PersistOrderAggregate: DbTransaction -> OrderManagementPort.PersistOrderAggregate<SqlIoError>
-//     abstract member PersistOrderEvents: DbTransaction -> OrderManagementPort.PersistOrderEvents<'eventId, SqlIoError>
-//
-//     abstract member PublishOrderEvents: OrderManagementPort.PublishOrderEvents<'eventId, SqlIoError>
-//
-//     abstract member ReadUnprocessedOrderEvents:
-//         SqlSession -> OrderManagementPort.ReadUnprocessedOrderEvents<'eventId, SqlIoError>
-//
-//     abstract member GetSupportedCardTypes: SqlSession -> OrderManagementPort.GetSupportedCardTypes<SqlIoError>
-//
-// type IPostgresOrderManagementAdapter = ISqlOrderManagementPort<Postgres.EventId>
-//
-// type PostgresRabbitMQOrderManagementAdapter
-//     (dbSchema: DbSchema, eventsProcessor: PostgresOrderManagementAdapter.OrderEventsProcessor<RabbitMQIoError>) =
-//     interface IPostgresOrderManagementAdapter with
-//         member this.ReadOrderAggregate(sqlSession) =
-//             PostgresOrderManagementAdapter.readOrderAggregate dbSchema sqlSession
-//
-//         member this.PersistOrderAggregate(dbTransaction) =
-//             PostgresOrderManagementAdapter.persistOrderAggregate dbSchema dbTransaction
-//
-//         member this.PersistOrderEvents(dbTransaction) =
-//             PostgresOrderManagementAdapter.persistOrderEvents dbSchema dbTransaction
-//
-//         member this.ReadUnprocessedOrderEvents(sqlSession) =
-//             PostgresOrderManagementAdapter.readUnprocessedOrderEvents dbSchema sqlSession
-//
-//         member this.GetSupportedCardTypes(sqlSession) =
-//             PostgresOrderManagementAdapter.getSupportedCardTypes dbSchema sqlSession
-//
-//         member this.PublishOrderEvents = eventsProcessor.Process >>> AsyncResult.ok
-//
-//
-// type ISqlOrderIntegrationEventManagementPort<'eventId> =
-//     abstract member PersistOrderIntegrationEvents:
-//         DbTransaction -> PersistEvents<Order.State, 'eventId, IntegrationEvent.Consumed, SqlIoError>
-//
-//     abstract member ProcessOrderIntegrationEvents:
-//         PublishEvents<Order.State, 'eventId, IntegrationEvent.Consumed, SqlIoError>
-//
-//     abstract member ReadUnprocessedOrderIntegrationEvents:
-//         SqlSession -> ReadUnprocessedEvents<Order.State, 'eventId, IntegrationEvent.Consumed, SqlIoError>
+
+        member this.PersistOrderIntegrationEvents(dbTransaction) =
+            PostgresOrderIntegrationEventManagementAdapter.persistOrderIntegrationEvents dbSchema dbTransaction
+
+type IntegrationEventsProcessor
+    (
+        deps: IPostgresOrderIntegrationEventsProcessorAdapter,
+        config: IOptions<Configuration.RabbitMQOptions>,
+        dbConnection: DbConnection
+    ) =
+    let sqlSession = dbConnection |> SqlSession.Standalone
+
+    member this.Get =
+        EventsProcessor.init
+        |> EventsProcessor.withRetries (System.TimeSpan.FromSeconds(2: float) |> List.replicate config.Value.RetryCount)
+        |> EventsProcessor.registerHandler
+            "Dummy Handler"
+            ((fun _ _ _ -> AsyncResult.ok ()): EventHandler<_, _, _, RabbitMQIoError>)
+        |> EventsProcessor.build
+            (deps.ReadUnprocessedOrderEvents(sqlSession))
+            (deps.PersistSuccessfulEventHandlers(sqlSession))
+            (deps.MarkEventAsProcessed(sqlSession))
+
+type AggregateEventsProcessor
+    (
+        deps: IPostgresOrderAggregateEventsProcessorAdapter,
+        config: IOptions<Configuration.RabbitMQOptions>,
+        dbConnection: DbConnection
+    ) =
+    let sqlSession = dbConnection |> SqlSession.Standalone
+
+    member this.Get =
+        EventsProcessor.init
+        |> EventsProcessor.withRetries (System.TimeSpan.FromSeconds(2: float) |> List.replicate config.Value.RetryCount)
+        |> EventsProcessor.registerHandler
+            "Dummy Handler"
+            ((fun _ _ _ -> AsyncResult.ok ()): EventHandler<_, _, _, RabbitMQIoError>)
+        |> EventsProcessor.build
+            (deps.ReadUnprocessedOrderEvents(sqlSession))
+            (deps.PersistSuccessfulEventHandlers(sqlSession))
+            (deps.MarkEventAsProcessed(sqlSession))
+
+type ISqlOrderAggregateManagementPort<'eventId> =
+    abstract member ReadOrderAggregate: SqlSession -> OrderAggregateManagementPort.ReadOrderAggregate<SqlIoError>
+
+    abstract member PersistOrderAggregate:
+        DbTransaction -> OrderAggregateManagementPort.PersistOrderAggregate<SqlIoError>
+
+    abstract member PersistOrderAggregateEvents:
+        DbTransaction -> OrderAggregateManagementPort.PersistOrderAggregateEvents<'eventId, SqlIoError>
+
+    abstract member PublishOrderAggregateEvents:
+        OrderAggregateManagementPort.PublishOrderAggregateEvents<'eventId, SqlIoError>
+
+    abstract member GetSupportedCardTypes: SqlSession -> OrderAggregateManagementPort.GetSupportedCardTypes<SqlIoError>
+
+type IPostgresOrderAggregateManagementAdapter = ISqlOrderAggregateManagementPort<Postgres.EventId>
+
+type PostgresOrderAggregateManagementAdapter
+    (
+        dbSchema: DbSchema,
+        eventsProcessor: PostgresOrderAggregateManagementAdapter.OrderAggregateEventsProcessor<RabbitMQIoError>
+    ) =
+    interface IPostgresOrderAggregateManagementAdapter with
+        member this.ReadOrderAggregate(sqlSession) =
+            PostgresOrderAggregateManagementAdapter.readOrderAggregate dbSchema sqlSession
+
+        member this.PersistOrderAggregate(dbTransaction) =
+            PostgresOrderAggregateManagementAdapter.persistOrderAggregate dbSchema dbTransaction
+
+        member this.PersistOrderAggregateEvents(dbTransaction) =
+            PostgresOrderAggregateManagementAdapter.persistOrderAggregateEvents dbSchema dbTransaction
+
+        member this.GetSupportedCardTypes(sqlSession) =
+            PostgresOrderAggregateManagementAdapter.getSupportedCardTypes dbSchema sqlSession
+
+        member this.PublishOrderAggregateEvents = eventsProcessor.Process >>> AsyncResult.ok

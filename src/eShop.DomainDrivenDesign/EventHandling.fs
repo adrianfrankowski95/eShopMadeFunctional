@@ -232,7 +232,7 @@ module EventsProcessor =
         (markEventAsProcessed: MarkEventAsProcessed<'eventId, 'eventLogIoError>)
         (options: EventsProcessorOptions<'state, 'eventId, 'eventPayload, 'eventHandlingIoError>)
         =
-        new T<_, _, _, _, _>(readUnprocessedEvents, persistSuccessfulHandlers, markEventAsProcessed, options)
+            new T<_, _, _, _, _>(readUnprocessedEvents, persistSuccessfulHandlers, markEventAsProcessed, options)
 
 type EventsProcessor<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError> =
     EventsProcessor.T<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>

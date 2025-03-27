@@ -1,17 +1,18 @@
 ﻿namespace eShop.Ordering.Adapters
 
 open eShop.DomainDrivenDesign
-open eShop.Ordering.Adapters.RabbitMQ
+open eShop.Ordering.Adapters.Common
 open eShop.Ordering.Domain.Model
 open eShop.RabbitMQ
 
-type RabbitMQOrderEventHandler<'eventId> = EventHandler<Order.State, 'eventId, Order.Event, RabbitMQIoError>
+type RabbitMQOrderAggregateEventHandler<'eventId> =
+    EventHandler<OrderAggregate.State, 'eventId, OrderAggregate.Event, RabbitMQIoError>
 
 [<RequireQualifiedAccess>]
-module RabbitMQOrderEventHandler =
+module RabbitMQOrderAggregateEventHandler =
     let create
         (dispatchEvent: RabbitMQEventDispatcher<'eventId, IntegrationEvent.Published>)
-        : RabbitMQOrderEventHandler<'eventId> =
+        : RabbitMQOrderAggregateEventHandler<'eventId> =
         fun aggregateId eventId event ->
             event
             |> Event.mapData (event.Data |> IntegrationEvent.Published.ofDomain aggregateId)

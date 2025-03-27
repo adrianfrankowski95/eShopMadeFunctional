@@ -1,5 +1,5 @@
 ﻿[<RequireQualifiedAccess>]
-module eShop.Ordering.Adapters.Postgres.PostgresOrderManagementAdapter
+module eShop.Ordering.Adapters.Postgres.PostgresOrderAggregateManagementAdapter
 
 open System
 open FsToolkit.ErrorHandling
@@ -41,13 +41,13 @@ module internal Dto =
 
         let ofOrder =
             function
-            | Order.State.Init -> None
-            | Order.State.Draft _ -> OrderStatus.Draft |> Some
-            | Order.State.AwaitingStockValidation _ -> OrderStatus.AwaitingStockValidation |> Some
-            | Order.State.WithConfirmedStock _ -> OrderStatus.StockConfirmed |> Some
-            | Order.State.Paid _ -> OrderStatus.Paid |> Some
-            | Order.State.Shipped _ -> OrderStatus.Shipped |> Some
-            | Order.State.Cancelled _ -> OrderStatus.Cancelled |> Some
+            | OrderAggregate.State.Init -> None
+            | OrderAggregate.State.Draft _ -> OrderStatus.Draft |> Some
+            | OrderAggregate.State.AwaitingStockValidation _ -> OrderStatus.AwaitingStockValidation |> Some
+            | OrderAggregate.State.WithConfirmedStock _ -> OrderStatus.StockConfirmed |> Some
+            | OrderAggregate.State.Paid _ -> OrderStatus.Paid |> Some
+            | OrderAggregate.State.Shipped _ -> OrderStatus.Shipped |> Some
+            | OrderAggregate.State.Cancelled _ -> OrderStatus.Cancelled |> Some
 
     [<CLIMutable>]
     type CardType = { Id: int; Name: string }
@@ -197,7 +197,7 @@ module internal Dto =
                    Name = buyerName }
                 : Buyer))
 
-        let toDomain (maybeOrder: (int * Order seq) option) : Result<Order.State, string> =
+        let toDomain (maybeOrder: (int * Order seq) option) : Result<OrderAggregate.State, string> =
             maybeOrder
             |> Option.map (fun (_, orders) ->
                 let orderDto = orders |> Seq.head
@@ -217,8 +217,8 @@ module internal Dto =
                             >> fun items ->
                                 ({ BuyerId = buyerId
                                    UnvalidatedOrderItems = items }
-                                : Order.State.Draft)
-                                |> Order.State.Draft
+                                : OrderAggregate.State.Draft)
+                                |> OrderAggregate.State.Draft
                         )
                     | AwaitingStockValidation ->
                         validation {
@@ -243,8 +243,8 @@ module internal Dto =
                                    Address = address
                                    StartedAt = startedAt
                                    UnconfirmedOrderItems = orderItems }
-                                : Order.State.AwaitingStockValidation)
-                                |> Order.State.AwaitingStockValidation
+                                : OrderAggregate.State.AwaitingStockValidation)
+                                |> OrderAggregate.State.AwaitingStockValidation
                         }
                     | StockConfirmed ->
                         validation {
@@ -269,8 +269,8 @@ module internal Dto =
                                    Address = address
                                    StartedAt = startedAt
                                    ConfirmedOrderItems = orderItems }
-                                : Order.State.WithConfirmedStock)
-                                |> Order.State.WithConfirmedStock
+                                : OrderAggregate.State.WithConfirmedStock)
+                                |> OrderAggregate.State.WithConfirmedStock
                         }
                     | Paid ->
                         validation {
@@ -295,8 +295,8 @@ module internal Dto =
                                    Address = address
                                    StartedAt = startedAt
                                    PaidOrderItems = orderItems }
-                                : Order.State.Paid)
-                                |> Order.State.Paid
+                                : OrderAggregate.State.Paid)
+                                |> OrderAggregate.State.Paid
                         }
                     | Shipped ->
                         validation {
@@ -321,8 +321,8 @@ module internal Dto =
                                    Address = address
                                    StartedAt = startedAt
                                    ShippedOrderItems = orderItems }
-                                : Order.State.Shipped)
-                                |> Order.State.Shipped
+                                : OrderAggregate.State.Shipped)
+                                |> OrderAggregate.State.Shipped
                         }
                     | Cancelled ->
                         validation {
@@ -345,10 +345,10 @@ module internal Dto =
                                    Address = address
                                    StartedAt = startedAt
                                    CancelledOrderItems = orderItems }
-                                : Order.State.Cancelled)
-                                |> Order.State.Cancelled
+                                : OrderAggregate.State.Cancelled)
+                                |> OrderAggregate.State.Cancelled
                         }))
-            |> Option.defaultValue (Order.State.Init |> Ok)
+            |> Option.defaultValue (OrderAggregate.State.Init |> Ok)
             |> Result.mapError (String.concat "; ")
 
     type OrderItem =
@@ -404,14 +404,14 @@ module internal Dto =
         | OrderShipped of OrderShippedEvent
 
     module Event =
-        let ofDomain (event: Order.Event) : Event =
+        let ofDomain (event: OrderAggregate.Event) : Event =
             match event with
-            | Order.Event.OrderStarted ev ->
+            | OrderAggregate.Event.OrderStarted ev ->
                 ({ BuyerId = ev.Buyer.Id |> BuyerId.value
                    BuyerName = ev.Buyer.Name |> BuyerName.value }
                 : OrderStartedEvent)
                 |> Event.OrderStarted
-            | Order.Event.PaymentMethodVerified ev ->
+            | OrderAggregate.Event.PaymentMethodVerified ev ->
                 { BuyerId = ev.Buyer.Id |> BuyerId.value
                   BuyerName = ev.Buyer.Name |> BuyerName.value
                   CardTypeId = ev.VerifiedPaymentMethod.CardType.Id |> CardTypeId.value
@@ -420,12 +420,12 @@ module internal Dto =
                   CardHolderName = ev.VerifiedPaymentMethod.CardHolderName |> CardHolderName.value
                   CardExpiration = ev.VerifiedPaymentMethod.CardExpiration }
                 |> Event.PaymentMethodVerified
-            | Order.Event.OrderCancelled ev ->
+            | OrderAggregate.Event.OrderCancelled ev ->
                 ({ BuyerId = ev.Buyer.Id |> BuyerId.value
                    BuyerName = ev.Buyer.Name |> BuyerName.value }
                 : OrderCancelledEvent)
                 |> Event.OrderCancelled
-            | Order.Event.OrderStatusChangedToAwaitingValidation ev ->
+            | OrderAggregate.Event.OrderStatusChangedToAwaitingValidation ev ->
                 ({ BuyerId = ev.Buyer.Id |> BuyerId.value
                    BuyerName = ev.Buyer.Name |> BuyerName.value
                    StockToValidate =
@@ -436,7 +436,7 @@ module internal Dto =
                            ProductId = id |> ProductId.value }) }
                 : OrderStatusChangedToAwaitingValidationEvent)
                 |> Event.OrderStatusChangedToAwaitingValidation
-            | Order.Event.OrderStockConfirmed ev ->
+            | OrderAggregate.Event.OrderStockConfirmed ev ->
                 ({ BuyerId = ev.Buyer.Id |> BuyerId.value
                    BuyerName = ev.Buyer.Name |> BuyerName.value
                    ConfirmedOrderItems =
@@ -451,7 +451,7 @@ module internal Dto =
                            UnitPrice = orderItem.UnitPrice |> UnitPrice.value }) }
                 : OrderStockConfirmedEvent)
                 |> Event.OrderStockConfirmed
-            | Order.Event.OrderPaid ev ->
+            | OrderAggregate.Event.OrderPaid ev ->
                 ({ BuyerId = ev.Buyer.Id |> BuyerId.value
                    BuyerName = ev.Buyer.Name |> BuyerName.value
                    PaidOrderItems =
@@ -466,7 +466,7 @@ module internal Dto =
                            UnitPrice = orderItem.UnitPrice |> UnitPrice.value }) }
                 : OrderPaidEvent)
                 |> Event.OrderPaid
-            | Order.Event.OrderShipped ev ->
+            | OrderAggregate.Event.OrderShipped ev ->
                 ({ BuyerId = ev.Buyer.Id |> BuyerId.value
                    BuyerName = ev.Buyer.Name |> BuyerName.value
                    ShippedOrderItems =
@@ -482,7 +482,7 @@ module internal Dto =
                 : OrderShippedEvent)
                 |> Event.OrderShipped
 
-        let toDomain (dto: Event) : Result<Order.Event, string> =
+        let toDomain (dto: Event) : Result<OrderAggregate.Event, string> =
             match dto with
             | OrderStarted ev ->
                 ev.BuyerName
@@ -492,8 +492,8 @@ module internal Dto =
                     ({ Buyer =
                         { Id = ev.BuyerId |> BuyerId.ofGuid
                           Name = buyerName } }
-                    : Order.Event.OrderStarted)
-                    |> Order.Event.OrderStarted)
+                    : OrderAggregate.Event.OrderStarted)
+                    |> OrderAggregate.Event.OrderStarted)
             | PaymentMethodVerified ev ->
                 validation {
                     let buyerId = ev.BuyerId |> BuyerId.ofGuid
@@ -511,8 +511,8 @@ module internal Dto =
                                CardExpiration = ev.CardExpiration
                                CardNumber = cardNumber
                                CardHolderName = cardHolderName } }
-                        : Order.Event.PaymentMethodVerified)
-                        |> Order.Event.PaymentMethodVerified
+                        : OrderAggregate.Event.PaymentMethodVerified)
+                        |> OrderAggregate.Event.PaymentMethodVerified
                 }
             | OrderCancelled ev ->
                 validation {
@@ -521,8 +521,8 @@ module internal Dto =
                     let! buyerName = ev.BuyerName |> BuyerName.create
 
                     return
-                        ({ Buyer = { Id = buyerId; Name = buyerName } }: Order.Event.OrderCancelled)
-                        |> Order.Event.OrderCancelled
+                        ({ Buyer = { Id = buyerId; Name = buyerName } }: OrderAggregate.Event.OrderCancelled)
+                        |> OrderAggregate.Event.OrderCancelled
                 }
             | OrderStatusChangedToAwaitingValidation ev ->
                 validation {
@@ -544,8 +544,8 @@ module internal Dto =
                     return
                         ({ Buyer = { Id = buyerId; Name = buyerName }
                            StockToValidate = stockToValidate }
-                        : Order.Event.OrderStatusChangedToAwaitingValidation)
-                        |> Order.Event.OrderStatusChangedToAwaitingValidation
+                        : OrderAggregate.Event.OrderStatusChangedToAwaitingValidation)
+                        |> OrderAggregate.Event.OrderStatusChangedToAwaitingValidation
                 }
             | OrderStockConfirmed ev ->
                 validation {
@@ -580,8 +580,8 @@ module internal Dto =
                     return
                         ({ Buyer = { Id = buyerId; Name = buyerName }
                            ConfirmedOrderItems = orderItems }
-                        : Order.Event.OrderStockConfirmed)
-                        |> Order.Event.OrderStockConfirmed
+                        : OrderAggregate.Event.OrderStockConfirmed)
+                        |> OrderAggregate.Event.OrderStockConfirmed
                 }
             | OrderPaid ev ->
                 validation {
@@ -616,8 +616,8 @@ module internal Dto =
                     return
                         ({ Buyer = { Id = buyerId; Name = buyerName }
                            PaidOrderItems = orderItems }
-                        : Order.Event.OrderPaid)
-                        |> Order.Event.OrderPaid
+                        : OrderAggregate.Event.OrderPaid)
+                        |> OrderAggregate.Event.OrderPaid
                 }
             | OrderShipped ev ->
                 validation {
@@ -652,8 +652,8 @@ module internal Dto =
                     return
                         ({ Buyer = { Id = buyerId; Name = buyerName }
                            ShippedOrderItems = orderItems }
-                        : Order.Event.OrderShipped)
-                        |> Order.Event.OrderShipped
+                        : OrderAggregate.Event.OrderShipped)
+                        |> OrderAggregate.Event.OrderShipped
                 }
             |> Result.mapError (String.concat "; ")
 
@@ -737,7 +737,7 @@ module private Sql =
             "City" = EXCLUDED."City", "State" = EXCLUDED."State", "Country" = EXCLUDED."Country", "ZipCode" = EXCLUDED."ZipCode"
         """
 
-type ReadOrderAggregate = OrderManagementPort.ReadOrderAggregate<SqlIoError>
+type ReadOrderAggregate = OrderAggregateManagementPort.ReadOrderAggregate<SqlIoError>
 
 let readOrderAggregate dbSchema sqlSession : ReadOrderAggregate =
     fun (AggregateId aggregateId) ->
@@ -754,7 +754,7 @@ let readOrderAggregate dbSchema sqlSession : ReadOrderAggregate =
                 |> Result.bind (Dto.Order.toDomain >> Result.mapError InvalidData)
         }
 
-type PersistOrderAggregate = OrderManagementPort.PersistOrderAggregate<SqlIoError>
+type PersistOrderAggregate = OrderAggregateManagementPort.PersistOrderAggregate<SqlIoError>
 
 let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
     fun (AggregateId aggregateId) order ->
@@ -763,20 +763,20 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
 
             do!
                 order
-                |> Order.State.getBuyerId
+                |> OrderAggregate.State.getBuyerId
                 |> Option.map (fun buyerId ->
                     {| BuyerId = buyerId |> BuyerId.value
-                       BuyerName = order |> Order.State.getBuyerName |> Option.map BuyerName.value |> Option.toObj |}
+                       BuyerName = order |> OrderAggregate.State.getBuyerName |> Option.map BuyerName.value |> Option.toObj |}
                     |> Dapper.execute sqlSession (Sql.upsertBuyer dbSchema)
                     |> AsyncResult.ignore)
                 |> Option.defaultValue (AsyncResult.ok ())
 
             let! maybePaymentMethodId =
                 order
-                |> Order.State.getPaymentMethod
+                |> OrderAggregate.State.getPaymentMethod
                 |> Option.map (fun paymentMethod ->
                     order
-                    |> Order.State.getBuyerId
+                    |> OrderAggregate.State.getBuyerId
                     |> Result.requireSome ("Missing BuyerId for existing Payment Method" |> InvalidData)
                     |> AsyncResult.ofResult
                     |> AsyncResult.bind (fun buyerId ->
@@ -793,13 +793,13 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                 order
                 |> Dto.OrderStatus.ofOrder
                 |> Option.map (fun status ->
-                    let maybeAddress = order |> Order.State.getAddress
+                    let maybeAddress = order |> OrderAggregate.State.getAddress
 
                     {| Id = aggregateId
-                       BuyerId = order |> Order.State.getBuyerId |> Option.map BuyerId.value |> Option.toNullable
+                       BuyerId = order |> OrderAggregate.State.getBuyerId |> Option.map BuyerId.value |> Option.toNullable
                        PaymentMethodId = maybePaymentMethodId |> Option.toNullable
                        Status = status |> Dto.OrderStatus.toString
-                       StartedAt = order |> Order.State.getStartedAt |> Option.toNullable
+                       StartedAt = order |> OrderAggregate.State.getStartedAt |> Option.toNullable
                        Street = maybeAddress |> Option.map (_.Street >> Street.value) |> Option.toObj
                        City = maybeAddress |> Option.map (_.City >> City.value) |> Option.toObj
                        Country = maybeAddress |> Option.map (_.Country >> Country.value) |> Option.toObj
@@ -810,7 +810,7 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
 
             do!
                 order
-                |> Order.State.getOrderItems
+                |> OrderAggregate.State.getOrderItems
                 |> Map.toList
                 |> List.traverseAsyncResultM (fun (id, item) ->
                     {| ProductId = id |> ProductId.value
@@ -824,7 +824,7 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                 |> AsyncResult.ignore
         }
 
-type GetSupportedCardTypes = OrderManagementPort.GetSupportedCardTypes<SqlIoError>
+type GetSupportedCardTypes = OrderAggregateManagementPort.GetSupportedCardTypes<SqlIoError>
 
 let getSupportedCardTypes dbSchema sqlSession : GetSupportedCardTypes =
     fun () ->
@@ -841,15 +841,15 @@ let getSupportedCardTypes dbSchema sqlSession : GetSupportedCardTypes =
                 |> Result.mapError (String.concat "; " >> InvalidData)
         }
 
-type PersistOrderEvents = OrderManagementPort.PersistOrderEvents<Postgres.EventId, SqlIoError>
+type PersistOrderAggregateEvents = OrderAggregateManagementPort.PersistOrderAggregateEvents<Postgres.EventId, SqlIoError>
 
-let persistOrderEvents dbSchema dbTransaction : PersistOrderEvents =
+let persistOrderAggregateEvents dbSchema dbTransaction : PersistOrderAggregateEvents =
     Postgres.persistEvents Dto.Event.ofDomain dbSchema dbTransaction
 
-type ReadUnprocessedOrderEvents = ReadUnprocessedEvents<Order.State, Postgres.EventId, Order.Event, SqlIoError>
+type ReadUnprocessedOrderAggregateEvents = ReadUnprocessedEvents<OrderAggregate.State, Postgres.EventId, OrderAggregate.Event, SqlIoError>
 
-let readUnprocessedOrderEvents dbSchema sqlSession : ReadUnprocessedOrderEvents =
+let readUnprocessedOrderAggregateEvents dbSchema sqlSession : ReadUnprocessedOrderAggregateEvents =
     Postgres.readUnprocessedEvents Dto.Event.toDomain dbSchema sqlSession
 
-type OrderEventsProcessor<'eventHandlerIoError> =
-    EventsProcessor<Order.State, Postgres.EventId, Order.Event, SqlIoError, 'eventHandlerIoError>
+type OrderAggregateEventsProcessor<'eventHandlerIoError> =
+    EventsProcessor<OrderAggregate.State, Postgres.EventId, OrderAggregate.Event, SqlIoError, 'eventHandlerIoError>

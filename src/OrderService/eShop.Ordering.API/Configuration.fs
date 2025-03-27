@@ -1,15 +1,19 @@
 ﻿[<RequireQualifiedAccess>]
 module eShop.Ordering.API.Configuration
 
+open System
+open System.Data.Common
 open System.IO
 open System.Text.Json
 open Giraffe
 open Microsoft.AspNetCore.Builder
-open Microsoft.AspNetCore.Hosting
 open Microsoft.Extensions.Configuration
 open Microsoft.Extensions.DependencyInjection
+open Microsoft.Extensions.Hosting
 open eShop.DomainDrivenDesign
-open eShop.Ordering.Adapters.RabbitMQ
+open eShop.Ordering.API.PortsAdapters
+open eShop.Ordering.Adapters.Common
+open eShop.Ordering.Adapters.Postgres
 open eShop.Ordering.Domain.Model
 open eShop.Postgres
 open eShop.Postgres.DependencyInjection
@@ -20,6 +24,7 @@ open System.Text.Json.Serialization
 open FSharp.Data.LiteralProviders
 open eShop.RabbitMQ.DependencyInjection
 open FsToolkit.ErrorHandling
+open eShop.Prelude.Operators
 
 let private dbScripts =
     let getRelativeDirectoryPath path =
@@ -37,28 +42,49 @@ let private dbScripts =
         TextFile<"../eShop.Ordering.Adapters.Postgres/dbinit/001_Create_Ordering_Tables.sql", EnsureExists=true>.Path
     |> Map.mapValues getRelativeDirectoryPath
 
-let private configurePostgres (config: IConfiguration) (env: IWebHostEnvironment) (services: IServiceCollection) =
+let private configurePostgres (config: IConfiguration) (env: IHostEnvironment) (services: IServiceCollection) =
     let schema = "ordering" |> DbSchema
     let connectionString = config.GetConnectionString("orderingdb")
 
     services.AddPostgres connectionString schema dbScripts env
+
+let private configureSerialization (services: IServiceCollection) =
+    JsonFSharpOptions.Default().ToJsonSerializerOptions() |> services.AddSingleton
+
+let private configureTime (services: IServiceCollection) =
+    services.AddTransient<GetUtcNow>(Func<IServiceProvider, GetUtcNow>(fun _ () -> DateTimeOffset.UtcNow))
+
+let private configureIntegrationEventsProcessor (services: IServiceCollection) =
+    services.AddSingleton<EventsProcessor<OrderAggregate.State,Postgres.EventId,IntegrationEvent.Consumed,SqlIoError,eShop.RabbitMQ.RabbitMQIoError>>(fun sp -> sp.GetRequiredService<IntegrationEventsProcessor>().Get)
 
 let private configureRabbitMQ (services: IServiceCollection) =
     services.RegisterRabbitMQConsumer(
         IntegrationEvent.Consumed.names,
         IntegrationEvent.Consumed.getOrderId,
         IntegrationEvent.Consumed.deserialize,
-        fun _ ->
-            let persistEvent: PersistEvents<_, _, _, _> =
-                fun _ events -> events |> List.mapi (fun i ev -> i, ev) |> AsyncResult.ok
+        fun sp ->
+            let dbConn = sp.GetRequiredService<DbConnection>()
 
-            let processEvent: PublishEvents<_, _, _, _> = fun _ _ -> AsyncResult.ok ()
+            dbConn.Open()
+            let transaction = dbConn.BeginTransaction()
 
-            persistEvent, processEvent
+            let persistEvents =
+                sp
+                    .GetRequiredService<IPostgresOrderIntegrationEventsProcessorAdapter>()
+                    .PersistOrderIntegrationEvents(transaction)
+
+            let processEvent =
+                sp.GetRequiredService<IntegrationEventsProcessor>().Get.Process
+                >>> AsyncResult.ok
+
+            persistEvents, processEvent
     )
 
-let private configureSerialization (services: IServiceCollection) =
-    JsonFSharpOptions.Default().ToJsonSerializerOptions() |> services.AddSingleton
+let private configureAdapters (services: IServiceCollection) =
+    services
+        .AddTransient<IPostgresOrderAggregateManagementAdapter, PostgresOrderAggregateManagementAdapter>()
+        .AddTransient<IPostgresOrderAggregateEventsProcessorAdapter, PostgresOrderAggregateEventsProcessorAdapter>()
+        .AddTransient<IPostgresOrderIntegrationEventsProcessorAdapter, PostgresOrderIntegrationEventsProcessorAdapter>()
 
 let private configureGiraffe (services: IServiceCollection) =
     services
@@ -66,20 +92,18 @@ let private configureGiraffe (services: IServiceCollection) =
         .AddSingleton<Json.ISerializer, Json.Serializer>(fun sp ->
             sp.GetRequiredService<JsonSerializerOptions>() |> Json.Serializer)
 
-let private configureServices (config: IConfiguration) (env: IWebHostEnvironment) (services: IServiceCollection) =
-    services.AddProblemDetails().AddGiraffe()
+let private configureServices (builder: IHostApplicationBuilder) =
+    builder.Services.AddProblemDetails().AddGiraffe()
     |> configureSerialization
-    |> configurePostgres config env
+    |> configureTime
+    |> configurePostgres builder.Configuration builder.Environment
     |> configureRabbitMQ
+    |> configureAdapters
     |> ignore
 
 let configureBuilder (builder: WebApplicationBuilder) =
-    let config = builder.Configuration
-
-    builder.AddServiceDefaults().AddDefaultAuthentication()
-    |> configureServices config builder.Environment
-
-    builder.AddRabbitMQ "eventbus"
+    builder.AddServiceDefaults().AddRabbitMQ("eventbus").AddDefaultAuthentication()
+    |> configureServices
 
     builder
 

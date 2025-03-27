@@ -26,13 +26,13 @@ module StartOrderWorkflow =
         | PaymentMethodExpired
         | InvalidPaymentMethod of UnverifiedPaymentMethod
         | InvalidOrderItems of Map<ProductId, DiscountHigherThanTotalPriceError>
-        | InvalidOrderState of Order.InvalidStateError
+        | InvalidOrderState of OrderAggregate.InvalidStateError
 
-    type T<'ioError> = ExecutableWorkflow<Command, Order.State, Order.Event, DomainError, 'ioError>
+    type T<'ioError> = ExecutableWorkflow<Command, OrderAggregate.State, OrderAggregate.Event, DomainError, 'ioError>
 
     let build
-        (getSupportedCardTypes: OrderManagementPort.GetSupportedCardTypes<'ioError>)
-        (verifyPaymentMethod: OrderManagementPort.VerifyPaymentMethod<'ioError>)
+        (getSupportedCardTypes: OrderAggregateManagementPort.GetSupportedCardTypes<'ioError>)
+        (verifyPaymentMethod: OrderAggregateManagementPort.VerifyPaymentMethod<'ioError>)
         : T<'ioError> =
         fun now state command ->
             asyncResult {
@@ -61,7 +61,7 @@ module StartOrderWorkflow =
                     |> verifyPaymentMethod
                     |> AsyncResult.mapError (function
                         | Right ioError -> ioError |> Right
-                        | Left(_: OrderManagementPort.InvalidPaymentMethodError) ->
+                        | Left(_: OrderAggregateManagementPort.InvalidPaymentMethodError) ->
                             unverifiedPaymentMethod |> InvalidPaymentMethod |> Left)
 
                 and! validatedOrderItems =
@@ -73,7 +73,7 @@ module StartOrderWorkflow =
                         |> Result.mapError (fun err -> productId, err))
                     |> Result.mapError (Map.ofList >> InvalidOrderItems >> Left)
 
-                let createOrderCommand: Order.Command.CreateOrder =
+                let createOrderCommand: OrderAggregate.Command.CreateOrder =
                     { Buyer = command.Buyer
                       Address = command.Address
                       PaymentMethod = verifiedPaymentMethod
@@ -82,8 +82,8 @@ module StartOrderWorkflow =
 
                 return!
                     createOrderCommand
-                    |> Order.Command.CreateOrder
-                    |> Order.State.evolve state
+                    |> OrderAggregate.Command.CreateOrder
+                    |> OrderAggregate.State.evolve state
                     |> Result.mapError (InvalidOrderState >> Left)
             }
 

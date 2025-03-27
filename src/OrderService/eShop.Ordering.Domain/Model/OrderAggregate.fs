@@ -1,5 +1,5 @@
 ﻿[<RequireQualifiedAccess>]
-module eShop.Ordering.Domain.Model.Order
+module eShop.Ordering.Domain.Model.OrderAggregate
 
 open System
 open eShop.Ordering.Domain.Model.ValueObjects

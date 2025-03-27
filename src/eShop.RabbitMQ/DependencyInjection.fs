@@ -35,6 +35,8 @@ type IHostApplicationBuilder with
                 |> Result.valueOr failwith)
         |> ignore
 
+        this
+
 type IServiceCollection with
     member this.RegisterRabbitMQConsumer<'state, 'eventId, 'eventPayload, 'persistEventsIoError, 'publishEventsIoError>
         (

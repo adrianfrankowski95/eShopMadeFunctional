@@ -14,8 +14,6 @@
     <ItemGroup>
       <ProjectReference Include="..\..\eShop.RabbitMQ\eShop.RabbitMQ.fsproj" />
       <ProjectReference Include="..\eShop.Ordering.Domain\eShop.Ordering.Domain.fsproj" />
-      <ProjectReference Include="..\src\eShop.RabbitMQ\eShop.RabbitMQ.fsproj" />
-      <ProjectReference Include="..\src\OrderService\eShop.Ordering.Domain\eShop.Ordering.Domain.fsproj" />
     </ItemGroup>
 
 </Project>
