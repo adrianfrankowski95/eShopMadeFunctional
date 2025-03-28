@@ -5,14 +5,14 @@ open eShop.Ordering.Adapters.Common
 open eShop.Ordering.Domain.Model
 open eShop.RabbitMQ
 
-type RabbitMQOrderAggregateEventHandler<'eventId> =
+type OrderAggregateEventHandler<'eventId> =
     EventHandler<OrderAggregate.State, 'eventId, OrderAggregate.Event, RabbitMQIoError>
 
 [<RequireQualifiedAccess>]
-module RabbitMQOrderAggregateEventHandler =
+module OrderAggregateEventHandler =
     let create
         (dispatchEvent: RabbitMQEventDispatcher<'eventId, IntegrationEvent.Published>)
-        : RabbitMQOrderAggregateEventHandler<'eventId> =
+        : OrderAggregateEventHandler<'eventId> =
         fun aggregateId eventId event ->
             event
             |> Event.mapData (event.Data |> IntegrationEvent.Published.ofDomain aggregateId)

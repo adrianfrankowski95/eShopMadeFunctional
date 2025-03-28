@@ -8,8 +8,8 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="PostgresOrderAggregateManagementAdapter.fs" />
-        <Compile Include="PostgresOrderIntegrationEventManagementAdapter.fs" />
+        <Compile Include="OrderAggregateManagementAdapter.fs" />
+        <Compile Include="OrderIntegrationEventManagementAdapter.fs" />
     </ItemGroup>
 
     <ItemGroup>

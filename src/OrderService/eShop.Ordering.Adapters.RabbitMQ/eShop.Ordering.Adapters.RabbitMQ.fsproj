@@ -8,7 +8,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="RabbitMQOrderAggregateEventHandler.fs" />
+        <Compile Include="OrderAggregateEventHandler.fs" />
     </ItemGroup>
 
     <ItemGroup>

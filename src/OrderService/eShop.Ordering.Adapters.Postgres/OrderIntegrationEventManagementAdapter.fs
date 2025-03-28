@@ -1,5 +1,5 @@
 ﻿[<RequireQualifiedAccess>]
-module eShop.Ordering.Adapters.Postgres.PostgresOrderIntegrationEventManagementAdapter
+module eShop.Ordering.Adapters.Postgres.OrderIntegrationEventManagementAdapter
 
 open eShop.Ordering.Domain.Model
 open eShop.DomainDrivenDesign

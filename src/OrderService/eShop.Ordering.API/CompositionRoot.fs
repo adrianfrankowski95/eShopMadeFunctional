@@ -3,6 +3,9 @@ module eShop.Ordering.API.CompositionRoot
 
 open System
 open System.Data
+open System.Data.Common
+open Giraffe
+open Microsoft.AspNetCore.Http
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.Options
 open eShop.DomainDrivenDesign
@@ -16,17 +19,48 @@ open eShop.Postgres
 open eShop.RabbitMQ
 open FsToolkit.ErrorHandling
 
-let private getService<'t> (sp: IServiceProvider) = sp.GetRequiredService<'t>()
+type DI<'t> = DI of (unit -> 't) with
 
-let private getDbConnection = getService<GetDbConnection>
+        static member inline GetService(getService) = getService()
 
-let private getStandaloneSqlSession = getDbConnection >> SqlSession.Standalone
+let inline getServiceFromSp (sp: IServiceProvider) =
+    DI.GetService<'t>(fun () -> sp.GetRequiredService<'t>())
 
-let buildTransactionalWorkflowExecutor (sp: IServiceProvider) =
-    getDbConnection sp
+// let inline getServiceFromCtx<'t> (ctx: HttpContext) =
+//     DI.GetService<'t>(ctx.GetService<'t>, DI)
+
+let inline private buildTransactionalWorkflowExecutor getService =
+    let dbConnection = getService()
+
+    dbConnection
     |> TransactionalWorkflowExecutor.init
     |> TransactionalWorkflowExecutor.withIsolationLevel IsolationLevel.ReadCommitted
     |> TransactionalWorkflowExecutor.execute
+
+let inline private buildTransactionalWorkflowExecutorFromSp sp =
+    sp |> getServiceFromSp |> buildTransactionalWorkflowExecutor
+
+let inline buildOrderWorkflowExecutor getService workflowToExecute =
+    let postgresAdapter = getService<IPostgresOrderAggregateManagementAdapter>
+
+    let getUtcNow: GetUtcNow = getService<GetUtcNow>
+
+    fun dbTransaction ->
+        let readOrder =
+            dbTransaction |> SqlSession.Sustained |> postgresAdapter.ReadOrderAggregate
+
+        let persistOrder = dbTransaction |> postgresAdapter.PersistOrderAggregate
+
+        let persistOrderEvents =
+            dbTransaction |> postgresAdapter.PersistOrderAggregateEvents
+
+        let publishOrderEvents = postgresAdapter.PublishOrderAggregateEvents
+
+        workflowToExecute
+        |> WorkflowExecutor.execute getUtcNow readOrder persistOrder persistOrderEvents publishOrderEvents
+    |> buildTransactionalWorkflowExecutor sp
+
+
 
 type OrderIntegrationEventDrivenWorkflowIoError = OrderIntegrationEventDrivenWorkflowIoError
 
@@ -38,7 +72,7 @@ type OrderIntegrationEventDrivenWorkflow =
     | RejectOrderItemsStock of RejectOrderItemsStockWorkflow<OrderIntegrationEventDrivenWorkflowIoError>
 
 type OrderIntegrationEventsProcessor =
-    PostgresOrderIntegrationEventManagementAdapter.OrderIntegrationEventsProcessor<RabbitMQIoError>
+    OrderIntegrationEventManagementAdapter.OrderIntegrationEventsProcessor<RabbitMQIoError>
 
 let private buildOrderIntegrationEventDrivenWorkflows
     (sp: IServiceProvider)
@@ -50,7 +84,7 @@ let private buildOrderIntegrationEventDrivenWorkflows
        >
     =
     let workflowExecutor = buildTransactionalWorkflowExecutor sp
-    
+
     fun orderAggregateId _ integrationEvent ->
         match integrationEvent.Data with
         | IntegrationEvent.Consumed.GracePeriodConfirmed gracePeriodConfirmed -> failwith "todo"
@@ -62,10 +96,10 @@ let private buildOrderIntegrationEventDrivenWorkflows
 
 let buildOrderIntegrationEventsProcessor (sp: IServiceProvider) : OrderIntegrationEventsProcessor =
     let sqlSession = sp |> getStandaloneSqlSession
-    let config = sp |> getService<IOptions<Configuration.RabbitMQOptions>>
+    let config = sp |> getServiceFromSp<IOptions<Configuration.RabbitMQOptions>>
 
     let postgresAdapter =
-        sp |> getService<IPostgresOrderIntegrationEventsProcessorAdapter>
+        sp |> getServiceFromSp<IPostgresOrderIntegrationEventsProcessorAdapter>
 
     let readEvents = sqlSession |> postgresAdapter.ReadUnprocessedOrderEvents
     let persistHandlers = sqlSession |> postgresAdapter.PersistSuccessfulEventHandlers
@@ -82,7 +116,8 @@ let buildOrderIntegrationEventsProcessor (sp: IServiceProvider) : OrderIntegrati
         ((fun _ _ _ -> AsyncResult.ok ()): EventHandler<_, _, _, RabbitMQIoError>)
     |> EventsProcessor.build readEvents persistHandlers markEventsProcessed
 
-let getOrderIntegrationEventsProcessor = getService<OrderIntegrationEventsProcessor>
+let getOrderIntegrationEventsProcessor =
+    getServiceFromSp<OrderIntegrationEventsProcessor>
 
 // [<RequireQualifiedAccess>]
 // module OrderWorkflowExecutor =

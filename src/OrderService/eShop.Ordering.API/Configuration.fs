@@ -11,9 +11,9 @@ open Microsoft.Extensions.Configuration
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.Hosting
 open eShop.DomainDrivenDesign
+open eShop.DomainDrivenDesign.Postgres
 open eShop.Ordering.API.PortsAdapters
 open eShop.Ordering.Adapters.Common
-open eShop.Ordering.Adapters.Postgres
 open eShop.Ordering.Domain.Model
 open eShop.Postgres
 open eShop.Postgres.DependencyInjection
@@ -55,7 +55,16 @@ let private configureTime (services: IServiceCollection) =
     services.AddTransient<GetUtcNow>(Func<IServiceProvider, GetUtcNow>(fun _ () -> DateTimeOffset.UtcNow))
 
 let private configureIntegrationEventsProcessor (services: IServiceCollection) =
-    services.AddSingleton<EventsProcessor<OrderAggregate.State,Postgres.EventId,IntegrationEvent.Consumed,SqlIoError,eShop.RabbitMQ.RabbitMQIoError>>(fun sp -> sp.GetRequiredService<IntegrationEventsProcessor>().Get)
+    services.AddSingleton<
+        EventsProcessor<
+            OrderAggregate.State,
+            Postgres.EventId,
+            IntegrationEvent.Consumed,
+            SqlIoError,
+            eShop.RabbitMQ.RabbitMQIoError
+         >
+     >
+        (fun sp -> sp.GetRequiredService<IntegrationEventsProcessor>().Get)
 
 let private configureRabbitMQ (services: IServiceCollection) =
     services.RegisterRabbitMQConsumer(
@@ -74,7 +83,7 @@ let private configureRabbitMQ (services: IServiceCollection) =
                     .PersistOrderIntegrationEvents(transaction)
 
             let processEvent =
-                sp.GetRequiredService<IntegrationEventsProcessor>().Get.Process
+                sp.GetRequiredService<CompositionRoot.OrderIntegrationEventsProcessor>().Process
                 >>> AsyncResult.ok
 
             persistEvents, processEvent

@@ -1,5 +1,5 @@
 ﻿[<RequireQualifiedAccess>]
-module eShop.Ordering.Adapters.Postgres.PostgresOrderAggregateManagementAdapter
+module eShop.Ordering.Adapters.Postgres.OrderAggregateManagementAdapter
 
 open System
 open FsToolkit.ErrorHandling
@@ -15,6 +15,7 @@ open eShop.Prelude
 module internal Dto =
     type OrderStatus =
         | Draft
+        | Submitted
         | AwaitingStockValidation
         | StockConfirmed
         | Paid
@@ -25,6 +26,7 @@ module internal Dto =
         let private statusMap =
             Map.empty
             |> Map.add "Draft" Draft
+            |> Map.add "Submitted" Submitted
             |> Map.add "AwaitingStockValidation" AwaitingStockValidation
             |> Map.add "StockConfirmed" StockConfirmed
             |> Map.add "Paid" Paid
@@ -43,6 +45,7 @@ module internal Dto =
             function
             | OrderAggregate.State.Init -> None
             | OrderAggregate.State.Draft _ -> OrderStatus.Draft |> Some
+            | OrderAggregate.State.Submitted _ -> OrderStatus.Submitted |> Some
             | OrderAggregate.State.AwaitingStockValidation _ -> OrderStatus.AwaitingStockValidation |> Some
             | OrderAggregate.State.WithConfirmedStock _ -> OrderStatus.StockConfirmed |> Some
             | OrderAggregate.State.Paid _ -> OrderStatus.Paid |> Some
@@ -220,6 +223,32 @@ module internal Dto =
                                 : OrderAggregate.State.Draft)
                                 |> OrderAggregate.State.Draft
                         )
+                    | Submitted ->
+                        validation {
+                            let! buyer = orderDto |> createBuyer
+                            and! paymentMethod = orderDto |> createVerifiedPaymentMethod
+                            and! address = orderDto |> createAddress
+                            and! startedAt = orderDto.StartedAt |> Result.requireSome "Missing StartedAt"
+
+                            and! orderItems =
+                                orders
+                                |> Seq.traverseResultA createOrderItemWithUnconfirmedStock
+                                |> Result.bind (
+                                    Seq.choose id
+                                    >> NonEmptyMap.ofSeq
+                                    >> Result.mapError ((+) "Invalid OrderItems: " >> Seq.singleton)
+                                )
+                                |> Result.mapError (String.concat "; ")
+
+                            return
+                                ({ Buyer = buyer
+                                   PaymentMethod = paymentMethod
+                                   Address = address
+                                   StartedAt = startedAt
+                                   UnconfirmedOrderItems = orderItems }
+                                : OrderAggregate.State.Submitted)
+                                |> OrderAggregate.State.Submitted
+                        }
                     | AwaitingStockValidation ->
                         validation {
                             let! buyer = orderDto |> createBuyer
