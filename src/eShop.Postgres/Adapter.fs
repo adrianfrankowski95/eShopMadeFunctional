@@ -21,7 +21,7 @@ type SqlIoError =
 [<RequireQualifiedAccess>]
 type SqlSession =
     | Sustained of DbTransaction
-    | Standalone of DbConnection
+    | Standalone of GetDbConnection
 
 [<RequireQualifiedAccess>]
 module Postgres =

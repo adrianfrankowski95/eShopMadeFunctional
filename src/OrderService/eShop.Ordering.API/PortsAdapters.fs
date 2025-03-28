@@ -2,7 +2,6 @@
 
 open System.Data.Common
 open FsToolkit.ErrorHandling
-open Microsoft.Extensions.Options
 open eShop.DomainDrivenDesign
 open eShop.Ordering.Adapters.Common
 open eShop.Ordering.Domain.Model
@@ -54,44 +53,6 @@ type PostgresOrderIntegrationEventsProcessorAdapter(dbSchema: DbSchema, getNow: 
 
         member this.PersistOrderIntegrationEvents(dbTransaction) =
             PostgresOrderIntegrationEventManagementAdapter.persistOrderIntegrationEvents dbSchema dbTransaction
-
-type IntegrationEventsProcessor
-    (
-        deps: IPostgresOrderIntegrationEventsProcessorAdapter,
-        config: IOptions<Configuration.RabbitMQOptions>,
-        dbConnection: DbConnection
-    ) =
-    let sqlSession = dbConnection |> SqlSession.Standalone
-
-    member this.Get =
-        EventsProcessor.init
-        |> EventsProcessor.withRetries (System.TimeSpan.FromSeconds(2: float) |> List.replicate config.Value.RetryCount)
-        |> EventsProcessor.registerHandler
-            "Dummy Handler"
-            ((fun _ _ _ -> AsyncResult.ok ()): EventHandler<_, _, _, RabbitMQIoError>)
-        |> EventsProcessor.build
-            (deps.ReadUnprocessedOrderEvents(sqlSession))
-            (deps.PersistSuccessfulEventHandlers(sqlSession))
-            (deps.MarkEventAsProcessed(sqlSession))
-
-type AggregateEventsProcessor
-    (
-        deps: IPostgresOrderAggregateEventsProcessorAdapter,
-        config: IOptions<Configuration.RabbitMQOptions>,
-        dbConnection: DbConnection
-    ) =
-    let sqlSession = dbConnection |> SqlSession.Standalone
-
-    member this.Get =
-        EventsProcessor.init
-        |> EventsProcessor.withRetries (System.TimeSpan.FromSeconds(2: float) |> List.replicate config.Value.RetryCount)
-        |> EventsProcessor.registerHandler
-            "Dummy Handler"
-            ((fun _ _ _ -> AsyncResult.ok ()): EventHandler<_, _, _, RabbitMQIoError>)
-        |> EventsProcessor.build
-            (deps.ReadUnprocessedOrderEvents(sqlSession))
-            (deps.PersistSuccessfulEventHandlers(sqlSession))
-            (deps.MarkEventAsProcessed(sqlSession))
 
 type ISqlOrderAggregateManagementPort<'eventId> =
     abstract member ReadOrderAggregate: SqlSession -> OrderAggregateManagementPort.ReadOrderAggregate<SqlIoError>

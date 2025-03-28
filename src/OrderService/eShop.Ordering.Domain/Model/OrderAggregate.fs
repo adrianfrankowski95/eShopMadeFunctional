@@ -25,6 +25,7 @@ module Command =
     type T =
         | CreateOrderDraft of CreateOrderDraft
         | CreateOrder of CreateOrder
+        | SetAwaitingStockValidationOrderStatus
         | SetStockConfirmedOrderStatus
         | SetStockRejectedOrderStatus of SetStockRejectedOrderStatus
         | SetPaidOrderStatus
@@ -82,6 +83,13 @@ module State =
         { BuyerId: BuyerId
           UnvalidatedOrderItems: Map<ProductId, UnvalidatedOrderItem> }
 
+    type Submitted =
+        { Buyer: Buyer
+          PaymentMethod: VerifiedPaymentMethod
+          Address: Address
+          StartedAt: DateTimeOffset
+          UnconfirmedOrderItems: NonEmptyMap<ProductId, OrderItemWithUnconfirmedStock> }
+
     type AwaitingStockValidation =
         { Buyer: Buyer
           PaymentMethod: VerifiedPaymentMethod
@@ -120,6 +128,7 @@ module State =
         internal
         | Init
         | Draft of Draft
+        | Submitted of Submitted
         | AwaitingStockValidation of AwaitingStockValidation
         | WithConfirmedStock of WithConfirmedStock
         | Paid of Paid
@@ -129,7 +138,7 @@ module State =
     let evolve (state: T) (command: Command) : Result<T * Event list, InvalidStateError> =
         match state, command with
         | Init, Command.CreateOrder cmd ->
-            let newState =
+            let newState: Submitted =
                 { Buyer = cmd.Buyer
                   Address = cmd.Address
                   PaymentMethod = cmd.PaymentMethod
@@ -141,8 +150,20 @@ module State =
                   ({ Buyer = newState.Buyer
                      VerifiedPaymentMethod = cmd.PaymentMethod }
                   : Event.PaymentMethodVerified)
-                  |> Event.PaymentMethodVerified
-                  ({ Buyer = newState.Buyer
+                  |> Event.PaymentMethodVerified ]
+
+            (newState |> T.Submitted, events) |> Ok
+
+        | Submitted submitted, Command.SetAwaitingStockValidationOrderStatus ->
+            let newState =
+                { Buyer = submitted.Buyer
+                  Address = submitted.Address
+                  PaymentMethod = submitted.PaymentMethod
+                  StartedAt = submitted.StartedAt
+                  UnconfirmedOrderItems = submitted.UnconfirmedOrderItems }
+
+            let events =
+                [ ({ Buyer = newState.Buyer
                      StockToValidate =
                        newState.UnconfirmedOrderItems
                        |> NonEmptyMap.map (fun _ orderItem -> orderItem.Units) }
@@ -197,6 +218,24 @@ module State =
 
         | _, Command.ShipOrder -> OnlyPaidOrderCanBeShipped |> Error
 
+        | Submitted submitted, Command.CancelOrder ->
+            let newState =
+                { Buyer = submitted.Buyer
+                  Address = submitted.Address
+                  StartedAt = submitted.StartedAt
+                  CancelledOrderItems =
+                    submitted.UnconfirmedOrderItems
+                    |> NonEmptyMap.mapValues (fun item ->
+                        { Discount = item.Discount
+                          Units = item.Units
+                          PictureUrl = item.PictureUrl
+                          ProductName = item.ProductName
+                          UnitPrice = item.UnitPrice }) }
+
+            let event: Event.OrderCancelled = { Buyer = newState.Buyer }
+
+            (newState |> T.Cancelled, [ event |> Event.OrderCancelled ]) |> Ok
+
         | AwaitingStockValidation awaitingValidation, Command.CancelOrder ->
             let newState =
                 { Buyer = awaitingValidation.Buyer
@@ -243,6 +282,7 @@ module State =
         function
         | Init -> None
         | Draft draft -> draft.BuyerId |> Some
+        | Submitted submitted -> submitted.Buyer.Id |> Some
         | AwaitingStockValidation awaitingStockValidation -> awaitingStockValidation.Buyer.Id |> Some
         | WithConfirmedStock withConfirmedStock -> withConfirmedStock.Buyer.Id |> Some
         | Paid paid -> paid.Buyer.Id |> Some
@@ -253,6 +293,7 @@ module State =
         function
         | Init -> None
         | Draft _ -> None
+        | Submitted submitted -> submitted.Buyer.Name |> Some
         | AwaitingStockValidation awaitingStockValidation -> awaitingStockValidation.Buyer.Name |> Some
         | WithConfirmedStock withConfirmedStock -> withConfirmedStock.Buyer.Name |> Some
         | Paid paid -> paid.Buyer.Name |> Some
@@ -263,6 +304,7 @@ module State =
         function
         | Init -> None
         | Draft _ -> None
+        | Submitted submitted -> submitted.Address |> Some
         | AwaitingStockValidation awaitingStockValidation -> awaitingStockValidation.Address |> Some
         | WithConfirmedStock withConfirmedStock -> withConfirmedStock.Address |> Some
         | Paid paid -> paid.Address |> Some
@@ -273,6 +315,7 @@ module State =
         function
         | Init -> None
         | Draft _ -> None
+        | Submitted submitted -> submitted.StartedAt |> Some
         | AwaitingStockValidation awaitingStockValidation -> awaitingStockValidation.StartedAt |> Some
         | WithConfirmedStock withConfirmedStock -> withConfirmedStock.StartedAt |> Some
         | Paid paid -> paid.StartedAt |> Some
@@ -284,6 +327,11 @@ module State =
         | Init -> Map.empty
 
         | Draft draft -> draft.UnvalidatedOrderItems |> Map.mapValues OrderItem.Unvalidated
+
+        | Submitted submitted ->
+            submitted.UnconfirmedOrderItems
+            |> NonEmptyMap.mapValues OrderItem.WithUnconfirmedStock
+            |> NonEmptyMap.toMap
 
         | AwaitingStockValidation awaitingStockValidation ->
             awaitingStockValidation.UnconfirmedOrderItems
@@ -314,6 +362,7 @@ module State =
         function
         | Init -> None
         | Draft _ -> None
+        | Submitted submitted -> submitted.PaymentMethod |> Some
         | AwaitingStockValidation awaitingStockValidation -> awaitingStockValidation.PaymentMethod |> Some
         | WithConfirmedStock withConfirmedStock -> withConfirmedStock.PaymentMethod |> Some
         | Paid paid -> paid.PaymentMethod |> Some

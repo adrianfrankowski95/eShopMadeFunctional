@@ -21,6 +21,7 @@
         <Compile Include="Workflows\PayOrderWorkflow.fs" />
         <Compile Include="Workflows\CancelOrderWorkflow.fs" />
         <Compile Include="Workflows\ShipOrderWorkflow.fs" />
+        <Compile Include="Workflows\AwaitOrderItemsStockValidationWorkflow.fs" />
         <Compile Include="Workflows\ConfirmOrderItemsStockWorkflow.fs" />
         <Compile Include="Workflows\RejectOrderItemsStockWorkflow.fs" />
         <Compile Include="Workflows\StartOrderWorkflow.fs" />

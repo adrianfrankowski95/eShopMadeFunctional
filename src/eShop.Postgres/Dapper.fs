@@ -10,7 +10,7 @@ open NpgsqlTypes
 let private (|SqlSession|) =
     function
     | SqlSession.Sustained dbTransaction -> (dbTransaction.Connection, dbTransaction)
-    | SqlSession.Standalone dbConnection -> (dbConnection, null)
+    | SqlSession.Standalone getDbConnection -> (getDbConnection (), null)
 
 let inline private toAsyncResult f =
     try

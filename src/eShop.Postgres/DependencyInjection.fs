@@ -1,5 +1,6 @@
 ﻿module eShop.Postgres.DependencyInjection
 
+open System
 open System.Data.Common
 open System.Text.Json
 open Microsoft.Extensions.DependencyInjection
@@ -29,5 +30,8 @@ type IServiceCollection with
                         .EnableDynamicJson()
                         .ConfigureJsonOptions
                     |> _.Build())
-                .AddTransient<DbConnection>(_.GetRequiredService<NpgsqlDataSource>().CreateConnection())
+                .AddTransient<GetDbConnection>(
+                    Func<IServiceProvider, GetDbConnection>(fun sp ->
+                        fun () -> sp.GetRequiredService<NpgsqlDataSource>().CreateConnection() :> DbConnection)
+                )
                 .AddSingleton<DbSchema>(dbSchema)

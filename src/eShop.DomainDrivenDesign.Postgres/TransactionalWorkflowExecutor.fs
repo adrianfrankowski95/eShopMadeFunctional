@@ -28,7 +28,7 @@ module TransactionalWorkflowExecutor =
         { options with
             IsolationLevel = isolationLevel }
 
-    let execute workflow (options: Options) : Workflow<_, _, _, _, _, _> =
+    let execute (options: Options) workflow : Workflow<_, _, _, _, _, _> =
         fun aggregateId command ->
             let rec executeInTransaction workflow (retries: Delay list) =
                 asyncResult {
