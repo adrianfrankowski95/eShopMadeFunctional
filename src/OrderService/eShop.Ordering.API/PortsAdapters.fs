@@ -26,7 +26,7 @@ type IPostgresOrderAggregateEventsProcessorAdapter =
 type PostgresOrderAggregateEventsProcessorAdapter(dbSchema: DbSchema, getNow: GetUtcNow) =
     interface IPostgresOrderAggregateEventsProcessorAdapter with
         member this.ReadUnprocessedOrderEvents(sqlSession) =
-            OrderAggregateManagementAdapter.readUnprocessedOrderAggregateEvents dbSchema sqlSession
+            PostgresOrderAdapter.readUnprocessedOrderAggregateEvents dbSchema sqlSession
 
         member this.PersistSuccessfulEventHandlers(sqlSession) =
             Postgres.persistSuccessfulEventHandlers dbSchema sqlSession
@@ -73,19 +73,19 @@ type IPostgresOrderAggregateManagementAdapter = ISqlOrderAggregateManagementPort
 type PostgresOrderAggregateManagementAdapter
     (
         dbSchema: DbSchema,
-        eventsProcessor: OrderAggregateManagementAdapter.OrderAggregateEventsProcessor<RabbitMQIoError>
+        eventsProcessor: PostgresOrderAdapter.OrderAggregateEventsProcessor<RabbitMQIoError>
     ) =
     interface IPostgresOrderAggregateManagementAdapter with
         member this.ReadOrderAggregate(sqlSession) =
-            OrderAggregateManagementAdapter.readOrderAggregate dbSchema sqlSession
+            PostgresOrderAdapter.readOrderAggregate dbSchema sqlSession
 
         member this.PersistOrderAggregate(dbTransaction) =
-            OrderAggregateManagementAdapter.persistOrderAggregate dbSchema dbTransaction
+            PostgresOrderAdapter.persistOrderAggregate dbSchema dbTransaction
 
         member this.PersistOrderAggregateEvents(dbTransaction) =
-            OrderAggregateManagementAdapter.persistOrderAggregateEvents dbSchema dbTransaction
+            PostgresOrderAdapter.persistOrderAggregateEvents dbSchema dbTransaction
 
         member this.GetSupportedCardTypes(sqlSession) =
-            OrderAggregateManagementAdapter.getSupportedCardTypes dbSchema sqlSession
+            PostgresOrderAdapter.getSupportedCardTypes dbSchema sqlSession
 
         member this.PublishOrderAggregateEvents = eventsProcessor.Process >>> AsyncResult.ok

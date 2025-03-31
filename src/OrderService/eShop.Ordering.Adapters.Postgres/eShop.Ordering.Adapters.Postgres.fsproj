@@ -8,8 +8,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="OrderAggregateManagementAdapter.fs" />
-        <Compile Include="OrderIntegrationEventManagementAdapter.fs" />
+        <Compile Include="OrderAdapter.fs" />
     </ItemGroup>
 
     <ItemGroup>

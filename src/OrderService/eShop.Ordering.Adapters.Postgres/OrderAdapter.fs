@@ -1,9 +1,10 @@
 ﻿[<RequireQualifiedAccess>]
-module eShop.Ordering.Adapters.Postgres.OrderAggregateManagementAdapter
+module eShop.Ordering.Adapters.Postgres.OrderAdapter
 
 open System
 open FsToolkit.ErrorHandling
 open eShop.ConstrainedTypes
+open eShop.Ordering.Adapters.Common
 open eShop.Ordering.Domain.Model
 open eShop.Ordering.Domain.Model.ValueObjects
 open eShop.Ordering.Domain.Ports
@@ -795,7 +796,11 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                 |> OrderAggregate.State.getBuyerId
                 |> Option.map (fun buyerId ->
                     {| BuyerId = buyerId |> BuyerId.value
-                       BuyerName = order |> OrderAggregate.State.getBuyerName |> Option.map BuyerName.value |> Option.toObj |}
+                       BuyerName =
+                        order
+                        |> OrderAggregate.State.getBuyerName
+                        |> Option.map BuyerName.value
+                        |> Option.toObj |}
                     |> Dapper.execute sqlSession (Sql.upsertBuyer dbSchema)
                     |> AsyncResult.ignore)
                 |> Option.defaultValue (AsyncResult.ok ())
@@ -825,7 +830,11 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                     let maybeAddress = order |> OrderAggregate.State.getAddress
 
                     {| Id = aggregateId
-                       BuyerId = order |> OrderAggregate.State.getBuyerId |> Option.map BuyerId.value |> Option.toNullable
+                       BuyerId =
+                        order
+                        |> OrderAggregate.State.getBuyerId
+                        |> Option.map BuyerId.value
+                        |> Option.toNullable
                        PaymentMethodId = maybePaymentMethodId |> Option.toNullable
                        Status = status |> Dto.OrderStatus.toString
                        StartedAt = order |> OrderAggregate.State.getStartedAt |> Option.toNullable
@@ -870,15 +879,32 @@ let getSupportedCardTypes dbSchema sqlSession : GetSupportedCardTypes =
                 |> Result.mapError (String.concat "; " >> InvalidData)
         }
 
-type PersistOrderAggregateEvents = OrderAggregateManagementPort.PersistOrderAggregateEvents<Postgres.EventId, SqlIoError>
+type PersistOrderAggregateEvents =
+    OrderAggregateManagementPort.PersistOrderAggregateEvents<Postgres.EventId, SqlIoError>
 
 let persistOrderAggregateEvents dbSchema dbTransaction : PersistOrderAggregateEvents =
     Postgres.persistEvents Dto.Event.ofDomain dbSchema dbTransaction
 
-type ReadUnprocessedOrderAggregateEvents = ReadUnprocessedEvents<OrderAggregate.State, Postgres.EventId, OrderAggregate.Event, SqlIoError>
+type ReadUnprocessedOrderAggregateEvents =
+    ReadUnprocessedEvents<OrderAggregate.State, Postgres.EventId, OrderAggregate.Event, SqlIoError>
 
 let readUnprocessedOrderAggregateEvents dbSchema sqlSession : ReadUnprocessedOrderAggregateEvents =
     Postgres.readUnprocessedEvents Dto.Event.toDomain dbSchema sqlSession
 
 type OrderAggregateEventsProcessor<'eventHandlerIoError> =
     EventsProcessor<OrderAggregate.State, Postgres.EventId, OrderAggregate.Event, SqlIoError, 'eventHandlerIoError>
+
+type PersistOrderIntegrationEvents =
+    PersistEvents<OrderAggregate.State, Postgres.EventId, IntegrationEvent.Consumed, SqlIoError>
+
+let persistOrderIntegrationEvents dbSchema dbTransaction : PersistOrderIntegrationEvents =
+    Postgres.persistEvents id dbSchema dbTransaction
+
+type ReadUnprocessedOrderIntegrationEvents =
+    ReadUnprocessedEvents<OrderAggregate.State, Postgres.EventId, IntegrationEvent.Consumed, SqlIoError>
+
+let readUnprocessedOrderIntegrationEvents dbSchema sqlSession : ReadUnprocessedOrderIntegrationEvents =
+    Postgres.readUnprocessedEvents id dbSchema sqlSession
+
+type OrderIntegrationEventsProcessor<'eventHandlerIoError> =
+    EventsProcessor<OrderAggregate.State, Postgres.EventId, IntegrationEvent.Consumed, SqlIoError, 'eventHandlerIoError>

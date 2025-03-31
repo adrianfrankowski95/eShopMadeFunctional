@@ -213,7 +213,7 @@ module Published =
             | OrderStatusChangedToSubmitted ev -> ev |> serialize
         |> Result.catch
 
-    let getEventName (integrationEvent: T) =
+    let createEventName (integrationEvent: T) =
         FSharpValue.GetUnionFields(integrationEvent, typeof<T>)
         |> fst
         |> _.Name

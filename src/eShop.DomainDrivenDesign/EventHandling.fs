@@ -10,7 +10,7 @@ type Event<'payload> =
       OccurredAt: DateTimeOffset }
 
 module Event =
-    let mapData (newData: 'b) (ev: Event<'a>) : Event<'b> =
+    let mapPayload (newData: 'b) (ev: Event<'a>) : Event<'b> =
         { Data = newData
           OccurredAt = ev.OccurredAt }
 
@@ -24,7 +24,8 @@ type SuccessfulEventHandlers = EventHandlerName Set
 type EventHandlerRegistry<'state, 'eventId, 'eventPayload, 'ioError> =
     Map<EventHandlerName, EventHandler<'state, 'eventId, 'eventPayload, 'ioError>>
 
-type AggregateType = string
+type PersistEvent<'state, 'eventId, 'eventPayload, 'ioError> =
+    AggregateId<'state> -> Event<'eventPayload> -> AsyncResult<'eventId * Event<'eventPayload>, 'ioError>
 
 type ReadUnprocessedEvents<'state, 'eventId, 'eventPayload, 'ioError> =
     unit
@@ -232,7 +233,7 @@ module EventsProcessor =
         (markEventAsProcessed: MarkEventAsProcessed<'eventId, 'eventLogIoError>)
         (options: EventsProcessorOptions<'state, 'eventId, 'eventPayload, 'eventHandlingIoError>)
         =
-            new T<_, _, _, _, _>(readUnprocessedEvents, persistSuccessfulHandlers, markEventAsProcessed, options)
+        new T<_, _, _, _, _>(readUnprocessedEvents, persistSuccessfulHandlers, markEventAsProcessed, options)
 
 type EventsProcessor<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError> =
     EventsProcessor.T<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
