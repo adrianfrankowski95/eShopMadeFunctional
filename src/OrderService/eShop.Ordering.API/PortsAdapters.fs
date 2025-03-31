@@ -26,7 +26,7 @@ type IPostgresOrderAggregateEventsProcessorAdapter =
 type PostgresOrderAggregateEventsProcessorAdapter(dbSchema: DbSchema, getNow: GetUtcNow) =
     interface IPostgresOrderAggregateEventsProcessorAdapter with
         member this.ReadUnprocessedOrderEvents(sqlSession) =
-            PostgresOrderAdapter.readUnprocessedOrderAggregateEvents dbSchema sqlSession
+            OrderAdapter.readUnprocessedOrderAggregateEvents dbSchema sqlSession
 
         member this.PersistSuccessfulEventHandlers(sqlSession) =
             Postgres.persistSuccessfulEventHandlers dbSchema sqlSession
@@ -37,13 +37,12 @@ type PostgresOrderAggregateEventsProcessorAdapter(dbSchema: DbSchema, getNow: Ge
 type IPostgresOrderIntegrationEventsProcessorAdapter =
     inherit ISqlOrderEventsProcessorPort<Postgres.EventId, IntegrationEvent.Consumed>
 
-    abstract member PersistOrderIntegrationEvents:
-        DbTransaction -> OrderIntegrationEventManagementAdapter.PersistOrderIntegrationEvents
+    abstract member PersistOrderIntegrationEvent: SqlSession -> OrderAdapter.PersistOrderIntegrationEvent
 
 type PostgresOrderIntegrationEventsProcessorAdapter(dbSchema: DbSchema, getNow: GetUtcNow) =
     interface IPostgresOrderIntegrationEventsProcessorAdapter with
         member this.ReadUnprocessedOrderEvents(sqlSession) =
-            OrderIntegrationEventManagementAdapter.readUnprocessedOrderIntegrationEvents dbSchema sqlSession
+            OrderAdapter.readUnprocessedOrderIntegrationEvents dbSchema sqlSession
 
         member this.PersistSuccessfulEventHandlers(sqlSession) =
             Postgres.persistSuccessfulEventHandlers dbSchema sqlSession
@@ -51,8 +50,8 @@ type PostgresOrderIntegrationEventsProcessorAdapter(dbSchema: DbSchema, getNow: 
         member this.MarkEventAsProcessed(sqlSession) =
             Postgres.markEventAsProcessed dbSchema sqlSession getNow
 
-        member this.PersistOrderIntegrationEvents(dbTransaction) =
-            OrderIntegrationEventManagementAdapter.persistOrderIntegrationEvents dbSchema dbTransaction
+        member this.PersistOrderIntegrationEvent(sqlSession) =
+            OrderAdapter.persistOrderIntegrationEvent dbSchema sqlSession
 
 type ISqlOrderAggregateManagementPort<'eventId> =
     abstract member ReadOrderAggregate: SqlSession -> OrderAggregateManagementPort.ReadOrderAggregate<SqlIoError>
@@ -71,21 +70,18 @@ type ISqlOrderAggregateManagementPort<'eventId> =
 type IPostgresOrderAggregateManagementAdapter = ISqlOrderAggregateManagementPort<Postgres.EventId>
 
 type PostgresOrderAggregateManagementAdapter
-    (
-        dbSchema: DbSchema,
-        eventsProcessor: PostgresOrderAdapter.OrderAggregateEventsProcessor<RabbitMQIoError>
-    ) =
+    (dbSchema: DbSchema, eventsProcessor: OrderAdapter.OrderAggregateEventsProcessor<RabbitMQIoError>) =
     interface IPostgresOrderAggregateManagementAdapter with
         member this.ReadOrderAggregate(sqlSession) =
-            PostgresOrderAdapter.readOrderAggregate dbSchema sqlSession
+            OrderAdapter.readOrderAggregate dbSchema sqlSession
 
         member this.PersistOrderAggregate(dbTransaction) =
-            PostgresOrderAdapter.persistOrderAggregate dbSchema dbTransaction
+            OrderAdapter.persistOrderAggregate dbSchema dbTransaction
 
         member this.PersistOrderAggregateEvents(dbTransaction) =
-            PostgresOrderAdapter.persistOrderAggregateEvents dbSchema dbTransaction
+            OrderAdapter.persistOrderAggregateEvents dbSchema dbTransaction
 
         member this.GetSupportedCardTypes(sqlSession) =
-            PostgresOrderAdapter.getSupportedCardTypes dbSchema sqlSession
+            OrderAdapter.getSupportedCardTypes dbSchema sqlSession
 
         member this.PublishOrderAggregateEvents = eventsProcessor.Process >>> AsyncResult.ok

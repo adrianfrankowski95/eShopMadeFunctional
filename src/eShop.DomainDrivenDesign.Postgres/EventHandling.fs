@@ -79,7 +79,7 @@ module Postgres =
     let persistEvent
         (eventPayloadToDto: 'eventPayload -> 'eventPayloadDto)
         (dbSchema: DbSchema)
-        (dbTransaction: DbTransaction)
+        (sqlSession: SqlSession)
         : PersistEvent<'state, 'eventPayload> =
         fun (AggregateId aggregateId) (ev: Event<'eventPayload>) ->
             {| AggregateId = aggregateId
@@ -87,7 +87,7 @@ module Postgres =
                EventType = getTypeName<'eventPayload> ()
                EventData = ev.Data |> eventPayloadToDto |> JsonbParameter<'eventPayloadDto>
                OccurredAt = ev.OccurredAt |}
-            |> Dapper.executeScalar<Guid> (SqlSession.Sustained dbTransaction) (Sql.persistEvent dbSchema)
+            |> Dapper.executeScalar<Guid> sqlSession (Sql.persistEvent dbSchema)
             |> AsyncResult.map (fun evId -> evId |> EventId, ev)
 
     type PersistEvents<'state, 'eventPayload> = PersistEvents<'state, EventId, 'eventPayload, SqlIoError>

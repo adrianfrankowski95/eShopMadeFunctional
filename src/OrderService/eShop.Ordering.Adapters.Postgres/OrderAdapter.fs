@@ -894,11 +894,11 @@ let readUnprocessedOrderAggregateEvents dbSchema sqlSession : ReadUnprocessedOrd
 type OrderAggregateEventsProcessor<'eventHandlerIoError> =
     EventsProcessor<OrderAggregate.State, Postgres.EventId, OrderAggregate.Event, SqlIoError, 'eventHandlerIoError>
 
-type PersistOrderIntegrationEvents =
-    PersistEvents<OrderAggregate.State, Postgres.EventId, IntegrationEvent.Consumed, SqlIoError>
+type PersistOrderIntegrationEvent =
+    PersistEvent<OrderAggregate.State, Postgres.EventId, IntegrationEvent.Consumed, SqlIoError>
 
-let persistOrderIntegrationEvents dbSchema dbTransaction : PersistOrderIntegrationEvents =
-    Postgres.persistEvents id dbSchema dbTransaction
+let persistOrderIntegrationEvent dbSchema sqlSession : PersistOrderIntegrationEvent =
+    Postgres.persistEvent id dbSchema sqlSession
 
 type ReadUnprocessedOrderIntegrationEvents =
     ReadUnprocessedEvents<OrderAggregate.State, Postgres.EventId, IntegrationEvent.Consumed, SqlIoError>
