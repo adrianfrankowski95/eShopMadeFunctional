@@ -2,7 +2,6 @@
 module eShop.Ordering.API.Configuration
 
 open System
-open System.Data.Common
 open System.IO
 open System.Text.Json
 open Giraffe
@@ -11,10 +10,8 @@ open Microsoft.Extensions.Configuration
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.Hosting
 open eShop.DomainDrivenDesign
-open eShop.DomainDrivenDesign.Postgres
 open eShop.Ordering.API.PortsAdapters
 open eShop.Ordering.Adapters.Common
-open eShop.Ordering.Domain.Model
 open eShop.Postgres
 open eShop.Postgres.DependencyInjection
 open eShop.ServiceDefaults
@@ -30,16 +27,18 @@ let private dbScripts =
     let getRelativeDirectoryPath path =
         Path.GetRelativePath(__SOURCE_DIRECTORY__, path) |> Path.GetDirectoryName
 
-    Map.empty
-    |> Map.add
-        "EventProcessing"
+    let eventProcessingInitScriptPath =
         TextFile<
             "../../eShop.DomainDrivenDesign.Postgres/dbinit/001_Create_EventProcessingLog_Table.sql",
             EnsureExists=true
          >.Path
-    |> Map.add
-        "Ordering"
+
+    let orderingInitScriptPath =
         TextFile<"../eShop.Ordering.Adapters.Postgres/dbinit/001_Create_Ordering_Tables.sql", EnsureExists=true>.Path
+
+    Map.empty
+    |> Map.add "EventProcessing" eventProcessingInitScriptPath
+    |> Map.add "Ordering" orderingInitScriptPath
     |> Map.mapValues getRelativeDirectoryPath
 
 let private configurePostgres (config: IConfiguration) (env: IHostEnvironment) (services: IServiceCollection) =
@@ -57,6 +56,11 @@ let private configureTime (services: IServiceCollection) =
 let private configureOrderAggregateEventsProcessor (services: IServiceCollection) =
     services.AddSingleton<CompositionRoot.OrderAggregateEventsProcessor>(
         CompositionRoot.buildOrderAggregateEventsProcessorFromSp
+    )
+
+let private configureOrderIntegrationEventsProcessor (services: IServiceCollection) =
+    services.AddSingleton<CompositionRoot.OrderIntegrationEventsProcessor>(
+        CompositionRoot.buildOrderIntegrationEventsProcessorFromSp
     )
 
 let private configureRabbitMQ (services: IServiceCollection) =
@@ -99,6 +103,7 @@ let private configureServices (builder: IHostApplicationBuilder) =
     |> configureRabbitMQ
     |> configureAdapters
     |> configureOrderAggregateEventsProcessor
+    |> configureOrderIntegrationEventsProcessor
     |> ignore
 
 let configureBuilder (builder: WebApplicationBuilder) =
