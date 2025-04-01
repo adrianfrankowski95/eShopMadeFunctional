@@ -32,6 +32,7 @@ CREATE TABLE "$Schema$"."Orders"
     "BuyerId"            UUID NOT NULL REFERENCES "$Schema$"."Buyers"("Id"),
     "PaymentMethodId"    UUID REFERENCES "$Schema$"."PaymentMethods"("Id") ON DELETE RESTRICT,
     "Status"             VARCHAR(50) NOT NULL,
+    "Description"        TEXT NULL,
     "StartedAt"          TIMESTAMPTZ NULL,
     "Street"             VARCHAR(100) NULL,
     "City"               VARCHAR(100) NULL,

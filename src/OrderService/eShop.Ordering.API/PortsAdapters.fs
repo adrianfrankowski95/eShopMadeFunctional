@@ -1,7 +1,6 @@
 ﻿module eShop.Ordering.API.PortsAdapters
 
 open System.Data.Common
-open FsToolkit.ErrorHandling
 open eShop.DomainDrivenDesign
 open eShop.Ordering.Adapters.Common
 open eShop.Ordering.Domain.Model
@@ -9,8 +8,6 @@ open eShop.Ordering.Domain.Ports
 open eShop.Postgres
 open eShop.DomainDrivenDesign.Postgres
 open eShop.Ordering.Adapters.Postgres
-open eShop.Prelude.Operators
-open eShop.RabbitMQ
 
 type ISqlOrderEventsProcessorPort<'eventId, 'eventPayload> =
     abstract member ReadUnprocessedOrderEvents:
@@ -62,15 +59,11 @@ type ISqlOrderAggregateManagementPort<'eventId> =
     abstract member PersistOrderAggregateEvents:
         DbTransaction -> OrderAggregateManagementPort.PersistOrderAggregateEvents<'eventId, SqlIoError>
 
-    abstract member PublishOrderAggregateEvents:
-        OrderAggregateManagementPort.PublishOrderAggregateEvents<'eventId, SqlIoError>
-
     abstract member GetSupportedCardTypes: SqlSession -> OrderAggregateManagementPort.GetSupportedCardTypes<SqlIoError>
 
 type IPostgresOrderAggregateManagementAdapter = ISqlOrderAggregateManagementPort<Postgres.EventId>
 
-type PostgresOrderAggregateManagementAdapter
-    (dbSchema: DbSchema, eventsProcessor: OrderAdapter.OrderAggregateEventsProcessor<RabbitMQIoError>) =
+type PostgresOrderAggregateManagementAdapter(dbSchema: DbSchema) =
     interface IPostgresOrderAggregateManagementAdapter with
         member this.ReadOrderAggregate(sqlSession) =
             OrderAdapter.readOrderAggregate dbSchema sqlSession
@@ -83,5 +76,3 @@ type PostgresOrderAggregateManagementAdapter
 
         member this.GetSupportedCardTypes(sqlSession) =
             OrderAdapter.getSupportedCardTypes dbSchema sqlSession
-
-        member this.PublishOrderAggregateEvents = eventsProcessor.Process >>> AsyncResult.ok

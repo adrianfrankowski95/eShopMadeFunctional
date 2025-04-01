@@ -5,6 +5,7 @@ open System
 open eShop.Ordering.Domain.Model.ValueObjects
 open eShop.ConstrainedTypes
 open eShop.Prelude
+open FsToolkit.ErrorHandling
 
 [<RequireQualifiedAccess>]
 module Command =
@@ -102,27 +103,31 @@ module State =
           PaymentMethod: VerifiedPaymentMethod
           Address: Address
           StartedAt: DateTimeOffset
-          ConfirmedOrderItems: NonEmptyMap<ProductId, OrderItemWithConfirmedStock> }
+          ConfirmedOrderItems: NonEmptyMap<ProductId, OrderItemWithConfirmedStock>
+          Description: Description }
 
     type Paid =
         { Buyer: Buyer
           PaymentMethod: VerifiedPaymentMethod
           Address: Address
           StartedAt: DateTimeOffset
-          PaidOrderItems: NonEmptyMap<ProductId, OrderItemWithConfirmedStock> }
+          PaidOrderItems: NonEmptyMap<ProductId, OrderItemWithConfirmedStock>
+          Description: Description }
 
     type Shipped =
         { Buyer: Buyer
           PaymentMethod: VerifiedPaymentMethod
           Address: Address
           StartedAt: DateTimeOffset
-          ShippedOrderItems: NonEmptyMap<ProductId, OrderItemWithConfirmedStock> }
+          ShippedOrderItems: NonEmptyMap<ProductId, OrderItemWithConfirmedStock>
+          Description: Description }
 
     type Cancelled =
         { Buyer: Buyer
           Address: Address
           StartedAt: DateTimeOffset
-          CancelledOrderItems: NonEmptyMap<ProductId, UnvalidatedOrderItem> }
+          CancelledOrderItems: NonEmptyMap<ProductId, UnvalidatedOrderItem>
+          Description: Description }
 
     type T =
         internal
@@ -136,6 +141,9 @@ module State =
         | Cancelled of Cancelled
 
     let evolve (state: T) (command: Command) : Result<T * Event list, InvalidStateError> =
+        let forceNonWhiteSpaceDescription rawValue =
+            rawValue |> Description.create |> Result.valueOr failwith
+
         match state, command with
         | Init, Command.CreateOrder cmd ->
             let newState: Submitted =
@@ -180,7 +188,10 @@ module State =
                   StartedAt = awaitingValidation.StartedAt
                   ConfirmedOrderItems =
                     awaitingValidation.UnconfirmedOrderItems
-                    |> NonEmptyMap.mapValues OrderItemWithUnconfirmedStock.confirmStock }
+                    |> NonEmptyMap.mapValues OrderItemWithUnconfirmedStock.confirmStock
+                  Description =
+                    "All the items were confirmed with available stock."
+                    |> forceNonWhiteSpaceDescription }
 
             let event: Event.OrderStockConfirmed =
                 { Buyer = newState.Buyer
@@ -188,13 +199,40 @@ module State =
 
             (newState |> T.WithConfirmedStock, [ event |> Event.OrderStockConfirmed ]) |> Ok
 
+        | AwaitingStockValidation awaitingValidation, Command.SetStockRejectedOrderStatus cmd ->
+            let newState =
+                { Buyer = awaitingValidation.Buyer
+                  Address = awaitingValidation.Address
+                  StartedAt = awaitingValidation.StartedAt
+                  CancelledOrderItems =
+                    awaitingValidation.UnconfirmedOrderItems
+                    |> NonEmptyMap.mapValues (fun item ->
+                        { Discount = item.Discount
+                          Units = item.Units
+                          PictureUrl = item.PictureUrl
+                          ProductName = item.ProductName
+                          UnitPrice = item.UnitPrice })
+                  Description =
+                    awaitingValidation.UnconfirmedOrderItems
+                    |> NonEmptyMap.filter (fun k _ -> cmd.RejectedOrderItems |> NonEmptyList.contains k)
+                    |> NonEmptyMap.values
+                    |> Seq.map (_.ProductName >> ProductName.value)
+                    |> String.concat ", "
+                    |> sprintf "The product items don't have stock: %s"
+                    |> forceNonWhiteSpaceDescription }
+
+            (newState |> T.Cancelled, []) |> Ok
+
         | WithConfirmedStock withConfirmedStock, Command.SetPaidOrderStatus ->
             let newState =
                 { Buyer = withConfirmedStock.Buyer
                   Address = withConfirmedStock.Address
                   PaymentMethod = withConfirmedStock.PaymentMethod
                   StartedAt = withConfirmedStock.StartedAt
-                  PaidOrderItems = withConfirmedStock.ConfirmedOrderItems }
+                  PaidOrderItems = withConfirmedStock.ConfirmedOrderItems
+                  Description =
+                    "The payment was performed at a simulated \"American Bank checking bank account ending on XX35071\""
+                    |> forceNonWhiteSpaceDescription }
 
             let event: Event.OrderPaid =
                 { Buyer = newState.Buyer
@@ -208,7 +246,8 @@ module State =
                   Address = paid.Address
                   PaymentMethod = paid.PaymentMethod
                   StartedAt = paid.StartedAt
-                  ShippedOrderItems = paid.PaidOrderItems }
+                  ShippedOrderItems = paid.PaidOrderItems
+                  Description = "The order was shipped." |> forceNonWhiteSpaceDescription }
 
             let event: Event.OrderShipped =
                 { Buyer = newState.Buyer
@@ -230,7 +269,8 @@ module State =
                           Units = item.Units
                           PictureUrl = item.PictureUrl
                           ProductName = item.ProductName
-                          UnitPrice = item.UnitPrice }) }
+                          UnitPrice = item.UnitPrice })
+                  Description = "The order was cancelled." |> forceNonWhiteSpaceDescription }
 
             let event: Event.OrderCancelled = { Buyer = newState.Buyer }
 
@@ -248,7 +288,8 @@ module State =
                           Units = item.Units
                           PictureUrl = item.PictureUrl
                           ProductName = item.ProductName
-                          UnitPrice = item.UnitPrice }) }
+                          UnitPrice = item.UnitPrice })
+                  Description = "The order was cancelled." |> forceNonWhiteSpaceDescription }
 
             let event: Event.OrderCancelled = { Buyer = newState.Buyer }
 
@@ -266,7 +307,8 @@ module State =
                           Units = item.Units
                           PictureUrl = item.PictureUrl
                           ProductName = item.ProductName
-                          UnitPrice = item.UnitPrice }) }
+                          UnitPrice = item.UnitPrice })
+                  Description = "The order was cancelled." |> forceNonWhiteSpaceDescription }
 
             let event: Event.OrderCancelled = { Buyer = newState.Buyer }
 
@@ -310,6 +352,17 @@ module State =
         | Paid paid -> paid.Address |> Some
         | Shipped shipped -> shipped.Address |> Some
         | Cancelled cancelled -> cancelled.Address |> Some
+
+    let getDescription =
+        function
+        | Init -> None
+        | Draft _ -> None
+        | Submitted _ -> None
+        | AwaitingStockValidation _ -> None
+        | WithConfirmedStock withConfirmedStock -> withConfirmedStock.Description |> Some
+        | Paid paid -> paid.Description |> Some
+        | Shipped shipped -> shipped.Description |> Some
+        | Cancelled cancelled -> cancelled.Description |> Some
 
     let getStartedAt =
         function

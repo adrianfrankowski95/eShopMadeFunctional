@@ -7,8 +7,10 @@ open System.Text.Json
 open Giraffe
 open Microsoft.AspNetCore.Http
 open Microsoft.Extensions.DependencyInjection
+open Microsoft.Extensions.Logging
 open Microsoft.Extensions.Options
 open RabbitMQ.Client
+open eShop.ConstrainedTypes
 open eShop.DomainDrivenDesign
 open eShop.DomainDrivenDesign.Postgres
 open eShop.Ordering.API.PortsAdapters
@@ -19,6 +21,7 @@ open eShop.Ordering.Domain.Workflows
 open eShop.Postgres
 open eShop.RabbitMQ
 open FsToolkit.ErrorHandling
+open eShop.Prelude.Operators
 
 // Note: This object is required since we can't just pass type GetService<'t> = unit -> 't
 // and get different generic type each time the function is invoked.
@@ -41,32 +44,15 @@ let private getDbConnection (services: Services) = services.Get<GetDbConnection>
 let private getStandaloneSqlSession (services: Services) =
     services |> getDbConnection |> SqlSession.Standalone
 
+let getStandaloneSqlSessionFromSp (sp: IServiceProvider) =
+    sp |> Services.fromSp |> getStandaloneSqlSession
+
 let private buildTransactionalWorkflowExecutor (services: Services) =
     services
     |> getDbConnection
     |> TransactionalWorkflowExecutor.init
     |> TransactionalWorkflowExecutor.withIsolationLevel IsolationLevel.ReadCommitted
     |> TransactionalWorkflowExecutor.execute
-
-let private buildOrderWorkflowExecutor (services: Services) workflowToExecute =
-    let postgresAdapter = services.Get<IPostgresOrderAggregateManagementAdapter>()
-
-    let getUtcNow = services.Get<GetUtcNow>()
-
-    fun dbTransaction ->
-        let readOrder =
-            dbTransaction |> SqlSession.Sustained |> postgresAdapter.ReadOrderAggregate
-
-        let persistOrder = dbTransaction |> postgresAdapter.PersistOrderAggregate
-
-        let persistOrderEvents =
-            dbTransaction |> postgresAdapter.PersistOrderAggregateEvents
-
-        let publishOrderEvents = postgresAdapter.PublishOrderAggregateEvents
-
-        workflowToExecute
-        |> WorkflowExecutor.execute getUtcNow readOrder persistOrder persistOrderEvents publishOrderEvents
-    |> buildTransactionalWorkflowExecutor services
 
 type OrderAggregateIntegrationEventDispatcher = RabbitMQ.OrderAggregateIntegrationEventDispatcher<Postgres.EventId>
 
@@ -83,7 +69,7 @@ type OrderAggregateEventsProcessor = Postgres.OrderAdapter.OrderAggregateEventsP
 
 let private buildOrderAggregateEventsProcessor services : OrderAggregateEventsProcessor =
     let sqlSession = services |> getStandaloneSqlSession
-
+    let logger = services.Get<ILogger<OrderAggregateEventsProcessor>>()
     let postgresAdapter = services.Get<IPostgresOrderAggregateEventsProcessorAdapter>()
 
     let readEvents = sqlSession |> postgresAdapter.ReadUnprocessedOrderEvents
@@ -93,9 +79,90 @@ let private buildOrderAggregateEventsProcessor services : OrderAggregateEventsPr
     let integrationEventDispatcher =
         services |> buildOrderAggregateIntegrationEventDispatcher
 
+    let logError (error: EventsProcessor.EventsProcessorError<'state, _, _, SqlIoError, _>) =
+        match error with
+        | EventsProcessor.ReadingUnprocessedEventsFailed eventLogIoError ->
+            logger.LogError("Reading unprocessed events failed: {Error}", eventLogIoError)
+
+        | EventsProcessor.PersistingSuccessfulEventHandlersFailed(AggregateId aggregateId,
+                                                                  Postgres.EventId eventId,
+                                                                  successfulHandlers,
+                                                                  eventLogIoError) ->
+            logger.LogError(
+                "Persisting successful event handlers ({SuccessfulEventHandlers}) for Event {EventId} (Aggregate {AggregateType} - {AggregateId}) failed: {Error}",
+                (successfulHandlers |> String.concat ", "),
+                eventId,
+                Aggregate.typeName<'state>,
+                aggregateId,
+                eventLogIoError
+            )
+
+        | EventsProcessor.MarkingEventAsProcessedFailed(Postgres.EventId eventId, eventLogIoError) ->
+            logger.LogError("Marking Event {EventId} as processed failed: {Error}", eventId, eventLogIoError)
+
+        | EventsProcessor.EventHandlerFailed(attempt,
+                                             AggregateId aggregateId,
+                                             Postgres.EventId eventId,
+                                             event,
+                                             handlerName,
+                                             eventHandlingIoError) ->
+            logger.LogError(
+                "Handler {HandlerName} for Event {EventId} (Aggregate {AggregateType} - {AggregateId}) failed after #{Attempt} attempt. Event data: {Event}, error: {Error}",
+                handlerName,
+                eventId,
+                Aggregate.typeName<'state>,
+                aggregateId,
+                attempt,
+                event,
+                eventHandlingIoError
+            )
+
+        | EventsProcessor.MaxEventProcessingRetriesReached(attempt,
+                                                           AggregateId aggregateId,
+                                                           Postgres.EventId eventId,
+                                                           event,
+                                                           handlerNames) ->
+            logger.LogCritical(
+                "Handlers {HandlerNames} for Event {EventId} (Aggregate {AggregateType} - {AggregateId}) reached maximum attempts ({attempt}) and won't be retried. Event data: {Event}",
+                (handlerNames |> String.concat ", "),
+                eventId,
+                Aggregate.typeName<'state>,
+                aggregateId,
+                attempt,
+                event
+            )
+
     EventsProcessor.init
     |> EventsProcessor.registerHandler "IntegrationEventDispatcher" integrationEventDispatcher
+    |> EventsProcessor.withErrorHandler logError
     |> EventsProcessor.build readEvents persistHandlers markEventsProcessed
+
+let buildOrderAggregateEventsProcessorFromSp (sp: IServiceProvider) =
+    sp |> Services.fromSp |> buildOrderAggregateEventsProcessor
+
+let private buildOrderWorkflowExecutor (services: Services) workflowToExecute =
+    let postgresAdapter = services.Get<IPostgresOrderAggregateManagementAdapter>()
+
+    let getUtcNow = services.Get<GetUtcNow>()
+
+    let eventsProcessor = services.Get<OrderAggregateEventsProcessor>()
+
+    fun dbTransaction ->
+        let readOrder =
+            dbTransaction |> SqlSession.Sustained |> postgresAdapter.ReadOrderAggregate
+
+        let persistOrder = dbTransaction |> postgresAdapter.PersistOrderAggregate
+
+        let persistOrderEvents =
+            dbTransaction |> postgresAdapter.PersistOrderAggregateEvents
+
+        let publishOrderEvents = eventsProcessor.Process >>> AsyncResult.ok
+
+        workflowToExecute
+        |> WorkflowExecutor.execute getUtcNow readOrder persistOrder persistOrderEvents publishOrderEvents
+    |> buildTransactionalWorkflowExecutor services
+
+
 
 type OrderIntegrationEventDrivenWorkflowIoError = OrderIntegrationEventDrivenWorkflowIoError
 
@@ -112,18 +179,45 @@ let private buildOrderIntegrationEventDrivenWorkflows
           OrderAggregate.State,
           Postgres.EventId,
           IntegrationEvent.Consumed,
-          OrderIntegrationEventDrivenWorkflowIoError
+          WorkflowExecutorError<OrderAggregate.InvalidStateError, _, SqlIoError, _>
        >
     =
-    let workflowExecutor = services |> buildTransactionalWorkflowExecutor
 
     fun orderAggregateId _ integrationEvent ->
+        let inline executeWorkflow command workflow = buildOrderWorkflowExecutor services workflow orderAggregateId command
+
+        
         match integrationEvent.Data with
-        | IntegrationEvent.Consumed.GracePeriodConfirmed gracePeriodConfirmed -> failwith "todo"
-        | IntegrationEvent.Consumed.OrderStockConfirmed orderStockConfirmed -> failwith "todo"
-        | IntegrationEvent.Consumed.OrderStockRejected orderStockRejected -> failwith "todo"
-        | IntegrationEvent.Consumed.OrderPaymentFailed orderPaymentFailed -> failwith "todo"
-        | IntegrationEvent.Consumed.OrderPaymentSucceeded orderPaymentSucceeded -> failwith "todo"
+        | IntegrationEvent.Consumed.GracePeriodConfirmed _ ->
+            AwaitOrderStockItemsValidationWorkflow.build |> executeWorkflow ()
+
+        | IntegrationEvent.Consumed.OrderStockConfirmed _ ->
+            ConfirmOrderItemsStockWorkflow.build |> executeWorkflow ()
+
+        | IntegrationEvent.Consumed.OrderStockRejected orderStockRejected ->
+            asyncResult {
+                let! command =
+                    orderStockRejected.OrderStockItems
+                    |> List.filter (_.HasStock >> not)
+                    |> List.map (_.ProductId >> ProductId.ofInt)
+                    |> NonEmptyList.ofList
+                    |> Result.mapError ((+) "OrderStockRejected error: ")
+                    |> Result.map (fun items -> ({ RejectedOrderItems = items }: OrderAggregate.Command.SetStockRejectedOrderStatus))
+                
+                return! RejectOrderItemsStockWorkflow.build |> executeWorkflow command
+            }
+            
+        
+        | IntegrationEvent.Consumed.OrderPaymentFailed orderPaymentFailed ->
+            asyncResult
+                {
+
+                }
+        | IntegrationEvent.Consumed.OrderPaymentSucceeded orderPaymentSucceeded ->
+            asyncResult
+                {
+
+                }
 
 type OrderIntegrationEventsProcessor = Postgres.OrderAdapter.OrderIntegrationEventsProcessor<RabbitMQIoError>
 
@@ -148,10 +242,3 @@ let private buildOrderIntegrationEventsProcessor services : OrderIntegrationEven
         "Dummy Handler"
         ((fun _ _ _ -> AsyncResult.ok ()): EventHandler<_, _, _, RabbitMQIoError>)
     |> EventsProcessor.build readEvents persistHandlers markEventsProcessed
-
-// [<RequireQualifiedAccess>]
-// module OrderWorkflowExecutor =
-//     let build (ctx)
-
-// let private buildTransactionalWorkflowExecutor =
-//

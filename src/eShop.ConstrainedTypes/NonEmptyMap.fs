@@ -32,6 +32,11 @@ module NonEmptyMap =
     let mapValues mapping map =
         map |> toMap |> Map.map (fun _ v -> v |> mapping) |> NonEmptyMap
 
+    let values map = map |> toMap |> Map.values
+
+    let filter predicate map =
+        map |> toMap |> Map.filter predicate |> NonEmptyMap
+
     let count map = map |> toMap |> Map.count
 
     let add key value map =

@@ -179,8 +179,8 @@ module RabbitMQ =
         (consumer: AsyncEventingBasicConsumer)
         (config: Configuration.RabbitMQOptions)
         (logger: ILogger<RabbitMQEventDispatcher<'eventId, 'eventPayload>>)
-        (persistEvents: PersistEvents<'state, 'eventId, 'eventPayload, _>)
-        (processEvents: PublishEvents<'state, 'eventId, 'eventPayload, _>)      
+        (persistEvent: PersistEvent<'state, 'eventId, 'eventPayload, _>)
+        (processEvents: PublishEvents<'state, 'eventId, 'eventPayload, _>)
         =
         result {
             let! queueName = config.SubscriptionClientName |> QueueName.create
@@ -206,13 +206,13 @@ module RabbitMQ =
 
                     let aggregateId = eventPayload |> aggregateIdSelector
 
-                    let! eventsWithIds =
-                        [ { Data = eventPayload
-                            OccurredAt = timestamp } ]
-                        |> persistEvents aggregateId
+                    let! eventWithId =
+                        { Data = eventPayload
+                          OccurredAt = timestamp }
+                        |> persistEvent aggregateId
                         |> AsyncResult.mapError Choice2Of3
 
-                    do! eventsWithIds |> processEvents aggregateId |> AsyncResult.mapError Choice3Of3
+                    do! [ eventWithId ] |> processEvents aggregateId |> AsyncResult.mapError Choice3Of3
                 }
                 |> AsyncResult.tee (fun _ -> ack ea consumer.Model)
                 |> AsyncResult.teeError (nack ea logger consumer.Model)
@@ -251,7 +251,7 @@ module RabbitMQ =
 
                 let properties = channel.CreateBasicProperties()
                 properties.MessageId <- (eventId |> box |> string)
-                properties.Type <- typeof<'eventPayload>.DeclaringType.Name + typeof<'eventPayload>.Name
+                properties.Type <- Event.typeName<'eventPayload>
                 properties.DeliveryMode <- 2uy
                 properties.Timestamp <- AmqpTimestamp(event.OccurredAt.ToUnixTimeSeconds())
                 properties.ContentType <- "application/json"
@@ -262,43 +262,3 @@ module RabbitMQ =
                     |> publish eventName body properties
                     |> Result.mapError EventDispatchError
             }
-
-//    let consumeEvent
-//
-// // let registerEventHandler<'T> (context: RabbitMQContext) (eventName: string) (handler: Consumer.EventHandler<'T>) =
-// //     // Bind queue to exchange with routing key = eventName (exact match for direct exchange)
-// //     Connection.bindQueue
-// //         context.Channel
-// //         context.Config.Consumer.QueueName
-// //         context.Config.Consumer.ExchangeName
-// //         eventName
-// //
-// //     // Setup consumer
-// //     Consumer.setupConsumer<'T>
-// //         context.Channel
-// //         context.Config.Consumer.QueueName
-// //         eventName
-// //         handler
-// //         context.Config.Consumer.PrefetchCount
-//
-// let publishEvent<'T> (context: RabbitMQContext) (eventName: string) (payload: 'T) (metadata: Map<string, string>) =
-//     Publisher.publishEvent<'T> context.Channel Configuration.ExchangeName eventName payload metadata
-//
-// let shutdown (context: RabbitMQContext) =
-//     try
-//         if context.Channel.IsOpen then
-//             context.Channel.Close()
-//
-//         if context.Connection.IsOpen then
-//             context.Connection.Close()
-//
-//         Ok()
-//     with ex ->
-//         Error $"Failed to shutdown RabbitMQ context: %s{ex.Message}"
-//
-
-
-// this.Services
-// .AddOpenTelemetry()
-// .WithTracing(_.AddSource(Configuration.OpenTelemetry.ActivitySourceName) >> ignore)
-// .Services.AddSingleton<Configuration.OpenTelemetry>(Configuration.OpenTelemetry.init)

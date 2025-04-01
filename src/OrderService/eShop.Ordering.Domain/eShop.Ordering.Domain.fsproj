@@ -13,6 +13,7 @@
         <Compile Include="Model\ValueObjects\Address.fs" />
         <Compile Include="Model\ValueObjects\CardNumber.fs" />
         <Compile Include="Model\ValueObjects\CardHolderName.fs" />
+        <Compile Include="Model\ValueObjects\Description.fs" />
         <Compile Include="Model\PaymentMethod.fs" />
         <Compile Include="Model\Buyer.fs" />
         <Compile Include="Model\OrderItem.fs" />

@@ -60,6 +60,7 @@ module internal Dto =
     type Order =
         { Id: int
           Status: string
+          Description: string option
           ItemProductId: int option
           ItemProductName: string option
           ItemUnitPrice: decimal option
@@ -283,6 +284,11 @@ module internal Dto =
                             and! address = orderDto |> createAddress
                             and! startedAt = orderDto.StartedAt |> Result.requireSome "Missing StartedAt"
 
+                            and! description =
+                                orderDto.Description
+                                |> Result.requireSome "Missing Description"
+                                |> Result.bind Description.create
+
                             and! orderItems =
                                 orders
                                 |> Seq.traverseResultA createOrderItemWithConfirmedStock
@@ -298,7 +304,8 @@ module internal Dto =
                                    PaymentMethod = paymentMethod
                                    Address = address
                                    StartedAt = startedAt
-                                   ConfirmedOrderItems = orderItems }
+                                   ConfirmedOrderItems = orderItems
+                                   Description = description }
                                 : OrderAggregate.State.WithConfirmedStock)
                                 |> OrderAggregate.State.WithConfirmedStock
                         }
@@ -309,6 +316,11 @@ module internal Dto =
                             and! address = orderDto |> createAddress
                             and! startedAt = orderDto.StartedAt |> Result.requireSome "Missing StartedAt"
 
+                            and! description =
+                                orderDto.Description
+                                |> Result.requireSome "Missing Description"
+                                |> Result.bind Description.create
+
                             and! orderItems =
                                 orders
                                 |> Seq.traverseResultA createOrderItemWithConfirmedStock
@@ -324,7 +336,8 @@ module internal Dto =
                                    PaymentMethod = paymentMethod
                                    Address = address
                                    StartedAt = startedAt
-                                   PaidOrderItems = orderItems }
+                                   PaidOrderItems = orderItems
+                                   Description = description }
                                 : OrderAggregate.State.Paid)
                                 |> OrderAggregate.State.Paid
                         }
@@ -335,6 +348,11 @@ module internal Dto =
                             and! address = orderDto |> createAddress
                             and! startedAt = orderDto.StartedAt |> Result.requireSome "Missing StartedAt"
 
+                            and! description =
+                                orderDto.Description
+                                |> Result.requireSome "Missing Description"
+                                |> Result.bind Description.create
+
                             and! orderItems =
                                 orders
                                 |> Seq.traverseResultA createOrderItemWithConfirmedStock
@@ -350,7 +368,8 @@ module internal Dto =
                                    PaymentMethod = paymentMethod
                                    Address = address
                                    StartedAt = startedAt
-                                   ShippedOrderItems = orderItems }
+                                   ShippedOrderItems = orderItems
+                                   Description = description }
                                 : OrderAggregate.State.Shipped)
                                 |> OrderAggregate.State.Shipped
                         }
@@ -359,6 +378,11 @@ module internal Dto =
                             let! buyer = orderDto |> createBuyer
                             and! address = orderDto |> createAddress
                             and! startedAt = orderDto.StartedAt |> Result.requireSome "Missing StartedAt"
+
+                            and! description =
+                                orderDto.Description
+                                |> Result.requireSome "Missing Description"
+                                |> Result.bind Description.create
 
                             and! orderItems =
                                 orders
@@ -374,7 +398,8 @@ module internal Dto =
                                 ({ Buyer = buyer
                                    Address = address
                                    StartedAt = startedAt
-                                   CancelledOrderItems = orderItems }
+                                   CancelledOrderItems = orderItems
+                                   Description = description }
                                 : OrderAggregate.State.Cancelled)
                                 |> OrderAggregate.State.Cancelled
                         }))
@@ -441,6 +466,7 @@ module internal Dto =
                    BuyerName = ev.Buyer.Name |> BuyerName.value }
                 : OrderStartedEvent)
                 |> Event.OrderStarted
+
             | OrderAggregate.Event.PaymentMethodVerified ev ->
                 { BuyerId = ev.Buyer.Id |> BuyerId.value
                   BuyerName = ev.Buyer.Name |> BuyerName.value
@@ -450,11 +476,13 @@ module internal Dto =
                   CardHolderName = ev.VerifiedPaymentMethod.CardHolderName |> CardHolderName.value
                   CardExpiration = ev.VerifiedPaymentMethod.CardExpiration }
                 |> Event.PaymentMethodVerified
+
             | OrderAggregate.Event.OrderCancelled ev ->
                 ({ BuyerId = ev.Buyer.Id |> BuyerId.value
                    BuyerName = ev.Buyer.Name |> BuyerName.value }
                 : OrderCancelledEvent)
                 |> Event.OrderCancelled
+
             | OrderAggregate.Event.OrderStatusChangedToAwaitingValidation ev ->
                 ({ BuyerId = ev.Buyer.Id |> BuyerId.value
                    BuyerName = ev.Buyer.Name |> BuyerName.value
@@ -466,6 +494,7 @@ module internal Dto =
                            ProductId = id |> ProductId.value }) }
                 : OrderStatusChangedToAwaitingValidationEvent)
                 |> Event.OrderStatusChangedToAwaitingValidation
+
             | OrderAggregate.Event.OrderStockConfirmed ev ->
                 ({ BuyerId = ev.Buyer.Id |> BuyerId.value
                    BuyerName = ev.Buyer.Name |> BuyerName.value
@@ -481,6 +510,7 @@ module internal Dto =
                            UnitPrice = orderItem.UnitPrice |> UnitPrice.value }) }
                 : OrderStockConfirmedEvent)
                 |> Event.OrderStockConfirmed
+
             | OrderAggregate.Event.OrderPaid ev ->
                 ({ BuyerId = ev.Buyer.Id |> BuyerId.value
                    BuyerName = ev.Buyer.Name |> BuyerName.value
@@ -496,6 +526,7 @@ module internal Dto =
                            UnitPrice = orderItem.UnitPrice |> UnitPrice.value }) }
                 : OrderPaidEvent)
                 |> Event.OrderPaid
+
             | OrderAggregate.Event.OrderShipped ev ->
                 ({ BuyerId = ev.Buyer.Id |> BuyerId.value
                    BuyerName = ev.Buyer.Name |> BuyerName.value
@@ -524,6 +555,7 @@ module internal Dto =
                           Name = buyerName } }
                     : OrderAggregate.Event.OrderStarted)
                     |> OrderAggregate.Event.OrderStarted)
+
             | PaymentMethodVerified ev ->
                 validation {
                     let buyerId = ev.BuyerId |> BuyerId.ofGuid
@@ -544,6 +576,7 @@ module internal Dto =
                         : OrderAggregate.Event.PaymentMethodVerified)
                         |> OrderAggregate.Event.PaymentMethodVerified
                 }
+
             | OrderCancelled ev ->
                 validation {
                     let buyerId = ev.BuyerId |> BuyerId.ofGuid
@@ -554,6 +587,7 @@ module internal Dto =
                         ({ Buyer = { Id = buyerId; Name = buyerName } }: OrderAggregate.Event.OrderCancelled)
                         |> OrderAggregate.Event.OrderCancelled
                 }
+
             | OrderStatusChangedToAwaitingValidation ev ->
                 validation {
                     let buyerId = ev.BuyerId |> BuyerId.ofGuid
@@ -577,6 +611,7 @@ module internal Dto =
                         : OrderAggregate.Event.OrderStatusChangedToAwaitingValidation)
                         |> OrderAggregate.Event.OrderStatusChangedToAwaitingValidation
                 }
+
             | OrderStockConfirmed ev ->
                 validation {
                     let buyerId = ev.BuyerId |> BuyerId.ofGuid
@@ -613,6 +648,7 @@ module internal Dto =
                         : OrderAggregate.Event.OrderStockConfirmed)
                         |> OrderAggregate.Event.OrderStockConfirmed
                 }
+
             | OrderPaid ev ->
                 validation {
                     let buyerId = ev.BuyerId |> BuyerId.ofGuid
@@ -649,6 +685,7 @@ module internal Dto =
                         : OrderAggregate.Event.OrderPaid)
                         |> OrderAggregate.Event.OrderPaid
                 }
+
             | OrderShipped ev ->
                 validation {
                     let buyerId = ev.BuyerId |> BuyerId.ofGuid
@@ -697,7 +734,7 @@ module private Sql =
     let getOrderById (DbSchema schema) =
         $"""
         SELECT
-            orders."Id", orders."Status", orders."Street", orders."City", orders."State", orders."Country", orders."ZipCode", orders."StartedAt",
+            orders."Id", orders."Status", orders."Description", orders."Street", orders."City", orders."State", orders."Country", orders."ZipCode", orders."StartedAt",
             items."ProductId" AS "ItemProductId", items."ProductName" AS "ItemProductName", items."UnitPrice" AS "ItemUnitPrice",
             items."Units" AS "ItemUnits", items."Discount" AS "ItemDiscount", items."PictureUrl" AS "ItemPictureUrl",
             buyers."Id" AS "BuyerId", buyers."Name" AS "BuyerName",
@@ -758,12 +795,12 @@ module private Sql =
 
     let upsertOrder (DbSchema schema) =
         $"""
-        INSERT INTO "{schema}"."Orders" ("Id", "BuyerId", "PaymentMethodId", "Status", "StartedAt", "Street", "City", "State", "Country", "ZipCode")
-        VALUES (@Id, @BuyerId, @PaymentMethodId, @Status, @StartedAt, @Street, @City, @State, @Country, @ZipCode)
+        INSERT INTO "{schema}"."Orders" ("Id", "BuyerId", "PaymentMethodId", "Status", "Description", "StartedAt", "Street", "City", "State", "Country", "ZipCode")
+        VALUES (@Id, @BuyerId, @PaymentMethodId, @Status, @Description, @StartedAt, @Street, @City, @State, @Country, @ZipCode)
         ON CONFLICT ("Id")
         DO UPDATE SET
             "BuyerId" = EXCLUDED."BuyerId", "PaymentMethodId" = EXCLUDED."PaymentMethodId",
-            "Status" = EXCLUDED."Status", "StartedAt" = EXCLUDED."StartedAt", "Street" = EXCLUDED."Street",
+            "Status" = EXCLUDED."Status", "Description" = EXCLUDED."Description", "StartedAt" = EXCLUDED."StartedAt", "Street" = EXCLUDED."Street",
             "City" = EXCLUDED."City", "State" = EXCLUDED."State", "Country" = EXCLUDED."Country", "ZipCode" = EXCLUDED."ZipCode"
         """
 
@@ -837,6 +874,11 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                         |> Option.toNullable
                        PaymentMethodId = maybePaymentMethodId |> Option.toNullable
                        Status = status |> Dto.OrderStatus.toString
+                       Description =
+                        order
+                        |> OrderAggregate.State.getDescription
+                        |> Option.map Description.value
+                        |> Option.toObj
                        StartedAt = order |> OrderAggregate.State.getStartedAt |> Option.toNullable
                        Street = maybeAddress |> Option.map (_.Street >> Street.value) |> Option.toObj
                        City = maybeAddress |> Option.map (_.City >> City.value) |> Option.toObj

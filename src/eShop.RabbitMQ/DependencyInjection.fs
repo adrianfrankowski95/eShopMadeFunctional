@@ -38,6 +38,7 @@ type IHostApplicationBuilder with
         this
 
 type IServiceCollection with
+    // TODO: Add OpenTelemetry
     member this.RegisterRabbitMQConsumer<'state, 'eventId, 'eventPayload, 'persistEventsIoError, 'publishEventsIoError>
         (
             eventNamesToConsume,
@@ -45,7 +46,7 @@ type IServiceCollection with
             deserializeEvent,
             getDependencies:
                 IServiceProvider
-                    -> PersistEvents<'state, 'eventId, 'eventPayload, 'persistEventsIoError> *
+                    -> PersistEvent<'state, 'eventId, 'eventPayload, 'persistEventsIoError> *
                     PublishEvents<'state, 'eventId, 'eventPayload, 'publishEventsIoError>
         ) =
         this.AddSingleton(

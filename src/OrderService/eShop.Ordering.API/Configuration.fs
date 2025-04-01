@@ -54,17 +54,10 @@ let private configureSerialization (services: IServiceCollection) =
 let private configureTime (services: IServiceCollection) =
     services.AddTransient<GetUtcNow>(Func<IServiceProvider, GetUtcNow>(fun _ () -> DateTimeOffset.UtcNow))
 
-let private configureIntegrationEventsProcessor (services: IServiceCollection) =
-    services.AddSingleton<
-        EventsProcessor<
-            OrderAggregate.State,
-            Postgres.EventId,
-            IntegrationEvent.Consumed,
-            SqlIoError,
-            eShop.RabbitMQ.RabbitMQIoError
-         >
-     >
-        (fun sp -> sp.GetRequiredService<IntegrationEventsProcessor>().Get)
+let private configureOrderAggregateEventsProcessor (services: IServiceCollection) =
+    services.AddSingleton<CompositionRoot.OrderAggregateEventsProcessor>(
+        CompositionRoot.buildOrderAggregateEventsProcessorFromSp
+    )
 
 let private configureRabbitMQ (services: IServiceCollection) =
     services.RegisterRabbitMQConsumer(
@@ -72,21 +65,18 @@ let private configureRabbitMQ (services: IServiceCollection) =
         IntegrationEvent.Consumed.getOrderId,
         IntegrationEvent.Consumed.deserialize,
         fun sp ->
-            let dbConn = sp.GetRequiredService<DbConnection>()
+            let sqlSession = sp |> CompositionRoot.getStandaloneSqlSessionFromSp
 
-            dbConn.Open()
-            let transaction = dbConn.BeginTransaction()
-
-            let persistEvents =
+            let persistEvent =
                 sp
                     .GetRequiredService<IPostgresOrderIntegrationEventsProcessorAdapter>()
-                    .PersistOrderIntegrationEvents(transaction)
+                    .PersistOrderIntegrationEvent(sqlSession)
 
             let processEvent =
                 sp.GetRequiredService<CompositionRoot.OrderIntegrationEventsProcessor>().Process
                 >>> AsyncResult.ok
 
-            persistEvents, processEvent
+            persistEvent, processEvent
     )
 
 let private configureAdapters (services: IServiceCollection) =
@@ -108,6 +98,7 @@ let private configureServices (builder: IHostApplicationBuilder) =
     |> configurePostgres builder.Configuration builder.Environment
     |> configureRabbitMQ
     |> configureAdapters
+    |> configureOrderAggregateEventsProcessor
     |> ignore
 
 let configureBuilder (builder: WebApplicationBuilder) =

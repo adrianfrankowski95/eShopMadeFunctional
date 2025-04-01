@@ -18,7 +18,10 @@ module NonEmptyList =
     let inline map ([<InlineIfLambda>] mapping) ((head, tail): NonEmptyList<'t>) =
         (mapping head, List.map mapping tail) |> NonEmptyList
 
-    let length ((_, tail): NonEmptyList<'t>) = tail |> List.length |> (+) 1
+    let inline length ((_, tail): NonEmptyList<'t>) = tail |> List.length |> (+) 1
+
+    let inline contains value ((head, tail): NonEmptyList<'t>) =
+        head = value || (tail |> List.contains value)
 
     let inline sequence ([<InlineIfLambda>] sequencer) ([<InlineIfLambda>] mapper) =
         toList >> sequencer >> mapper (ofList >> Result.valueOr failwith)

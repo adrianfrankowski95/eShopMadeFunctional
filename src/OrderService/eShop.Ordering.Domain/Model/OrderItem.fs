@@ -18,6 +18,7 @@ module ProductId =
     
     let toString = value >> string
 
+
 type ProductName = String.NonWhiteSpace
 
 [<RequireQualifiedAccess>]

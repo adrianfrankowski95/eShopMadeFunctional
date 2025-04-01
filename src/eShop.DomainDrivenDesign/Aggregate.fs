@@ -11,3 +11,11 @@ module AggregateId =
 [<AutoOpen>]
 module ActivePatterns =
     let (|AggregateId|) = AggregateId.value
+
+
+[<RequireQualifiedAccess>]
+module Aggregate =
+    let typeName<'state> =
+        let stateType = typeof<'state>
+
+        stateType.DeclaringType.Name + stateType.Name

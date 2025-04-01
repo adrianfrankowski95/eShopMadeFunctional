@@ -12,6 +12,11 @@ open eShop.Postgres.Dapper.Parameters
 module Postgres =
     type EventId = private EventId of Guid
 
+    module EventId =
+        let value (EventId rawId) = rawId
+
+    let (|EventId|) = EventId.value
+
     // module private Json =
     //     let serialize (jsonOptions: JsonSerializerOptions) (data: 'eventPayload) =
     //         try
@@ -71,9 +76,6 @@ module Postgres =
                       OccurredAt = dto.OccurredAt },
                     dto.SuccessfulHandlers |> Set.ofArray)
 
-    let private getTypeName<'t> () =
-        typeof<'t>.DeclaringType.Name + typeof<'t>.Name
-
     type PersistEvent<'state, 'eventPayload> = PersistEvent<'state, EventId, 'eventPayload, SqlIoError>
 
     let persistEvent
@@ -83,8 +85,8 @@ module Postgres =
         : PersistEvent<'state, 'eventPayload> =
         fun (AggregateId aggregateId) (ev: Event<'eventPayload>) ->
             {| AggregateId = aggregateId
-               AggregateType = getTypeName<'state> ()
-               EventType = getTypeName<'eventPayload> ()
+               AggregateType = Aggregate.typeName<'state>
+               EventType = Event.typeName<'eventPayload>
                EventData = ev.Data |> eventPayloadToDto |> JsonbParameter<'eventPayloadDto>
                OccurredAt = ev.OccurredAt |}
             |> Dapper.executeScalar<Guid> sqlSession (Sql.persistEvent dbSchema)
@@ -100,8 +102,8 @@ module Postgres =
         fun (AggregateId aggregateId) ->
             List.traverseAsyncResultM (fun ev ->
                 {| AggregateId = aggregateId
-                   AggregateType = getTypeName<'state> ()
-                   EventType = getTypeName<'eventPayload> ()
+                   AggregateType = Aggregate.typeName<'state>
+                   EventType = Event.typeName<'eventPayload>
                    EventData = ev.Data |> eventPayloadToDto |> JsonbParameter<'eventPayloadDto>
                    OccurredAt = ev.OccurredAt |}
                 |> Dapper.executeScalar<Guid> (SqlSession.Sustained dbTransaction) (Sql.persistEvent dbSchema)
@@ -116,8 +118,8 @@ module Postgres =
         (sqlSession: SqlSession)
         : ReadUnprocessedEvents<'state, 'eventPayload> =
         fun () ->
-            {| AggregateType = getTypeName<'state> ()
-               EventType = getTypeName<'eventPayload> () |}
+            {| AggregateType = Aggregate.typeName<'state>
+               EventType = Event.typeName<'eventPayload> |}
             |> Dapper.query<Dto.Event<'eventPayloadDto>> sqlSession (Sql.readUnprocessedEvents dbSchema)
             |> AsyncResult.bind (
                 Seq.traverseResultA (Dto.Event.toDomain<'state, 'eventPayloadDto, 'eventPayload> dtoToEventPayload)
