@@ -29,8 +29,8 @@ type SuccessfulEventHandlers = EventHandlerName Set
 type EventHandlerRegistry<'state, 'eventId, 'eventPayload, 'ioError> =
     Map<EventHandlerName, EventHandler<'state, 'eventId, 'eventPayload, 'ioError>>
 
-type PersistEvent<'state, 'eventId, 'eventPayload, 'ioError> =
-    AggregateId<'state> -> Event<'eventPayload> -> AsyncResult<'eventId * Event<'eventPayload>, 'ioError>
+type PersistEvents<'state, 'eventId, 'eventPayload, 'ioError> =
+    AggregateId<'state> -> Event<'eventPayload> list -> AsyncResult<('eventId * Event<'eventPayload>) list, 'ioError>
 
 type ReadUnprocessedEvents<'state, 'eventId, 'eventPayload, 'ioError> =
     unit
@@ -112,15 +112,14 @@ module EventsProcessor =
     type T<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
         internal
         (
+            persistEvents: PersistEvents<'state, 'eventId, 'eventPayload, 'eventLogIoError>,
             readUnprocessedEvents: ReadUnprocessedEvents<'state, 'eventId, 'eventPayload, 'eventLogIoError>,
             persistSuccessfulHandlers: PersistSuccessfulEventHandlers<'eventId, 'eventLogIoError>,
             markEventAsProcessed: MarkEventAsProcessed<'eventId, 'eventLogIoError>,
             options: EventsProcessorOptions<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
         ) =
         let handleError err =
-            options.ErrorHandler
-            |> Option.teeSome (fun handler -> handler err)
-            |> ignore
+            options.ErrorHandler |> Option.teeSome (fun handler -> handler err) |> ignore
 
         let scheduleRetry postCommand attempt aggregateId eventId eventData failedHandlers =
             async {
@@ -232,22 +231,34 @@ module EventsProcessor =
 
         member this.Process =
             fun aggregateId events ->
-                events
-                |> List.sortBy (snd >> _.OccurredAt)
-                |> List.map (fun (eventId, eventData) -> aggregateId, eventId, eventData, options.EventHandlerRegistry)
-                |> Process
-                |> processor.Post
+                asyncResult {
+                    let! eventsWithIds = events |> persistEvents aggregateId
+
+                    eventsWithIds
+                    |> List.sortBy (snd >> _.OccurredAt)
+                    |> List.map (fun (eventId, eventData) ->
+                        aggregateId, eventId, eventData, options.EventHandlerRegistry)
+                    |> Process
+                    |> processor.Post
+                }
 
         interface IDisposable with
             member this.Dispose() = processor.Dispose()
 
     let build
+        (persistEvents: PersistEvents<'state, 'eventId, 'eventPayload, 'eventLogIoError>)
         (readUnprocessedEvents: ReadUnprocessedEvents<'state, 'eventId, 'eventPayload, 'eventLogIoError>)
         (persistSuccessfulHandlers: PersistSuccessfulEventHandlers<'eventId, 'eventLogIoError>)
         (markEventAsProcessed: MarkEventAsProcessed<'eventId, 'eventLogIoError>)
         (options: EventsProcessorOptions<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>)
         =
-        new T<_, _, _, _, _>(readUnprocessedEvents, persistSuccessfulHandlers, markEventAsProcessed, options)
+        new T<_, _, _, _, _>(
+            persistEvents,
+            readUnprocessedEvents,
+            persistSuccessfulHandlers,
+            markEventAsProcessed,
+            options
+        )
 
 type EventsProcessor<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError> =
     EventsProcessor.T<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>

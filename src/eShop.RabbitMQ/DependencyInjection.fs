@@ -39,23 +39,19 @@ type IHostApplicationBuilder with
 
 type IServiceCollection with
     // TODO: Add OpenTelemetry
-    member this.RegisterRabbitMQEventHandler<'state, 'eventId, 'eventPayload, 'persistEventsIoError, 'publishEventsIoError>
+    member this.RegisterRabbitMQEventHandler<'state, 'eventPayload, 'publishEventsIoError>
         (
             eventNamesToHandle,
             aggregateIdSelector,
             deserializeEvent,
-            getDependencies:
-                IServiceProvider
-                    -> PersistEvent<'state, 'eventId, 'eventPayload, 'persistEventsIoError> *
-                    PublishEvents<'state, 'eventId, 'eventPayload, 'publishEventsIoError>
+            getPublishEvent: IServiceProvider -> PublishEvents<'state, 'eventPayload, 'publishEventsIoError>
         ) =
         this.AddSingleton(
             typeof<IHostedService>,
             (fun sp ->
                 { new IHostedService with
                     member this.StartAsync(cancellationToken) =
-                        let logger =
-                            sp.GetRequiredService<ILogger<RabbitMQEventDispatcher<'eventId, 'eventPayload>>>()
+                        let logger = sp.GetRequiredService<ILogger<'eventPayload>>()
 
                         let getUtcNow = sp.GetRequiredService<GetUtcNow>()
 
@@ -66,7 +62,7 @@ type IServiceCollection with
 
                         let config = sp.GetRequiredService<IOptions<Configuration.RabbitMQOptions>>().Value
 
-                        let persistEvents, publishEvents = sp |> getDependencies
+                        let processEvent = sp |> getPublishEvent
 
                         RabbitMQ.registerEventHandler
                             eventNamesToHandle
@@ -76,8 +72,7 @@ type IServiceCollection with
                             config
                             logger
                             getUtcNow
-                            persistEvents
-                            publishEvents
+                            processEvent
                         |> Result.valueOr failwith
 
                         Task.CompletedTask

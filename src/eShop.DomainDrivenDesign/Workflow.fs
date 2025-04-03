@@ -12,11 +12,8 @@ type ReadAggregate<'state, 'ioError> = AggregateId<'state> -> AsyncResult<'state
 
 type PersistAggregate<'state, 'ioError> = AggregateId<'state> -> 'state -> AsyncResult<unit, 'ioError>
 
-type PersistEvents<'state, 'eventId, 'eventPayload, 'ioError> =
-    AggregateId<'state> -> Event<'eventPayload> list -> AsyncResult<('eventId * Event<'eventPayload>) list, 'ioError>
-
-type PublishEvents<'state, 'eventId, 'eventPayload, 'ioError> =
-    AggregateId<'state> -> ('eventId * Event<'eventPayload>) list -> AsyncResult<unit, 'ioError>
+type PublishEvents<'state, 'eventPayload, 'ioError> =
+    AggregateId<'state> -> Event<'eventPayload> list -> AsyncResult<unit, 'ioError>
 
 type WorkflowExecutorError<'domainError, 'ioError> =
     | WorkflowError of Either<'domainError, 'ioError>
@@ -37,8 +34,7 @@ module WorkflowExecutor =
         (getNow: GetUtcNow)
         (readAggregate: ReadAggregate<'state, 'ioError>)
         (persistAggregate: PersistAggregate<'state, 'ioError>)
-        (persistEvents: PersistEvents<'state, 'eventId, 'event, 'ioError>)
-        (publishEvents: PublishEvents<'state, 'eventId, 'event, 'ioError>)
+        (publishEvents: PublishEvents<'state, 'event, 'ioError>)
         (workflow: ExecutableWorkflow<'command, 'state, 'event, 'domainError, 'ioError>)
         : Workflow<'state, 'command, 'domainError, 'ioError> =
         fun aggregateId command ->
@@ -53,11 +49,9 @@ module WorkflowExecutor =
 
                 do! newState |> persistAggregate aggregateId |> mapError PersistAggregateIoError
 
-                let! eventsWithIds =
+                do!
                     events
                     |> List.map (fun ev -> { Data = ev; OccurredAt = now })
-                    |> persistEvents aggregateId
-                    |> mapError PersistEventsIoError
-
-                do! eventsWithIds |> publishEvents aggregateId |> mapError PublishEventsIoError
+                    |> publishEvents aggregateId
+                    |> mapError PublishEventsIoError
             }

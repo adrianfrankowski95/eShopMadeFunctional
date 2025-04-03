@@ -7,11 +7,10 @@ open eShop.DomainDrivenDesign
 open eShop.DomainDrivenDesign.Postgres
 open eShop.Postgres
 
-type PersistOrderIntegrationEvent =
-    PersistEvent<OrderAggregate.State, Postgres.EventId, IntegrationEvent.Consumed, SqlIoError>
+type PersistOrderIntegrationEvents = PersistEvents<OrderAggregate.State, EventId, IntegrationEvent.Consumed, SqlIoError>
 
-let persistOrderIntegrationEvent dbSchema sqlSession : PersistOrderIntegrationEvent =
-    Postgres.persistEvent id dbSchema sqlSession
+let persistOrderIntegrationEvents dbSchema sqlSession : PersistOrderIntegrationEvents =
+    Postgres.persistEvents id dbSchema sqlSession
 
 type ReadUnprocessedOrderIntegrationEvents =
     ReadUnprocessedEvents<OrderAggregate.State, Postgres.EventId, IntegrationEvent.Consumed, SqlIoError>

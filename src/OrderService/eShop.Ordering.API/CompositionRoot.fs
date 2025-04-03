@@ -3,6 +3,7 @@ module eShop.Ordering.API.CompositionRoot
 
 open System
 open System.Data
+open System.Data.Common
 open System.Text.Json
 open Giraffe
 open Microsoft.AspNetCore.Http
@@ -21,7 +22,7 @@ open eShop.Ordering.Domain.Workflows
 open eShop.Postgres
 open eShop.RabbitMQ
 open FsToolkit.ErrorHandling
-open eShop.Prelude.Operators
+open eShop.Prelude
 
 // Note: This object is required since we can't just pass type GetService<'t> = unit -> 't
 // and get different generic type each time the function is invoked.
@@ -49,6 +50,23 @@ let getStandaloneSqlSessionFromSp (sp: IServiceProvider) =
     sp |> Services.fromSp |> getStandaloneSqlSession
 
 
+let inline private buildPersistEvents (services: Services) (persistEvents: DbTransaction -> PersistEvents<_, _, _, _>) =
+    fun aggregateId events ->
+        asyncResult {
+            let connection = (services |> getDbConnection) ()
+
+            do! connection.OpenAsync()
+
+            let! transaction = connection.BeginTransactionAsync(IsolationLevel.ReadCommitted).AsTask()
+
+            return!
+                persistEvents transaction aggregateId events
+                |> AsyncResult.teeAsync (fun _ -> transaction.CommitAsync() |> Async.AwaitTask)
+                |> AsyncResult.teeErrorAsync (fun _ -> transaction.RollbackAsync() |> Async.AwaitTask)
+                |> AsyncResult.teeAnyAsync (connection.CloseAsync >> Async.AwaitTask)
+        }
+
+
 type OrderAggregateEventDispatcher = RabbitMQ.OrderAggregateEventDispatcher<EventId>
 
 let private buildOrderAggregateEventDispatcher (services: Services) : string * OrderAggregateEventDispatcher =
@@ -65,11 +83,17 @@ type OrderAggregateEventsProcessor =
 let private buildOrderAggregateEventsProcessor services : OrderAggregateEventsProcessor =
     let sqlSession = services |> getStandaloneSqlSession
     let logger = services.Get<ILogger<OrderAggregateEventsProcessor>>()
-    let postgresAdapter = services.Get<ISqlOrderAggregateEventsProcessorPort>()
+    let eventsProcessorPort = services.Get<ISqlOrderAggregateEventsProcessorPort>()
 
-    let readEvents = sqlSession |> postgresAdapter.ReadUnprocessedOrderEvents
-    let persistHandlers = sqlSession |> postgresAdapter.PersistSuccessfulEventHandlers
-    let markEventsProcessed = sqlSession |> postgresAdapter.MarkEventAsProcessed
+    let persistEvents =
+        eventsProcessorPort.PersistOrderEvents |> buildPersistEvents services
+
+    let readEvents = sqlSession |> eventsProcessorPort.ReadUnprocessedOrderEvents
+
+    let persistHandlers =
+        sqlSession |> eventsProcessorPort.PersistSuccessfulEventHandlers
+
+    let markEventsProcessed = sqlSession |> eventsProcessorPort.MarkEventAsProcessed
 
     let eventDispatcherName, eventDispatcher =
         services |> buildOrderAggregateEventDispatcher
@@ -134,7 +158,7 @@ let private buildOrderAggregateEventsProcessor services : OrderAggregateEventsPr
     EventsProcessor.init
     |> EventsProcessor.registerHandler eventDispatcherName eventDispatcher
     |> EventsProcessor.withErrorHandler logError
-    |> EventsProcessor.build readEvents persistHandlers markEventsProcessed
+    |> EventsProcessor.build persistEvents readEvents persistHandlers markEventsProcessed
 
 let buildOrderAggregateEventsProcessorFromSp (sp: IServiceProvider) =
     sp |> Services.fromSp |> buildOrderAggregateEventsProcessor
@@ -160,12 +184,8 @@ let private buildOrderWorkflowExecutor (services: Services) workflowToExecute =
 
         let persistOrder = dbTransaction |> orderPort.PersistOrderAggregate
 
-        let persistOrderEvents = dbTransaction |> orderPort.PersistOrderAggregateEvents
-
-        let publishOrderEvents = eventsProcessor.Process >>> AsyncResult.ok
-
         workflowToExecute
-        |> WorkflowExecutor.execute getUtcNow readOrder persistOrder persistOrderEvents publishOrderEvents
+        |> WorkflowExecutor.execute getUtcNow readOrder persistOrder eventsProcessor.Process
     |> buildTransactionalWorkflowExecutor services
 
 
@@ -227,12 +247,17 @@ let private buildOrderIntegrationEventsProcessor services : OrderIntegrationEven
     let sqlSession = services |> getStandaloneSqlSession
     let config = services.Get<IOptions<Configuration.RabbitMQOptions>>()
     let logger = services.Get<ILogger<OrderIntegrationEventsProcessor>>()
+    let eventsProcessorPort = services.Get<ISqlOrderIntegrationEventsProcessorPort>()
 
-    let postgresAdapter = services.Get<ISqlOrderIntegrationEventsProcessorPort>()
+    let persistEvents =
+        eventsProcessorPort.PersistOrderEvents |> buildPersistEvents services
 
-    let readEvents = sqlSession |> postgresAdapter.ReadUnprocessedOrderEvents
-    let persistHandlers = sqlSession |> postgresAdapter.PersistSuccessfulEventHandlers
-    let markEventsProcessed = sqlSession |> postgresAdapter.MarkEventAsProcessed
+    let readEvents = sqlSession |> eventsProcessorPort.ReadUnprocessedOrderEvents
+
+    let persistHandlers =
+        sqlSession |> eventsProcessorPort.PersistSuccessfulEventHandlers
+
+    let markEventsProcessed = sqlSession |> eventsProcessorPort.MarkEventAsProcessed
 
     let retries =
         fun (attempt: int) -> TimeSpan.FromSeconds(Math.Pow(2, attempt))
@@ -298,7 +323,7 @@ let private buildOrderIntegrationEventsProcessor services : OrderIntegrationEven
     |> EventsProcessor.withRetries retries
     |> EventsProcessor.registerHandler eventDrivenOrderWorkflowName eventDrivenOrderWorkflow
     |> EventsProcessor.withErrorHandler logError
-    |> EventsProcessor.build readEvents persistHandlers markEventsProcessed
+    |> EventsProcessor.build persistEvents readEvents persistHandlers markEventsProcessed
 
 let buildOrderIntegrationEventsProcessorFromSp (sp: IServiceProvider) =
     sp |> Services.fromSp |> buildOrderIntegrationEventsProcessor

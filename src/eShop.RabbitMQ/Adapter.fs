@@ -115,12 +115,7 @@ module RabbitMQ =
     let private ack (ea: BasicDeliverEventArgs) (channel: IModel) =
         channel.BasicAck(ea.DeliveryTag, multiple = false)
 
-    let private nack
-        (ea: BasicDeliverEventArgs)
-        (logger: ILogger<RabbitMQEventDispatcher<'eventId, 'eventPayload>>)
-        (channel: IModel)
-        error
-        =
+    let private nack (ea: BasicDeliverEventArgs) (logger: ILogger<'eventPayload>) (channel: IModel) error =
         logger.LogError(
             "An error occurred for MessageId {MessageId} of type {MessageType}: {Error}",
             ea.BasicProperties.MessageId,
@@ -179,10 +174,9 @@ module RabbitMQ =
         (deserializeEvent: EventName -> string -> Result<'eventPayload, exn>)
         (consumer: AsyncEventingBasicConsumer)
         (config: Configuration.RabbitMQOptions)
-        (logger: ILogger<RabbitMQEventDispatcher<'eventId, 'eventPayload>>)
+        (logger: ILogger<'eventPayload>)
         (getUtcNow: GetUtcNow)
-        (persistEvent: PersistEvent<'state, 'eventId, 'eventPayload, _>)
-        (processEvents: PublishEvents<'state, 'eventId, 'eventPayload, _>)
+        (processEvents: PublishEvents<'state, 'eventPayload, 'ioError>)
         =
         result {
             let! queueName = config.SubscriptionClientName |> QueueName.create
@@ -202,22 +196,21 @@ module RabbitMQ =
                     let! eventName =
                         ea.RoutingKey
                         |> EventName.create
-                        |> Result.mapError (InvalidEventName >> Choice1Of3)
+                        |> Result.mapError (InvalidEventName >> Choice1Of2)
 
                     let! eventPayload =
                         Encoding.UTF8.GetString(ea.Body.Span)
                         |> deserializeEvent eventName
-                        |> Result.mapError (DeserializationError >> Choice1Of3)
+                        |> Result.mapError (DeserializationError >> Choice1Of2)
 
                     let aggregateId = eventPayload |> aggregateIdSelector
 
-                    let! eventWithId =
+                    do!
                         { Data = eventPayload
                           OccurredAt = timestamp }
-                        |> persistEvent aggregateId
-                        |> AsyncResult.mapError Choice2Of3
-
-                    do! [ eventWithId ] |> processEvents aggregateId |> AsyncResult.mapError Choice3Of3
+                        |> List.singleton
+                        |> processEvents aggregateId
+                        |> AsyncResult.mapError Choice2Of2
                 }
                 |> AsyncResult.tee (fun _ -> ack ea consumer.Model)
                 |> AsyncResult.teeError (nack ea logger consumer.Model)

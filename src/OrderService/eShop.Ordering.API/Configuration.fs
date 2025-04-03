@@ -20,8 +20,6 @@ open eShop.Ordering.API.WebApp
 open System.Text.Json.Serialization
 open FSharp.Data.LiteralProviders
 open eShop.RabbitMQ.DependencyInjection
-open FsToolkit.ErrorHandling
-open eShop.Prelude.Operators
 
 let private dbScripts =
     let getRelativeDirectoryPath path =
@@ -68,19 +66,8 @@ let private configureRabbitMQ (services: IServiceCollection) =
         IntegrationEvent.Consumed.names,
         IntegrationEvent.Consumed.getOrderId,
         IntegrationEvent.Consumed.deserialize,
-        fun sp ->
-            let sqlSession = sp |> CompositionRoot.getStandaloneSqlSessionFromSp
-
-            let persistEvent =
-                sp
-                    .GetRequiredService<ISqlOrderIntegrationEventsProcessorPort>()
-                    .PersistOrderIntegrationEvent(sqlSession)
-
-            let processEvent =
-                sp.GetRequiredService<CompositionRoot.OrderIntegrationEventsProcessor>().Process
-                >>> AsyncResult.ok
-
-            persistEvent, processEvent
+        _.GetRequiredService<CompositionRoot.OrderIntegrationEventsProcessor>()
+        >> _.Process
     )
 
 let private configureAdapters (services: IServiceCollection) =
