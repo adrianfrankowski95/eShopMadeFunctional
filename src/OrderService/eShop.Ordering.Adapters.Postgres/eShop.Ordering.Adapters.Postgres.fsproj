@@ -9,6 +9,7 @@
 
     <ItemGroup>
         <Compile Include="OrderAdapter.fs" />
+        <Compile Include="PaymentAdapter.fs" />
     </ItemGroup>
 
     <ItemGroup>

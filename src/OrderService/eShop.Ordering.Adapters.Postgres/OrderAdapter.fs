@@ -54,9 +54,6 @@ module internal Dto =
             | OrderAggregate.State.Cancelled _ -> OrderStatus.Cancelled |> Some
 
     [<CLIMutable>]
-    type CardType = { Id: int; Name: string }
-
-    [<CLIMutable>]
     type Order =
         { Id: int
           Status: string
@@ -725,12 +722,6 @@ module internal Dto =
             |> Result.mapError (String.concat "; ")
 
 module private Sql =
-    let getSupportedCardTypes (DbSchema schema) =
-        $"""
-        SELECT "Id", "Name",
-        FROM "{schema}"."CardTypes"
-        """
-
     let getOrderById (DbSchema schema) =
         $"""
         SELECT
@@ -902,23 +893,6 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                        PictureUrl = item |> OrderItem.getPictureUrl |> Option.toObj |}
                     |> Dapper.execute sqlSession (Sql.upsertOrderItem dbSchema))
                 |> AsyncResult.ignore
-        }
-
-type GetSupportedCardTypes = OrderAggregateManagementPort.GetSupportedCardTypes<SqlIoError>
-
-let getSupportedCardTypes dbSchema sqlSession : GetSupportedCardTypes =
-    fun () ->
-        asyncResult {
-            let! cardTypeDtos = Dapper.query<Dto.CardType> sqlSession (Sql.getSupportedCardTypes dbSchema) null
-
-            return!
-                cardTypeDtos
-                |> Seq.traverseResultA (fun dto ->
-                    dto.Name
-                    |> CardTypeName.create
-                    |> Result.map (fun name -> dto.Id |> CardTypeId.ofInt, name))
-                |> Result.map (Map.ofSeq >> SupportedCardTypes)
-                |> Result.mapError (String.concat "; " >> InvalidData)
         }
 
 type PersistOrderAggregateEvents =

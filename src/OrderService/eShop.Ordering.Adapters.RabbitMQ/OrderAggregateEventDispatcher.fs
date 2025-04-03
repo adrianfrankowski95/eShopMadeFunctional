@@ -7,14 +7,14 @@ open eShop.Ordering.Adapters.Common
 open eShop.Ordering.Domain.Model
 open eShop.RabbitMQ
 
-type OrderAggregateIntegrationEventDispatcher<'eventId> =
+type OrderAggregateEventDispatcher<'eventId> =
     EventHandler<OrderAggregate.State, 'eventId, OrderAggregate.Event, RabbitMQIoError>
 
-module OrderAggregateIntegrationEventDispatcher =
+module OrderAggregateEventDispatcher =
     let create
         (jsonOption: JsonSerializerOptions)
         (rabbitMQConnection: IConnection)
-        : OrderAggregateIntegrationEventDispatcher<'eventId> =
+        : OrderAggregateEventDispatcher<'eventId> =
         fun aggregateId eventId event ->
             let createEventName = IntegrationEvent.Published.createEventName
             let serializeEvent = jsonOption |> IntegrationEvent.Published.serialize

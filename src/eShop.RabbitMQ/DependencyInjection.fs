@@ -30,7 +30,7 @@ type IHostApplicationBuilder with
                 let config = sp.GetRequiredService<IOptions<Configuration.RabbitMQOptions>>().Value
 
                 config
-                |> RabbitMQ.initConsumerChannel connection
+                |> RabbitMQ.initConsumer connection
                 |> Async.RunSynchronously
                 |> Result.valueOr failwith)
         |> ignore
@@ -39,9 +39,9 @@ type IHostApplicationBuilder with
 
 type IServiceCollection with
     // TODO: Add OpenTelemetry
-    member this.RegisterRabbitMQConsumer<'state, 'eventId, 'eventPayload, 'persistEventsIoError, 'publishEventsIoError>
+    member this.RegisterRabbitMQEventHandler<'state, 'eventId, 'eventPayload, 'persistEventsIoError, 'publishEventsIoError>
         (
-            eventNamesToConsume,
+            eventNamesToHandle,
             aggregateIdSelector,
             deserializeEvent,
             getDependencies:
@@ -57,6 +57,8 @@ type IServiceCollection with
                         let logger =
                             sp.GetRequiredService<ILogger<RabbitMQEventDispatcher<'eventId, 'eventPayload>>>()
 
+                        let getUtcNow = sp.GetRequiredService<GetUtcNow>()
+
                         let deserializeEvent =
                             sp.GetRequiredService<JsonSerializerOptions>() |> deserializeEvent
 
@@ -66,13 +68,14 @@ type IServiceCollection with
 
                         let persistEvents, publishEvents = sp |> getDependencies
 
-                        RabbitMQ.registerConsumer
-                            eventNamesToConsume
+                        RabbitMQ.registerEventHandler
+                            eventNamesToHandle
                             aggregateIdSelector
                             deserializeEvent
                             consumer
                             config
                             logger
+                            getUtcNow
                             persistEvents
                             publishEvents
                         |> Result.valueOr failwith

@@ -64,7 +64,7 @@ let private configureOrderIntegrationEventsProcessor (services: IServiceCollecti
     )
 
 let private configureRabbitMQ (services: IServiceCollection) =
-    services.RegisterRabbitMQConsumer(
+    services.RegisterRabbitMQEventHandler(
         IntegrationEvent.Consumed.names,
         IntegrationEvent.Consumed.getOrderId,
         IntegrationEvent.Consumed.deserialize,
@@ -73,7 +73,7 @@ let private configureRabbitMQ (services: IServiceCollection) =
 
             let persistEvent =
                 sp
-                    .GetRequiredService<IPostgresOrderIntegrationEventsProcessorAdapter>()
+                    .GetRequiredService<ISqlOrderIntegrationEventsProcessorPort>()
                     .PersistOrderIntegrationEvent(sqlSession)
 
             let processEvent =
@@ -85,9 +85,10 @@ let private configureRabbitMQ (services: IServiceCollection) =
 
 let private configureAdapters (services: IServiceCollection) =
     services
-        .AddTransient<IPostgresOrderAggregateManagementAdapter, PostgresOrderAggregateManagementAdapter>()
-        .AddTransient<IPostgresOrderAggregateEventsProcessorAdapter, PostgresOrderAggregateEventsProcessorAdapter>()
-        .AddTransient<IPostgresOrderIntegrationEventsProcessorAdapter, PostgresOrderIntegrationEventsProcessorAdapter>()
+        .AddTransient<ISqlOrderAggregateManagementPort, PostgresOrderAggregateManagementAdapter>()
+        .AddTransient<ISqlOrderAggregateEventsProcessorPort, PostgresOrderAggregateEventsProcessorAdapter>()
+        .AddTransient<ISqlOrderIntegrationEventsProcessorPort, PostgresOrderIntegrationEventsProcessorAdapter>()
+        .AddTransient<ISqlPaymentManagementPort, PostgresPaymentManagementAdapter>()
 
 let private configureGiraffe (services: IServiceCollection) =
     services

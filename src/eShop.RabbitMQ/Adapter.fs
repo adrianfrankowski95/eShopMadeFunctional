@@ -12,9 +12,6 @@ open eShop.ConstrainedTypes
 open eShop.DomainDrivenDesign
 open eShop.Prelude
 
-type MessageId = string
-type MessageType = string
-
 type RabbitMQIoError =
     | DeserializationError of exn
     | SerializationError of exn
@@ -43,6 +40,7 @@ module RabbitMQ =
         let create = String.Constraints.nonWhiteSpace EventName (nameof EventName)
 
         let value (EventName eventName) = eventName
+
 
     let private createChannel (connection: IConnection) = Result.catch connection.CreateModel
 
@@ -103,9 +101,16 @@ module RabbitMQ =
                 body = body
             ))
 
-    let private consume (QueueName queueName) consumer (channel: IModel) =
-        channel.BasicConsume(queue = queueName, autoAck = false, consumer = consumer)
-        |> ignore
+    let private createConsumer (QueueName queueName) (channel: IModel) =
+        Result.catch (fun () ->
+            channel.BasicQos(0u, 1us, false)
+
+            let consumer = AsyncEventingBasicConsumer(channel)
+
+            channel.BasicConsume(queue = queueName, autoAck = false, consumer = consumer)
+            |> ignore
+
+            consumer)
 
     let private ack (ea: BasicDeliverEventArgs) (channel: IModel) =
         channel.BasicAck(ea.DeliveryTag, multiple = false)
@@ -116,19 +121,16 @@ module RabbitMQ =
         (channel: IModel)
         error
         =
-        let messageId = ea.BasicProperties.MessageId
-        let messageType = ea.BasicProperties.Type
-
         logger.LogError(
-            "An error occurred for MessageId {MessageId} with type {MessageType}: {Error}",
-            messageId,
-            messageType,
+            "An error occurred for MessageId {MessageId} of type {MessageType}: {Error}",
+            ea.BasicProperties.MessageId,
+            ea.BasicProperties.Type,
             error
         )
 
         channel.BasicNack(ea.DeliveryTag, multiple = false, requeue = false)
 
-    let internal initConsumerChannel (connection: IConnection) (config: Configuration.RabbitMQOptions) =
+    let internal initConsumer (connection: IConnection) (config: Configuration.RabbitMQOptions) =
         asyncResult {
             let rec ensureIsOpen (connection: IConnection) (retries: TimeSpan list) =
                 match connection.IsOpen, retries with
@@ -158,27 +160,27 @@ module RabbitMQ =
                 [ ensureDeadLetterExchange >> exnToMsg "Failed to declare RabbitMQ exchange"
                   ensureDeadLetterQueue >> exnToMsg "Failed to declare RabbitMQ queue"
                   bindDeadLetterQueue queueName >> exnToMsg "Failed to bind RabbitMQ queue"
+
                   ensureExchange >> exnToMsg "Failed to declare RabbitMQ exchange"
                   ensureQueue queueName >> exnToMsg "Failed to declare RabbitMQ queue" ]
-                |> List.traverseResultM ((|>) channel)
+                |> List.traverseResultA ((|>) channel)
                 |> Result.ignore
+                |> Result.mapError (String.concat Environment.NewLine)
 
-            channel.BasicQos(0u, 1us, false)
-
-            let consumer = AsyncEventingBasicConsumer(channel)
-
-            channel |> consume queueName consumer
-
-            return consumer
+            return!
+                channel
+                |> createConsumer queueName
+                |> exnToMsg "Failed to create RabbitMQ consumer"
         }
 
-    let internal registerConsumer
-        (eventNamesToConsume: EventName Set)
+    let internal registerEventHandler
+        (eventNamesToHandle: EventName Set)
         (aggregateIdSelector: 'eventPayload -> AggregateId<'state>)
         (deserializeEvent: EventName -> string -> Result<'eventPayload, exn>)
         (consumer: AsyncEventingBasicConsumer)
         (config: Configuration.RabbitMQOptions)
         (logger: ILogger<RabbitMQEventDispatcher<'eventId, 'eventPayload>>)
+        (getUtcNow: GetUtcNow)
         (persistEvent: PersistEvent<'state, 'eventId, 'eventPayload, _>)
         (processEvents: PublishEvents<'state, 'eventId, 'eventPayload, _>)
         =
@@ -192,7 +194,10 @@ module RabbitMQ =
             consumer.add_Received (fun _ ea ->
                 asyncResult {
                     let timestamp =
-                        ea.BasicProperties.Timestamp.UnixTime |> DateTimeOffset.FromUnixTimeSeconds
+                        ea.BasicProperties.Timestamp
+                        |> Option.ofNull
+                        |> Option.map (_.UnixTime >> DateTimeOffset.FromUnixTimeSeconds)
+                        |> Option.defaultWith getUtcNow
 
                     let! eventName =
                         ea.RoutingKey
@@ -221,12 +226,14 @@ module RabbitMQ =
                 :> Task)
 
             do!
-                eventNamesToConsume
+                eventNamesToHandle
                 |> Set.toList
-                |> List.map (fun (EventName eventName) ->
-                    bindQueue queueName eventName
-                    >> Result.mapError (_.Message >> sprintf "Failed to bind RabbitMQ queue: %s"))
-                |> List.traverseResultM ((|>) consumer.Model)
+                |> List.traverseResultA (fun (EventName eventName) -> consumer.Model |> bindQueue queueName eventName)
+                |> Result.mapError (
+                    List.map _.Message
+                    >> String.concat Environment.NewLine
+                    >> (+) "Failed to bind RabbitMQ queues: %s"
+                )
                 |> Result.ignore
         }
 

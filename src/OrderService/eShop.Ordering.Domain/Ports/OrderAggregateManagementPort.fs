@@ -15,10 +15,3 @@ type PersistOrderAggregateEvents<'eventId, 'ioError> =
 
 type PublishOrderAggregateEvents<'eventId, 'ioError> =
     PublishEvents<OrderAggregate.State, 'eventId, OrderAggregate.Event, 'ioError>
-
-type GetSupportedCardTypes<'ioError> = unit -> AsyncResult<SupportedCardTypes, 'ioError>
-
-type InvalidPaymentMethodError = InvalidPaymentMethodError
-
-type VerifyPaymentMethod<'ioError> =
-    UnverifiedPaymentMethod -> AsyncResult<VerifiedPaymentMethod, Either<InvalidPaymentMethodError, 'ioError>>

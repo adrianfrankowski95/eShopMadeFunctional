@@ -39,6 +39,7 @@ module private Services =
         { new Services with
             member this.Get<'t>() = ctx.GetService<'t>() }
 
+
 let private getDbConnection (services: Services) = services.Get<GetDbConnection>()
 
 let private getStandaloneSqlSession (services: Services) =
@@ -48,30 +49,29 @@ let getStandaloneSqlSessionFromSp (sp: IServiceProvider) =
     sp |> Services.fromSp |> getStandaloneSqlSession
 
 
-type OrderAggregateIntegrationEventDispatcher = RabbitMQ.OrderAggregateIntegrationEventDispatcher<Postgres.EventId>
+type OrderAggregateEventDispatcher = RabbitMQ.OrderAggregateEventDispatcher<EventId>
 
-let private buildOrderAggregateIntegrationEventDispatcher
-    (services: Services)
-    : OrderAggregateIntegrationEventDispatcher =
+let private buildOrderAggregateEventDispatcher (services: Services) : string * OrderAggregateEventDispatcher =
     let rabbitMQConnection = services.Get<IConnection>()
 
     let jsonOptions = services.Get<JsonSerializerOptions>()
 
-    RabbitMQ.OrderAggregateIntegrationEventDispatcher.create jsonOptions rabbitMQConnection
+    (nameof RabbitMQ.OrderAggregateEventDispatcher),
+    RabbitMQ.OrderAggregateEventDispatcher.create jsonOptions rabbitMQConnection
 
 type OrderAggregateEventsProcessor = Postgres.OrderAdapter.OrderAggregateEventsProcessor<RabbitMQIoError>
 
 let private buildOrderAggregateEventsProcessor services : OrderAggregateEventsProcessor =
     let sqlSession = services |> getStandaloneSqlSession
     let logger = services.Get<ILogger<OrderAggregateEventsProcessor>>()
-    let postgresAdapter = services.Get<IPostgresOrderAggregateEventsProcessorAdapter>()
+    let postgresAdapter = services.Get<ISqlOrderAggregateEventsProcessorPort>()
 
     let readEvents = sqlSession |> postgresAdapter.ReadUnprocessedOrderEvents
     let persistHandlers = sqlSession |> postgresAdapter.PersistSuccessfulEventHandlers
     let markEventsProcessed = sqlSession |> postgresAdapter.MarkEventAsProcessed
 
-    let integrationEventDispatcher =
-        services |> buildOrderAggregateIntegrationEventDispatcher
+    let eventDispatcherName, eventDispatcher =
+        services |> buildOrderAggregateEventDispatcher
 
     let logError (error: EventsProcessor.EventsProcessorError<'state, _, _, SqlIoError, _>) =
         match error with
@@ -79,31 +79,35 @@ let private buildOrderAggregateEventsProcessor services : OrderAggregateEventsPr
             logger.LogError("Reading unprocessed events failed: {Error}", eventLogIoError)
 
         | EventsProcessor.PersistingSuccessfulEventHandlersFailed(AggregateId aggregateId,
-                                                                  Postgres.EventId eventId,
+                                                                  eventId,
                                                                   successfulHandlers,
                                                                   eventLogIoError) ->
             logger.LogError(
                 "Persisting successful event handlers ({SuccessfulEventHandlers}) for Event {EventId} (Aggregate {AggregateType} - {AggregateId}) failed: {Error}",
                 (successfulHandlers |> String.concat ", "),
-                eventId,
+                eventId |> EventId.value,
                 Aggregate.typeName<'state>,
                 aggregateId,
                 eventLogIoError
             )
 
-        | EventsProcessor.MarkingEventAsProcessedFailed(Postgres.EventId eventId, eventLogIoError) ->
-            logger.LogError("Marking Event {EventId} as processed failed: {Error}", eventId, eventLogIoError)
+        | EventsProcessor.MarkingEventAsProcessedFailed(eventId, eventLogIoError) ->
+            logger.LogError(
+                "Marking Event {EventId} as processed failed: {Error}",
+                eventId |> EventId.value,
+                eventLogIoError
+            )
 
         | EventsProcessor.EventHandlerFailed(attempt,
                                              AggregateId aggregateId,
-                                             Postgres.EventId eventId,
+                                             eventId,
                                              event,
                                              handlerName,
                                              eventHandlingIoError) ->
             logger.LogError(
                 "Handler {HandlerName} for Event {EventId} (Aggregate {AggregateType} - {AggregateId}) failed after #{Attempt} attempt. Event data: {Event}, error: {Error}",
                 handlerName,
-                eventId,
+                eventId |> EventId.value,
                 Aggregate.typeName<'state>,
                 aggregateId,
                 attempt,
@@ -113,13 +117,13 @@ let private buildOrderAggregateEventsProcessor services : OrderAggregateEventsPr
 
         | EventsProcessor.MaxEventProcessingRetriesReached(attempt,
                                                            AggregateId aggregateId,
-                                                           Postgres.EventId eventId,
+                                                           eventId,
                                                            event,
                                                            handlerNames) ->
             logger.LogCritical(
                 "Handlers {HandlerNames} for Event {EventId} (Aggregate {AggregateType} - {AggregateId}) reached maximum attempts ({attempt}) and won't be retried. Event data: {Event}",
                 (handlerNames |> String.concat ", "),
-                eventId,
+                eventId |> EventId.value,
                 Aggregate.typeName<'state>,
                 aggregateId,
                 attempt,
@@ -127,7 +131,7 @@ let private buildOrderAggregateEventsProcessor services : OrderAggregateEventsPr
             )
 
     EventsProcessor.init
-    |> EventsProcessor.registerHandler "OrderIntegrationEventDispatcher" integrationEventDispatcher
+    |> EventsProcessor.registerHandler eventDispatcherName eventDispatcher
     |> EventsProcessor.withErrorHandler logError
     |> EventsProcessor.build readEvents persistHandlers markEventsProcessed
 
@@ -143,7 +147,7 @@ let private buildTransactionalWorkflowExecutor (services: Services) =
     |> TransactionalWorkflowExecutor.execute
 
 let private buildOrderWorkflowExecutor (services: Services) workflowToExecute =
-    let postgresAdapter = services.Get<IPostgresOrderAggregateManagementAdapter>()
+    let orderPort = services.Get<ISqlOrderAggregateManagementPort>()
 
     let getUtcNow = services.Get<GetUtcNow>()
 
@@ -151,12 +155,12 @@ let private buildOrderWorkflowExecutor (services: Services) workflowToExecute =
 
     fun dbTransaction ->
         let readOrder =
-            dbTransaction |> SqlSession.Sustained |> postgresAdapter.ReadOrderAggregate
+            dbTransaction |> SqlSession.Sustained |> orderPort.ReadOrderAggregate
 
-        let persistOrder = dbTransaction |> postgresAdapter.PersistOrderAggregate
+        let persistOrder = dbTransaction |> orderPort.PersistOrderAggregate
 
         let persistOrderEvents =
-            dbTransaction |> postgresAdapter.PersistOrderAggregateEvents
+            dbTransaction |> orderPort.PersistOrderAggregateEvents
 
         let publishOrderEvents = eventsProcessor.Process >>> AsyncResult.ok
 
@@ -165,15 +169,16 @@ let private buildOrderWorkflowExecutor (services: Services) workflowToExecute =
     |> buildTransactionalWorkflowExecutor services
 
 
-type OrderIntegrationEventHandlerError =
+type EventDrivenOrderWorkflowError =
     | WorkflowExecutorError of WorkflowExecutorError<OrderAggregate.InvalidStateError, SqlIoError>
     | InvalidEventData of string
 
-type OrderIntegrationEventHandler =
-    EventHandler<OrderAggregate.State, Postgres.EventId, IntegrationEvent.Consumed, OrderIntegrationEventHandlerError>
+type EventDrivenOrderWorkflow =
+    EventHandler<OrderAggregate.State, EventId, IntegrationEvent.Consumed, EventDrivenOrderWorkflowError>
 
-let private buildOrderIntegrationEventHandler services : OrderIntegrationEventHandler =
-    fun orderAggregateId (Postgres.EventId eventId) integrationEvent ->
+let private buildEventDrivenOrderWorkflow services : string * EventDrivenOrderWorkflow =
+    (nameof EventDrivenOrderWorkflow),
+    fun orderAggregateId eventId integrationEvent ->
         let inline toWorkflowError x =
             x |> AsyncResult.mapError WorkflowExecutorError
 
@@ -199,7 +204,7 @@ let private buildOrderIntegrationEventHandler services : OrderIntegrationEventHa
                     |> Result.map (fun items ->
                         ({ RejectedOrderItems = items }: OrderAggregate.Command.SetStockRejectedOrderStatus))
                     |> Result.setError (
-                        $"Invalid event %s{eventId.ToString()} of type %s{nameof IntegrationEvent.Consumed.OrderStockRejected}: no rejected stock found"
+                        $"Invalid event %s{(eventId |> EventId.value).ToString()} of type %s{nameof IntegrationEvent.Consumed.OrderStockRejected}: no rejected stock found"
                         |> InvalidEventData
                     )
 
@@ -213,10 +218,10 @@ let private buildOrderIntegrationEventHandler services : OrderIntegrationEventHa
             CancelOrderWorkflow.build |> executeWorkflow () |> toWorkflowError
 
         | IntegrationEvent.Consumed.OrderPaymentSucceeded _ ->
-            ConfirmOrderItemsStockWorkflow.build |> executeWorkflow () |> toWorkflowError
+            PayOrderWorkflow.build |> executeWorkflow () |> toWorkflowError
 
 type OrderIntegrationEventsProcessor =
-    Postgres.OrderAdapter.OrderIntegrationEventsProcessor<OrderIntegrationEventHandlerError>
+    Postgres.OrderAdapter.OrderIntegrationEventsProcessor<EventDrivenOrderWorkflowError>
 
 let private buildOrderIntegrationEventsProcessor services : OrderIntegrationEventsProcessor =
     let sqlSession = services |> getStandaloneSqlSession
@@ -224,17 +229,18 @@ let private buildOrderIntegrationEventsProcessor services : OrderIntegrationEven
     let logger = services.Get<ILogger<OrderIntegrationEventsProcessor>>()
 
     let postgresAdapter =
-        services.Get<IPostgresOrderIntegrationEventsProcessorAdapter>()
+        services.Get<ISqlOrderIntegrationEventsProcessorPort>()
 
     let readEvents = sqlSession |> postgresAdapter.ReadUnprocessedOrderEvents
     let persistHandlers = sqlSession |> postgresAdapter.PersistSuccessfulEventHandlers
     let markEventsProcessed = sqlSession |> postgresAdapter.MarkEventAsProcessed
 
     let retries =
-        (fun (attempt: int) -> TimeSpan.FromSeconds(Math.Pow(2, attempt)))
+        fun (attempt: int) -> TimeSpan.FromSeconds(Math.Pow(2, attempt))
         |> List.init config.Value.RetryCount
 
-    let orderIntegrationEventHandler = services |> buildOrderIntegrationEventHandler
+    let eventDrivenOrderWorkflowName, eventDrivenOrderWorkflow =
+        services |> buildEventDrivenOrderWorkflow
 
     let logError (error: EventsProcessor.EventsProcessorError<'state, _, _, SqlIoError, _>) =
         match error with
@@ -242,31 +248,31 @@ let private buildOrderIntegrationEventsProcessor services : OrderIntegrationEven
             logger.LogError("Reading unprocessed events failed: {Error}", eventLogIoError)
 
         | EventsProcessor.PersistingSuccessfulEventHandlersFailed(AggregateId aggregateId,
-                                                                  Postgres.EventId eventId,
+                                                                  eventId,
                                                                   successfulHandlers,
                                                                   eventLogIoError) ->
             logger.LogError(
                 "Persisting successful event handlers ({SuccessfulEventHandlers}) for Event {EventId} (Aggregate {AggregateType} - {AggregateId}) failed: {Error}",
                 (successfulHandlers |> String.concat ", "),
-                eventId,
+                eventId |> EventId.value,
                 Aggregate.typeName<'state>,
                 aggregateId,
                 eventLogIoError
             )
 
-        | EventsProcessor.MarkingEventAsProcessedFailed(Postgres.EventId eventId, eventLogIoError) ->
+        | EventsProcessor.MarkingEventAsProcessedFailed(eventId, eventLogIoError) ->
             logger.LogError("Marking Event {EventId} as processed failed: {Error}", eventId, eventLogIoError)
 
         | EventsProcessor.EventHandlerFailed(attempt,
                                              AggregateId aggregateId,
-                                             Postgres.EventId eventId,
+                                             eventId,
                                              event,
                                              handlerName,
                                              eventHandlingIoError) ->
             logger.LogError(
                 "Handler {HandlerName} for Event {EventId} (Aggregate {AggregateType} - {AggregateId}) failed after #{Attempt} attempt. Event data: {Event}, error: {Error}",
                 handlerName,
-                eventId,
+                eventId |> EventId.value,
                 Aggregate.typeName<'state>,
                 aggregateId,
                 attempt,
@@ -276,13 +282,13 @@ let private buildOrderIntegrationEventsProcessor services : OrderIntegrationEven
 
         | EventsProcessor.MaxEventProcessingRetriesReached(attempt,
                                                            AggregateId aggregateId,
-                                                           Postgres.EventId eventId,
+                                                           eventId,
                                                            event,
                                                            handlerNames) ->
             logger.LogCritical(
                 "Handlers {HandlerNames} for Event {EventId} (Aggregate {AggregateType} - {AggregateId}) reached maximum attempts ({attempt}) and won't be retried. Event data: {Event}",
                 (handlerNames |> String.concat ", "),
-                eventId,
+                eventId |> EventId.value,
                 Aggregate.typeName<'state>,
                 aggregateId,
                 attempt,
@@ -291,9 +297,13 @@ let private buildOrderIntegrationEventsProcessor services : OrderIntegrationEven
 
     EventsProcessor.init
     |> EventsProcessor.withRetries retries
-    |> EventsProcessor.registerHandler "OrderIntegrationEventHandler" orderIntegrationEventHandler
+    |> EventsProcessor.registerHandler eventDrivenOrderWorkflowName eventDrivenOrderWorkflow
     |> EventsProcessor.withErrorHandler logError
     |> EventsProcessor.build readEvents persistHandlers markEventsProcessed
 
 let buildOrderIntegrationEventsProcessorFromSp (sp: IServiceProvider) =
     sp |> Services.fromSp |> buildOrderIntegrationEventsProcessor
+
+
+// let buildStartOrderWorkflow (services: Services) =
+//     services |> buildOrderWorkflowExecutor StartOrderWorkflow

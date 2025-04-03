@@ -31,8 +31,8 @@ module StartOrderWorkflow =
     type T<'ioError> = ExecutableWorkflow<Command, OrderAggregate.State, OrderAggregate.Event, DomainError, 'ioError>
 
     let build
-        (getSupportedCardTypes: OrderAggregateManagementPort.GetSupportedCardTypes<'ioError>)
-        (verifyPaymentMethod: OrderAggregateManagementPort.VerifyPaymentMethod<'ioError>)
+        (getSupportedCardTypes: PaymentManagementPort.GetSupportedCardTypes<'ioError>)
+        (verifyPaymentMethod: PaymentManagementPort.VerifyPaymentMethod<'ioError>)
         : T<'ioError> =
         fun now state command ->
             asyncResult {
@@ -61,7 +61,7 @@ module StartOrderWorkflow =
                     |> verifyPaymentMethod
                     |> AsyncResult.mapError (function
                         | Right ioError -> ioError |> Right
-                        | Left(_: OrderAggregateManagementPort.InvalidPaymentMethodError) ->
+                        | Left(_: PaymentManagementPort.InvalidPaymentMethodError) ->
                             unverifiedPaymentMethod |> InvalidPaymentMethod |> Left)
 
                 and! validatedOrderItems =

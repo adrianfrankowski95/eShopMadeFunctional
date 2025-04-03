@@ -8,15 +8,13 @@ open eShop.DomainDrivenDesign
 open eShop.Postgres
 open eShop.Postgres.Dapper.Parameters
 
+type EventId = private EventId of Guid
+
+module EventId =
+    let value (EventId rawId) = rawId
+
 [<RequireQualifiedAccess>]
 module Postgres =
-    type EventId = private EventId of Guid
-
-    module EventId =
-        let value (EventId rawId) = rawId
-
-    let (|EventId|) = EventId.value
-
     // module private Json =
     //     let serialize (jsonOptions: JsonSerializerOptions) (data: 'eventPayload) =
     //         try
