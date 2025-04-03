@@ -44,7 +44,7 @@ type IServiceCollection with
             eventNamesToHandle,
             aggregateIdSelector,
             deserializeEvent,
-            getPublishEvent: IServiceProvider -> PublishEvents<'state, 'eventPayload, 'publishEventsIoError>
+            getProcessEvents: IServiceProvider -> PublishEvents<'state, 'eventPayload, 'publishEventsIoError>
         ) =
         this.AddSingleton(
             typeof<IHostedService>,
@@ -62,7 +62,7 @@ type IServiceCollection with
 
                         let config = sp.GetRequiredService<IOptions<Configuration.RabbitMQOptions>>().Value
 
-                        let processEvent = sp |> getPublishEvent
+                        let processEvents = sp |> getProcessEvents
 
                         RabbitMQ.registerEventHandler
                             eventNamesToHandle
@@ -72,7 +72,7 @@ type IServiceCollection with
                             config
                             logger
                             getUtcNow
-                            processEvent
+                            processEvents
                         |> Result.valueOr failwith
 
                         Task.CompletedTask

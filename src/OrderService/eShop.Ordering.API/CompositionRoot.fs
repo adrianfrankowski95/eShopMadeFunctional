@@ -50,7 +50,10 @@ let getStandaloneSqlSessionFromSp (sp: IServiceProvider) =
     sp |> Services.fromSp |> getStandaloneSqlSession
 
 
-let inline private buildPersistEvents (services: Services) (persistEvents: DbTransaction -> PersistEvents<_, _, _, _>) =
+let inline private buildPersistEvents
+    (services: Services)
+    (persistEvents: DbTransaction -> PersistEvents<_, _, _, _>)
+    : PersistEvents<_, _, _, _> =
     fun aggregateId events ->
         asyncResult {
             let connection = (services |> getDbConnection) ()
