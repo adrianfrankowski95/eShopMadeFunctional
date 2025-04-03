@@ -22,7 +22,7 @@ type ISqlOrderAggregateEventsProcessorPort = ISqlOrderEventsProcessorPort<OrderA
 type PostgresOrderAggregateEventsProcessorAdapter(dbSchema: DbSchema, getNow: GetUtcNow) =
     interface ISqlOrderAggregateEventsProcessorPort with
         member this.ReadUnprocessedOrderEvents(sqlSession) =
-            OrderAdapter.readUnprocessedOrderAggregateEvents dbSchema sqlSession
+            OrderAggregateEventsProcessorAdapter.readUnprocessedOrderAggregateEvents dbSchema sqlSession
 
         member this.PersistSuccessfulEventHandlers(sqlSession) =
             Postgres.persistSuccessfulEventHandlers dbSchema sqlSession
@@ -33,12 +33,13 @@ type PostgresOrderAggregateEventsProcessorAdapter(dbSchema: DbSchema, getNow: Ge
 type ISqlOrderIntegrationEventsProcessorPort =
     inherit ISqlOrderEventsProcessorPort<IntegrationEvent.Consumed>
 
-    abstract member PersistOrderIntegrationEvent: SqlSession -> OrderAdapter.PersistOrderIntegrationEvent
+    abstract member PersistOrderIntegrationEvent:
+        SqlSession -> OrderIntegrationEventsProcessorAdapter.PersistOrderIntegrationEvent
 
 type PostgresOrderIntegrationEventsProcessorAdapter(dbSchema: DbSchema, getNow: GetUtcNow) =
     interface ISqlOrderIntegrationEventsProcessorPort with
         member this.ReadUnprocessedOrderEvents(sqlSession) =
-            OrderAdapter.readUnprocessedOrderIntegrationEvents dbSchema sqlSession
+            OrderIntegrationEventsProcessorAdapter.readUnprocessedOrderIntegrationEvents dbSchema sqlSession
 
         member this.PersistSuccessfulEventHandlers(sqlSession) =
             Postgres.persistSuccessfulEventHandlers dbSchema sqlSession
@@ -47,7 +48,7 @@ type PostgresOrderIntegrationEventsProcessorAdapter(dbSchema: DbSchema, getNow: 
             Postgres.markEventAsProcessed dbSchema sqlSession getNow
 
         member this.PersistOrderIntegrationEvent(sqlSession) =
-            OrderAdapter.persistOrderIntegrationEvent dbSchema sqlSession
+            OrderIntegrationEventsProcessorAdapter.persistOrderIntegrationEvent dbSchema sqlSession
 
 
 type ISqlOrderAggregateManagementPort =
@@ -62,13 +63,13 @@ type ISqlOrderAggregateManagementPort =
 type PostgresOrderAggregateManagementAdapter(dbSchema: DbSchema) =
     interface ISqlOrderAggregateManagementPort with
         member this.ReadOrderAggregate(sqlSession) =
-            OrderAdapter.readOrderAggregate dbSchema sqlSession
+            OrderAggregateManagementAdapter.readOrderAggregate dbSchema sqlSession
 
         member this.PersistOrderAggregate(dbTransaction) =
-            OrderAdapter.persistOrderAggregate dbSchema dbTransaction
+            OrderAggregateManagementAdapter.persistOrderAggregate dbSchema dbTransaction
 
         member this.PersistOrderAggregateEvents(dbTransaction) =
-            OrderAdapter.persistOrderAggregateEvents dbSchema dbTransaction
+            OrderAggregateManagementAdapter.persistOrderAggregateEvents dbSchema dbTransaction
 
 
 type ISqlPaymentManagementPort =
@@ -77,4 +78,4 @@ type ISqlPaymentManagementPort =
 type PostgresPaymentManagementAdapter(dbSchema: DbSchema) =
     interface ISqlPaymentManagementPort with
         member this.GetSupportedCardTypes(sqlSession) =
-            PaymentAdapter.getSupportedCardTypes dbSchema sqlSession
+            PaymentManagementAdapter.getSupportedCardTypes dbSchema sqlSession

@@ -59,7 +59,8 @@ let private buildOrderAggregateEventDispatcher (services: Services) : string * O
     (nameof RabbitMQ.OrderAggregateEventDispatcher),
     RabbitMQ.OrderAggregateEventDispatcher.create jsonOptions rabbitMQConnection
 
-type OrderAggregateEventsProcessor = Postgres.OrderAdapter.OrderAggregateEventsProcessor<RabbitMQIoError>
+type OrderAggregateEventsProcessor =
+    EventsProcessor<OrderAggregate.State, EventId, OrderAggregate.Event, SqlIoError, RabbitMQIoError>
 
 let private buildOrderAggregateEventsProcessor services : OrderAggregateEventsProcessor =
     let sqlSession = services |> getStandaloneSqlSession
@@ -159,8 +160,7 @@ let private buildOrderWorkflowExecutor (services: Services) workflowToExecute =
 
         let persistOrder = dbTransaction |> orderPort.PersistOrderAggregate
 
-        let persistOrderEvents =
-            dbTransaction |> orderPort.PersistOrderAggregateEvents
+        let persistOrderEvents = dbTransaction |> orderPort.PersistOrderAggregateEvents
 
         let publishOrderEvents = eventsProcessor.Process >>> AsyncResult.ok
 
@@ -221,15 +221,14 @@ let private buildEventDrivenOrderWorkflow services : string * EventDrivenOrderWo
             PayOrderWorkflow.build |> executeWorkflow () |> toWorkflowError
 
 type OrderIntegrationEventsProcessor =
-    Postgres.OrderAdapter.OrderIntegrationEventsProcessor<EventDrivenOrderWorkflowError>
+    EventsProcessor<OrderAggregate.State, EventId, IntegrationEvent.Consumed, SqlIoError, EventDrivenOrderWorkflowError>
 
 let private buildOrderIntegrationEventsProcessor services : OrderIntegrationEventsProcessor =
     let sqlSession = services |> getStandaloneSqlSession
     let config = services.Get<IOptions<Configuration.RabbitMQOptions>>()
     let logger = services.Get<ILogger<OrderIntegrationEventsProcessor>>()
 
-    let postgresAdapter =
-        services.Get<ISqlOrderIntegrationEventsProcessorPort>()
+    let postgresAdapter = services.Get<ISqlOrderIntegrationEventsProcessorPort>()
 
     let readEvents = sqlSession |> postgresAdapter.ReadUnprocessedOrderEvents
     let persistHandlers = sqlSession |> postgresAdapter.PersistSuccessfulEventHandlers

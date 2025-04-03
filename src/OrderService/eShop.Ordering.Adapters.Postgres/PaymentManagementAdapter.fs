@@ -1,5 +1,5 @@
 ﻿[<RequireQualifiedAccess>]
-module eShop.Ordering.Adapters.Postgres.PaymentAdapter
+module eShop.Ordering.Adapters.Postgres.PaymentManagementAdapter
 
 open FsToolkit.ErrorHandling
 open eShop.Ordering.Domain.Model.ValueObjects

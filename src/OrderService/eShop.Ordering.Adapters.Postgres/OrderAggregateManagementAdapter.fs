@@ -1,10 +1,9 @@
 ﻿[<RequireQualifiedAccess>]
-module eShop.Ordering.Adapters.Postgres.OrderAdapter
+module eShop.Ordering.Adapters.Postgres.OrderAggregateManagementAdapter
 
 open System
 open FsToolkit.ErrorHandling
 open eShop.ConstrainedTypes
-open eShop.Ordering.Adapters.Common
 open eShop.Ordering.Domain.Model
 open eShop.Ordering.Domain.Model.ValueObjects
 open eShop.Ordering.Domain.Ports
@@ -900,27 +899,3 @@ type PersistOrderAggregateEvents =
 
 let persistOrderAggregateEvents dbSchema dbTransaction : PersistOrderAggregateEvents =
     Postgres.persistEvents Dto.Event.ofDomain dbSchema dbTransaction
-
-type ReadUnprocessedOrderAggregateEvents =
-    ReadUnprocessedEvents<OrderAggregate.State, Postgres.EventId, OrderAggregate.Event, SqlIoError>
-
-let readUnprocessedOrderAggregateEvents dbSchema sqlSession : ReadUnprocessedOrderAggregateEvents =
-    Postgres.readUnprocessedEvents Dto.Event.toDomain dbSchema sqlSession
-
-type OrderAggregateEventsProcessor<'eventHandlerIoError> =
-    EventsProcessor<OrderAggregate.State, Postgres.EventId, OrderAggregate.Event, SqlIoError, 'eventHandlerIoError>
-
-type PersistOrderIntegrationEvent =
-    PersistEvent<OrderAggregate.State, Postgres.EventId, IntegrationEvent.Consumed, SqlIoError>
-
-let persistOrderIntegrationEvent dbSchema sqlSession : PersistOrderIntegrationEvent =
-    Postgres.persistEvent id dbSchema sqlSession
-
-type ReadUnprocessedOrderIntegrationEvents =
-    ReadUnprocessedEvents<OrderAggregate.State, Postgres.EventId, IntegrationEvent.Consumed, SqlIoError>
-
-let readUnprocessedOrderIntegrationEvents dbSchema sqlSession : ReadUnprocessedOrderIntegrationEvents =
-    Postgres.readUnprocessedEvents id dbSchema sqlSession
-
-type OrderIntegrationEventsProcessor<'eventHandlerIoError> =
-    EventsProcessor<OrderAggregate.State, Postgres.EventId, IntegrationEvent.Consumed, SqlIoError, 'eventHandlerIoError>
