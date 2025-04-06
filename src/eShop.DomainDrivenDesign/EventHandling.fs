@@ -4,20 +4,42 @@ open System
 open System.Threading.Tasks
 open eShop.Prelude
 open FsToolkit.ErrorHandling
+open eShop.ConstrainedTypes
+
+type CorrelationId = String.NonWhiteSpace
+
+module CorrelationId =
+    let create = String.NonWhiteSpace.create (nameof CorrelationId)
+
+    let value = String.NonWhiteSpace.value
+
 
 type Event<'payload> =
     { Data: 'payload
+      CorrelationId: CorrelationId option
       OccurredAt: DateTimeOffset }
 
 module Event =
+    let createNew occurredAt payload =
+        { Data = payload
+          CorrelationId = None
+          OccurredAt = occurredAt }
+
+    let createExisting occurredAt correlationId payload =
+        { Data = payload
+          CorrelationId = Some correlationId
+          OccurredAt = occurredAt }
+
     let mapPayload (newData: 'b) (ev: Event<'a>) : Event<'b> =
         { Data = newData
+          CorrelationId = ev.CorrelationId
           OccurredAt = ev.OccurredAt }
 
     let typeName<'payload> =
         let payloadType = typeof<'payload>
 
         payloadType.DeclaringType.Name + payloadType.Name
+
 
 type EventHandler<'state, 'eventId, 'eventPayload, 'ioError> =
     AggregateId<'state> -> 'eventId -> Event<'eventPayload> -> AsyncResult<unit, 'ioError>

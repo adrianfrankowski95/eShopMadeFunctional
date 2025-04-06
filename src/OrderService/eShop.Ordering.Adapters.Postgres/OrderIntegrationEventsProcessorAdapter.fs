@@ -13,7 +13,7 @@ let persistOrderIntegrationEvents dbSchema sqlSession : PersistOrderIntegrationE
     Postgres.persistEvents id dbSchema sqlSession
 
 type ReadUnprocessedOrderIntegrationEvents =
-    ReadUnprocessedEvents<OrderAggregate.State, Postgres.EventId, IntegrationEvent.Consumed, SqlIoError>
+    ReadUnprocessedEvents<OrderAggregate.State, EventId, IntegrationEvent.Consumed, SqlIoError>
 
 let readUnprocessedOrderIntegrationEvents dbSchema sqlSession : ReadUnprocessedOrderIntegrationEvents =
     Postgres.readUnprocessedEvents id dbSchema sqlSession

@@ -5,13 +5,13 @@ module eShop.RabbitMQ.Configuration
 let ExchangeName = "eshop_event_bus"
 
 [<Literal>]
-let SectionName = "EventBus"
-
-[<Literal>]
 let DeadLetterExchangeName = "eshop_event_bus_dlx"
 
 [<Literal>]
 let DeadLetterQueueName = "eshop_event_bus_dlq"
+
+[<Literal>]
+let SectionName = "EventBus"
 
 [<CLIMutable>]
 type RabbitMQOptions =

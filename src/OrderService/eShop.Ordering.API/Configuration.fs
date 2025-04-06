@@ -62,7 +62,7 @@ let private configureOrderIntegrationEventsProcessor (services: IServiceCollecti
     )
 
 let private configureRabbitMQ (services: IServiceCollection) =
-    services.RegisterRabbitMQEventHandler(
+    services.AddRabbitMQEventHandler(
         IntegrationEvent.Consumed.names,
         IntegrationEvent.Consumed.getOrderId,
         IntegrationEvent.Consumed.deserialize,
@@ -102,6 +102,6 @@ let configureBuilder (builder: WebApplicationBuilder) =
 
 let configureApp (app: WebApplication) =
     app.MapDefaultEndpoints().UseAuthorization() |> ignore
-    app.UseGiraffe webApp
+    app.UseGiraffeErrorHandler(GiraffeExtensions.errorHandler).UseGiraffe webApp
 
     app

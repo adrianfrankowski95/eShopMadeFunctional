@@ -2,7 +2,8 @@
 
 CREATE TABLE "$Schema$"."EventProcessingLog"
 (
-    "EventId"            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "EventId"            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    "CorrelationId"      UUID        NOT NULL,
     "AggregateId"        INTEGER     NOT NULL,
     "AggregateType"      VARCHAR(50) NOT NULL,
     "EventType"          VARCHAR(50) NOT NULL,
@@ -12,4 +13,4 @@ CREATE TABLE "$Schema$"."EventProcessingLog"
     "ProcessedAt"        TIMESTAMPTZ NULL
 );
 
-CREATE INDEX IX_AggregateType_EventType_ProcessedAt ON "$Schema$"."EventProcessingLog" ("AggregateType", "EventType", "ProcessedAt" NULLS FIRST)
+CREATE INDEX IX_AggregateType_EventType_OccuredAt_ProcessedAt ON "$Schema$"."EventProcessingLog" ("AggregateType", "EventType", "OccurredAt" ASC, "ProcessedAt" NULLS FIRST)

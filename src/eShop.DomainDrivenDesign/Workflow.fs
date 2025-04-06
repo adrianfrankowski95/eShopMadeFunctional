@@ -51,7 +51,7 @@ module WorkflowExecutor =
 
                 do!
                     events
-                    |> List.map (fun ev -> { Data = ev; OccurredAt = now })
+                    |> List.map (Event.createNew now)
                     |> publishEvents aggregateId
                     |> mapError PublishEventsIoError
             }

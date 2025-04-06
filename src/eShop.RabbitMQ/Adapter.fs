@@ -18,7 +18,7 @@ type RabbitMQIoError =
     | ChannelCreationError of exn
     | ExchangeDeclarationError of exn
     | EventDispatchError of exn
-    | InvalidEventName of string
+    | InvalidEventData of string
 
 type RabbitMQEventDispatcher<'eventId, 'eventPayload> =
     'eventId -> Event<'eventPayload> -> AsyncResult<unit, RabbitMQIoError>
@@ -183,20 +183,24 @@ module RabbitMQ =
 
             do!
                 consumer.IsRunning
-                |> Result.requireTrue $"""Consumer %s{consumer.ConsumerTags |> String.concat " "} is not running"""
+                |> Result.requireTrue $"""Consumer %s{consumer.ConsumerTags |> String.concat ", "} is not running"""
 
             consumer.add_Received (fun _ ea ->
                 asyncResult {
                     let timestamp =
-                        ea.BasicProperties.Timestamp
-                        |> Option.ofNull
-                        |> Option.map (_.UnixTime >> DateTimeOffset.FromUnixTimeSeconds)
-                        |> Option.defaultWith getUtcNow
+                        match ea.BasicProperties.IsTimestampPresent() with
+                        | true -> ea.BasicProperties.Timestamp.UnixTime |> DateTimeOffset.FromUnixTimeSeconds
+                        | false -> getUtcNow ()
+
+                    let! correlationId =
+                        ea.BasicProperties.CorrelationId
+                        |> CorrelationId.create
+                        |> Result.mapError (InvalidEventData >> Choice1Of2)
 
                     let! eventName =
                         ea.RoutingKey
                         |> EventName.create
-                        |> Result.mapError (InvalidEventName >> Choice1Of2)
+                        |> Result.mapError (InvalidEventData >> Choice1Of2)
 
                     let! eventPayload =
                         Encoding.UTF8.GetString(ea.Body.Span)
@@ -206,8 +210,8 @@ module RabbitMQ =
                     let aggregateId = eventPayload |> aggregateIdSelector
 
                     do!
-                        { Data = eventPayload
-                          OccurredAt = timestamp }
+                        eventPayload
+                        |> Event.createExisting timestamp correlationId
                         |> List.singleton
                         |> processEvents aggregateId
                         |> AsyncResult.mapError Choice2Of2
@@ -232,28 +236,32 @@ module RabbitMQ =
 
     let createEventDispatcher
         (createEventName: 'eventPayload -> Result<EventName, string>)
-        (serializeEvent: 'eventPayload -> Result<byte array, exn>)
+        (serializePayload: 'eventPayload -> Result<byte array, exn>)
         (connection: IConnection)
         : RabbitMQEventDispatcher<'eventId, 'eventPayload> =
         fun (eventId: 'eventId) (event: Event<'eventPayload>) ->
             asyncResult {
+                let! eventName = event.Data |> createEventName |> Result.mapError InvalidEventData
+
+                let! correlationId =
+                    event.CorrelationId
+                    |> Result.requireSome ("Missing CorrelationId" |> InvalidEventData)
+
                 let! body =
                     event.Data
-                    |> serializeEvent
+                    |> serializePayload
                     |> Result.map ReadOnlyMemory
                     |> Result.mapError SerializationError
-
-                let! eventName = event.Data |> createEventName |> Result.mapError InvalidEventName
 
                 use! channel = createChannel connection |> Result.mapError ChannelCreationError
 
                 do! channel |> ensureExchange |> Result.mapError ExchangeDeclarationError
 
                 let properties = channel.CreateBasicProperties()
-                properties.MessageId <- (eventId |> box |> string)
+                properties.CorrelationId <- correlationId |> CorrelationId.value
                 properties.Type <- Event.typeName<'eventPayload>
                 properties.DeliveryMode <- 2uy
-                properties.Timestamp <- AmqpTimestamp(event.OccurredAt.ToUnixTimeSeconds())
+                properties.Timestamp <- event.OccurredAt.ToUnixTimeSeconds() |> AmqpTimestamp
                 properties.ContentType <- "application/json"
                 properties.Persistent <- true
 

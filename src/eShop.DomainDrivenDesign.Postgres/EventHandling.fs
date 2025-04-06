@@ -30,13 +30,15 @@ module Postgres =
 
     module private Sql =
         let inline persistEvent (DbSchema schema) =
-            $"""INSERT INTO "%s{schema}"."EventProcessingLog" 
-            ("AggregateId", "AggregateType", "EventType", "EventData", "OccurredAt")
-            VALUES (@AggregateId, @AggregateType, @EventType, @EventData, @OccurredAt)
-            RETURNING "EventId";"""
+            $"""
+            WITH insertedId (id) as (SELECT gen_random_uuid())
+            INSERT INTO "%s{schema}"."EventProcessingLog" 
+            ("EventId", "CorrelationId", "AggregateId", "AggregateType", "EventType", "EventData", "OccurredAt")
+            VALUES (insertedId, COALESCE(@CorrelationId, insertedId), @AggregateId, @AggregateType, @EventType, @EventData, @OccurredAt)
+            RETURNING insertedId;"""
 
         let inline readUnprocessedEvents (DbSchema schema) =
-            $"""SELECT "EventId", "AggregateId", "AggregateType", "EventData", "OccurredAt", "SuccessfulHandlers"
+            $"""SELECT "EventId", "CorrelationId", "AggregateId", "AggregateType", "EventData", "OccurredAt", "SuccessfulHandlers"
             FROM "%s{schema}"."EventProcessingLog"
             WHERE "AggregateType" = @AggregateType AND "EventType" = @EventType AND "ProcessedAt" IS NULL
             ORDER BY "OccurredAt" ASC;"""
@@ -55,6 +57,7 @@ module Postgres =
         [<CLIMutable>]
         type Event<'eventPayloadDto> =
             { EventId: Guid
+              CorrelationId: string
               AggregateId: int
               EventData: 'eventPayloadDto
               OccurredAt: DateTimeOffset
@@ -65,14 +68,17 @@ module Postgres =
                 (toDomain: 'eventPayloadDto -> Result<'eventPayload, string>)
                 dto
                 =
-                dto.EventData
-                |> toDomain
-                |> Result.map (fun evData ->
-                    dto.AggregateId |> AggregateId.ofInt<'state>,
-                    dto.EventId |> EventId,
-                    { Data = evData
-                      OccurredAt = dto.OccurredAt },
-                    dto.SuccessfulHandlers |> Set.ofArray)
+                validation {
+                    let! payload = dto.EventData |> toDomain
+                    and! correlationId = dto.CorrelationId |> CorrelationId.create
+
+                    return
+                        dto.AggregateId |> AggregateId.ofInt<'state>,
+                        dto.EventId |> EventId,
+                        payload |> Event.createExisting dto.OccurredAt correlationId,
+                        dto.SuccessfulHandlers |> Set.ofArray
+                }
+                |> Result.mapError (String.concat "; ")
 
     type PersistEvents<'state, 'eventPayload> = PersistEvents<'state, EventId, 'eventPayload, SqlIoError>
 
@@ -83,13 +89,25 @@ module Postgres =
         : PersistEvents<'state, 'eventPayload> =
         fun (AggregateId aggregateId) ->
             List.traverseAsyncResultM (fun ev ->
-                {| AggregateId = aggregateId
+                {| CorrelationId = ev.CorrelationId |> Option.map CorrelationId.value |> Option.toObj
+                   AggregateId = aggregateId
                    AggregateType = Aggregate.typeName<'state>
                    EventType = Event.typeName<'eventPayload>
                    EventData = ev.Data |> eventPayloadToDto |> JsonbParameter<'eventPayloadDto>
                    OccurredAt = ev.OccurredAt |}
                 |> Dapper.executeScalar<Guid> (SqlSession.Sustained dbTransaction) (Sql.persistEvent dbSchema)
-                |> AsyncResult.map (fun evId -> evId |> EventId, ev))
+                |> Async.map (
+                    Result.bind (fun evId ->
+                        result {
+                            let! newCorrelationId =
+                                ev.CorrelationId
+                                |> Option.map Ok
+                                |> Option.defaultWith (fun _ -> evId |> string |> CorrelationId.create)
+                                |> Result.mapError InvalidData
+
+                            return evId |> EventId, ev.Data |> Event.createExisting ev.OccurredAt newCorrelationId
+                        })
+                ))
 
     type ReadUnprocessedEvents<'state, 'eventPayload> =
         ReadUnprocessedEvents<'state, EventId, 'eventPayload, SqlIoError>

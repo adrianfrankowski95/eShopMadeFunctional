@@ -39,7 +39,7 @@ type IHostApplicationBuilder with
 
 type IServiceCollection with
     // TODO: Add OpenTelemetry
-    member this.RegisterRabbitMQEventHandler<'state, 'eventPayload, 'publishEventsIoError>
+    member this.AddRabbitMQEventHandler<'state, 'eventPayload, 'publishEventsIoError>
         (
             eventNamesToHandle,
             aggregateIdSelector,
