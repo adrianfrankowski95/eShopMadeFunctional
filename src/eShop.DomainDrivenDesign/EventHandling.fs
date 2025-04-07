@@ -100,14 +100,11 @@ module EventsProcessor =
         { options with
             EventHandlerRegistry = options.EventHandlerRegistry |> Map.add handlerName handler }
 
-    type private Command<'state, 'eventPayload, 'ioError> =
-        | Process of
-            (AggregateId<'state> * Event<'eventPayload> * EventHandlerRegistry<'state, 'eventPayload, 'ioError>) list
-        | Retry of
-            Attempt *
-            AggregateId<'state> *
-            Event<'eventPayload> *
-            EventHandlerRegistry<'state, 'eventPayload, 'ioError>
+    type ProcessEvent<'state, 'eventPayload, 'ioError> =
+        { Attempt: Attempt
+          AggregateId: AggregateId<'state>
+          Event: Event<'eventPayload>
+          Handlers: EventHandlerRegistry<'state, 'eventPayload, 'ioError> }
 
     type T<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
         internal
@@ -121,25 +118,25 @@ module EventsProcessor =
         let handleError err =
             options.ErrorHandler |> Option.teeSome (fun handler -> handler err) |> ignore
 
-        let scheduleRetry postCommand attempt aggregateId event failedHandlers =
+        let scheduleRetry postCommand cmd =
             async {
-                do! options.Retries |> List.item (attempt - 1) |> Task.Delay |> Async.AwaitTask
+                do! options.Retries |> List.item (cmd.Attempt - 1) |> Task.Delay |> Async.AwaitTask
 
-                return (attempt, aggregateId, event, failedHandlers) |> Retry |> postCommand
+                return cmd |> postCommand
             }
 
         let maxAttempts = (options.Retries |> List.length) + 1
 
-        let processEvent scheduleRetry aggregateId event attempt handlers =
+        let processEvent scheduleRetry cmd =
             async {
                 let! successfulHandlers, failedHandlers =
-                    handlers
+                    cmd.Handlers
                     |> Seq.map (fun (KeyValue(handlerName, handler)) ->
-                        event
-                        |> handler aggregateId
+                        cmd.Event
+                        |> handler cmd.AggregateId
                         |> AsyncResult.map (fun _ -> handlerName)
                         |> AsyncResult.teeError (fun error ->
-                            EventHandlerFailed(attempt, aggregateId, event, handlerName, error)
+                            EventHandlerFailed(cmd.Attempt, cmd.AggregateId, cmd.Event, handlerName, error)
                             |> handleError)
                         |> AsyncResult.setError (handlerName, handler))
                     |> Async.Sequential
@@ -147,49 +144,31 @@ module EventsProcessor =
 
                 do!
                     successfulHandlers
-                    |> persistSuccessfulHandlers event.Id
+                    |> persistSuccessfulHandlers cmd.Event.Id
                     |> AsyncResult.teeError (fun error ->
-                        PersistingSuccessfulEventHandlersFailed(aggregateId, event, successfulHandlers, error)
+                        PersistingSuccessfulEventHandlersFailed(cmd.AggregateId, cmd.Event, successfulHandlers, error)
                         |> handleError)
                     |> AsyncResult.ignoreError
 
                 do!
                     match failedHandlers with
                     | [] ->
-                        event.Id
+                        cmd.Event.Id
                         |> markEventAsProcessed
                         |> AsyncResult.teeError (fun err ->
-                            (event, err) |> MarkingEventAsProcessedFailed |> handleError)
+                            (cmd.Event, err) |> MarkingEventAsProcessedFailed |> handleError)
                         |> AsyncResult.ignoreError
                     | failedHandlers ->
-                        match attempt = maxAttempts with
-                        | false -> failedHandlers |> Map.ofList |> scheduleRetry attempt aggregateId event
+                        match cmd.Attempt = maxAttempts with
+                        | false ->
+                            { cmd with
+                                Handlers = failedHandlers |> Map.ofList }
+                            |> scheduleRetry
                         | true ->
-                            (attempt, aggregateId, event, failedHandlers |> List.map fst |> Set.ofList)
+                            (cmd.Attempt, cmd.AggregateId, cmd.Event, failedHandlers |> List.map fst |> Set.ofList)
                             |> MaxEventProcessingRetriesReached
                             |> handleError
                             |> Async.retn
-            }
-
-        let handleCommand scheduleRetry cmd =
-            let processEvent = processEvent scheduleRetry
-
-            async {
-                match cmd with
-                | Process(processingData) ->
-                    let attempt = 1
-
-                    do!
-                        processingData
-                        |> List.map (fun (aggregateId, event, handlers) ->
-                            handlers |> processEvent aggregateId event attempt)
-                        |> Async.Sequential
-                        |> Async.Ignore
-
-                | Retry(attempt, aggregateId, event, handlersToRetry) ->
-                    let attempt = attempt + 1
-
-                    do! handlersToRetry |> processEvent aggregateId event attempt
             }
 
         let restoreState =
@@ -198,19 +177,22 @@ module EventsProcessor =
             >> AsyncResult.defaultValue []
             >> Async.map (
                 List.map (fun (aggregateId, event, successfulHandlers) ->
-                    aggregateId, event, options.EventHandlerRegistry |> Map.removeKeys successfulHandlers)
+                    { Attempt = 0
+                      Event = event
+                      AggregateId = aggregateId
+                      Handlers = options.EventHandlerRegistry |> Map.removeKeys successfulHandlers })
             )
 
         let processor =
-            MailboxProcessor<Command<_, _, _>>.Start(fun inbox ->
+            MailboxProcessor<ProcessEvent<'state, 'eventPayload, 'eventHandlingIoError>>.Start(fun inbox ->
                 let scheduleRetry = scheduleRetry inbox.Post
-                let handleCommand = handleCommand scheduleRetry
+                let processEvent = processEvent scheduleRetry
 
                 let rec loop () =
                     async {
                         let! cmd = inbox.Receive()
 
-                        do! cmd |> handleCommand
+                        do! { cmd with Attempt = cmd.Attempt + 1 } |> processEvent
 
                         return! loop ()
                     }
@@ -218,7 +200,7 @@ module EventsProcessor =
                 async {
                     let! state = restoreState ()
 
-                    inbox.Post(state |> Process)
+                    state |> List.sortBy _.Event.OccurredAt |> List.iter inbox.Post
 
                     do! loop ()
                 })
@@ -230,9 +212,12 @@ module EventsProcessor =
 
                     events
                     |> List.sortBy _.OccurredAt
-                    |> List.map (fun event -> aggregateId, event, options.EventHandlerRegistry)
-                    |> Process
-                    |> processor.Post
+                    |> List.iter (fun event ->
+                        { Attempt = 0
+                          Event = event
+                          AggregateId = aggregateId
+                          Handlers = options.EventHandlerRegistry }
+                        |> processor.Post)
                 }
 
         interface IDisposable with
