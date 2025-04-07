@@ -20,8 +20,7 @@ type RabbitMQIoError =
     | EventDispatchError of exn
     | InvalidEventData of string
 
-type RabbitMQEventDispatcher<'eventId, 'eventPayload> =
-    'eventId -> Event<'eventPayload> -> AsyncResult<unit, RabbitMQIoError>
+type RabbitMQEventDispatcher<'eventPayload> = Event<'eventPayload> -> AsyncResult<unit, RabbitMQIoError>
 
 [<RequireQualifiedAccess>]
 module RabbitMQ =
@@ -176,7 +175,7 @@ module RabbitMQ =
         (config: Configuration.RabbitMQOptions)
         (logger: ILogger<'eventPayload>)
         (getUtcNow: GetUtcNow)
-        (processEvents: PublishEvents<'state, 'eventPayload, 'ioError>)
+        (publishEvents: PublishEvents<'state, 'eventPayload, 'ioError>)
         =
         result {
             let! queueName = config.SubscriptionClientName |> QueueName.create
@@ -192,9 +191,9 @@ module RabbitMQ =
                         | true -> ea.BasicProperties.Timestamp.UnixTime |> DateTimeOffset.FromUnixTimeSeconds
                         | false -> getUtcNow ()
 
-                    let! correlationId =
-                        ea.BasicProperties.CorrelationId
-                        |> CorrelationId.create
+                    let! eventId =
+                        ea.BasicProperties.MessageId
+                        |> EventId.ofString
                         |> Result.mapError (InvalidEventData >> Choice1Of2)
 
                     let! eventName =
@@ -210,10 +209,11 @@ module RabbitMQ =
                     let aggregateId = eventPayload |> aggregateIdSelector
 
                     do!
-                        eventPayload
-                        |> Event.createExisting timestamp correlationId
+                        { Id = eventId
+                          Data = eventPayload
+                          OccurredAt = timestamp }
                         |> List.singleton
-                        |> processEvents aggregateId
+                        |> publishEvents aggregateId
                         |> AsyncResult.mapError Choice2Of2
                 }
                 |> AsyncResult.tee (fun _ -> ack ea consumer.Model)
@@ -238,14 +238,10 @@ module RabbitMQ =
         (createEventName: 'eventPayload -> Result<EventName, string>)
         (serializePayload: 'eventPayload -> Result<byte array, exn>)
         (connection: IConnection)
-        : RabbitMQEventDispatcher<'eventId, 'eventPayload> =
-        fun (eventId: 'eventId) (event: Event<'eventPayload>) ->
+        : RabbitMQEventDispatcher<'eventPayload> =
+        fun (event: Event<'eventPayload>) ->
             asyncResult {
                 let! eventName = event.Data |> createEventName |> Result.mapError InvalidEventData
-
-                let! correlationId =
-                    event.CorrelationId
-                    |> Result.requireSome ("Missing CorrelationId" |> InvalidEventData)
 
                 let! body =
                     event.Data
@@ -258,7 +254,7 @@ module RabbitMQ =
                 do! channel |> ensureExchange |> Result.mapError ExchangeDeclarationError
 
                 let properties = channel.CreateBasicProperties()
-                properties.CorrelationId <- correlationId |> CorrelationId.value
+                properties.MessageId <- event.Id |> EventId.toString
                 properties.Type <- Event.typeName<'eventPayload>
                 properties.DeliveryMode <- 2uy
                 properties.Timestamp <- event.OccurredAt.ToUnixTimeSeconds() |> AmqpTimestamp

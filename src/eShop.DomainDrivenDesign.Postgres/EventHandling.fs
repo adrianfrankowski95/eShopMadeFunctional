@@ -8,10 +8,6 @@ open eShop.DomainDrivenDesign
 open eShop.Postgres
 open eShop.Postgres.Dapper.Parameters
 
-type EventId = private EventId of Guid
-
-module EventId =
-    let value (EventId rawId) = rawId
 
 [<RequireQualifiedAccess>]
 module Postgres =
@@ -31,11 +27,9 @@ module Postgres =
     module private Sql =
         let inline persistEvent (DbSchema schema) =
             $"""
-            WITH insertedId (id) as (SELECT gen_random_uuid())
             INSERT INTO "%s{schema}"."EventProcessingLog" 
-            ("EventId", "CorrelationId", "AggregateId", "AggregateType", "EventType", "EventData", "OccurredAt")
-            VALUES (insertedId, COALESCE(@CorrelationId, insertedId), @AggregateId, @AggregateType, @EventType, @EventData, @OccurredAt)
-            RETURNING insertedId;"""
+            ("EventId", "AggregateId", "AggregateType", "EventType", "EventData", "OccurredAt")
+            VALUES (@EventId, @AggregateId, @AggregateType, @EventType, @EventData, @OccurredAt);"""
 
         let inline readUnprocessedEvents (DbSchema schema) =
             $"""SELECT "EventId", "CorrelationId", "AggregateId", "AggregateType", "EventData", "OccurredAt", "SuccessfulHandlers"
@@ -57,7 +51,6 @@ module Postgres =
         [<CLIMutable>]
         type Event<'eventPayloadDto> =
             { EventId: Guid
-              CorrelationId: string
               AggregateId: int
               EventData: 'eventPayloadDto
               OccurredAt: DateTimeOffset
@@ -65,22 +58,19 @@ module Postgres =
 
         module Event =
             let toDomain<'state, 'eventPayloadDto, 'eventPayload>
-                (toDomain: 'eventPayloadDto -> Result<'eventPayload, string>)
+                (payloadToDomain: 'eventPayloadDto -> Result<'eventPayload, string>)
                 dto
                 =
-                validation {
-                    let! payload = dto.EventData |> toDomain
-                    and! correlationId = dto.CorrelationId |> CorrelationId.create
+                dto.EventData
+                |> payloadToDomain
+                |> Result.map (fun payload ->
+                    dto.AggregateId |> AggregateId.ofInt<'state>,
+                    { Id = dto.EventId |> EventId.ofGuid
+                      Data = payload
+                      OccurredAt = dto.OccurredAt },
+                    dto.SuccessfulHandlers |> Set.ofArray)
 
-                    return
-                        dto.AggregateId |> AggregateId.ofInt<'state>,
-                        dto.EventId |> EventId,
-                        payload |> Event.createExisting dto.OccurredAt correlationId,
-                        dto.SuccessfulHandlers |> Set.ofArray
-                }
-                |> Result.mapError (String.concat "; ")
-
-    type PersistEvents<'state, 'eventPayload> = PersistEvents<'state, EventId, 'eventPayload, SqlIoError>
+    type PersistEvents<'state, 'eventPayload> = PersistEvents<'state, 'eventPayload, SqlIoError>
 
     let persistEvents
         (eventPayloadToDto: 'eventPayload -> 'eventPayloadDto)
@@ -88,29 +78,17 @@ module Postgres =
         (dbTransaction: DbTransaction)
         : PersistEvents<'state, 'eventPayload> =
         fun (AggregateId aggregateId) ->
-            List.traverseAsyncResultM (fun ev ->
-                {| CorrelationId = ev.CorrelationId |> Option.map CorrelationId.value |> Option.toObj
+            List.map (fun ev ->
+                {| EventId = ev.Id |> EventId.value
                    AggregateId = aggregateId
                    AggregateType = Aggregate.typeName<'state>
                    EventType = Event.typeName<'eventPayload>
                    EventData = ev.Data |> eventPayloadToDto |> JsonbParameter<'eventPayloadDto>
-                   OccurredAt = ev.OccurredAt |}
-                |> Dapper.executeScalar<Guid> (SqlSession.Sustained dbTransaction) (Sql.persistEvent dbSchema)
-                |> Async.map (
-                    Result.bind (fun evId ->
-                        result {
-                            let! newCorrelationId =
-                                ev.CorrelationId
-                                |> Option.map Ok
-                                |> Option.defaultWith (fun _ -> evId |> string |> CorrelationId.create)
-                                |> Result.mapError InvalidData
+                   OccurredAt = ev.OccurredAt |})
+            >> Dapper.execute (SqlSession.Sustained dbTransaction) (Sql.persistEvent dbSchema)
+            >> AsyncResult.ignore
 
-                            return evId |> EventId, ev.Data |> Event.createExisting ev.OccurredAt newCorrelationId
-                        })
-                ))
-
-    type ReadUnprocessedEvents<'state, 'eventPayload> =
-        ReadUnprocessedEvents<'state, EventId, 'eventPayload, SqlIoError>
+    type ReadUnprocessedEvents<'state, 'eventPayload> = ReadUnprocessedEvents<'state, 'eventPayload, SqlIoError>
 
     let readUnprocessedEvents
         (dtoToEventPayload: 'eventPayloadDto -> Result<'eventPayload, string>)
@@ -128,23 +106,20 @@ module Postgres =
                 >> AsyncResult.ofResult
             )
 
-    let persistSuccessfulEventHandlers
-        (dbSchema: DbSchema)
-        (sqlSession: SqlSession)
-        : PersistSuccessfulEventHandlers<EventId, SqlIoError> =
-        fun (EventId eventId) successfulHandlers ->
-            {| EventId = eventId
+    type PersistSuccessfulEventHandlers = PersistSuccessfulEventHandlers<SqlIoError>
+
+    let persistSuccessfulEventHandlers (dbSchema: DbSchema) (sqlSession: SqlSession) : PersistSuccessfulEventHandlers =
+        fun eventId successfulHandlers ->
+            {| EventId = eventId |> EventId.value
                SuccessfulHandlers = successfulHandlers |> Set.toArray |}
             |> Dapper.execute sqlSession (Sql.persistSuccessfulEventHandlers dbSchema)
             |> AsyncResult.ignore
 
-    let markEventAsProcessed
-        (dbSchema: DbSchema)
-        (sqlSession: SqlSession)
-        (getNow: GetUtcNow)
-        : MarkEventAsProcessed<EventId, SqlIoError> =
-        fun (EventId eventId) ->
-            {| EventId = eventId
+    type MarkEventAsProcessed = MarkEventAsProcessed<SqlIoError>
+
+    let markEventAsProcessed (dbSchema: DbSchema) (sqlSession: SqlSession) (getNow: GetUtcNow) : MarkEventAsProcessed =
+        fun eventId ->
+            {| EventId = eventId |> EventId.value
                UtcNow = getNow () |}
             |> Dapper.execute sqlSession (Sql.markEventAsProcessed dbSchema)
             |> AsyncResult.ignore

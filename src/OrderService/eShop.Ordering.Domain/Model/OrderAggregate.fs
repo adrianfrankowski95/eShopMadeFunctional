@@ -30,7 +30,7 @@ module Command =
         | SetStockConfirmedOrderStatus
         | SetStockRejectedOrderStatus of SetStockRejectedOrderStatus
         | SetPaidOrderStatus
-        | ShipOrder
+        | SetShippedOrderStatus
         | CancelOrder
 
 type Command = Command.T
@@ -240,7 +240,7 @@ module State =
 
             (newState |> T.Paid, [ event |> Event.OrderPaid ]) |> Ok
 
-        | Paid paid, Command.ShipOrder ->
+        | Paid paid, Command.SetShippedOrderStatus ->
             let newState =
                 { Buyer = paid.Buyer
                   Address = paid.Address
@@ -255,7 +255,7 @@ module State =
 
             (newState |> T.Shipped, [ event |> Event.OrderShipped ]) |> Ok
 
-        | _, Command.ShipOrder -> OnlyPaidOrderCanBeShipped |> Error
+        | _, Command.SetShippedOrderStatus -> OnlyPaidOrderCanBeShipped |> Error
 
         | Submitted submitted, Command.CancelOrder ->
             let newState =

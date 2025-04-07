@@ -3,7 +3,6 @@
 CREATE TABLE "$Schema$"."EventProcessingLog"
 (
     "EventId"            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    "CorrelationId"      UUID        NOT NULL,
     "AggregateId"        INTEGER     NOT NULL,
     "AggregateType"      VARCHAR(50) NOT NULL,
     "EventType"          VARCHAR(50) NOT NULL,

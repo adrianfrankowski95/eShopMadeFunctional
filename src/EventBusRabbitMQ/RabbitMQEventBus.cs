@@ -77,7 +77,7 @@ public sealed class RabbitMQEventBus(
             properties.DeliveryMode = 2;
             properties.Timestamp =
                 new AmqpTimestamp((long)(@event.CreationDate.ToUniversalTime() - DateTime.UnixEpoch).TotalSeconds);
-            properties.CorrelationId = @event.Id.ToString();
+            properties.MessageId = @event.Id.ToString();
 
             static void InjectTraceContextIntoBasicProperties(IBasicProperties props, string key, string value)
             {

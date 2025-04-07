@@ -11,7 +11,7 @@ module ShipOrderWorkflow =
 
     let build: T<'ioError> =
         fun _ state _ ->
-            OrderAggregate.Command.ShipOrder
+            OrderAggregate.Command.SetShippedOrderStatus
             |> OrderAggregate.State.evolve state
             |> Result.mapError Left
             |> AsyncResult.ofResult

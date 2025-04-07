@@ -6,33 +6,20 @@ open eShop.Prelude
 open FsToolkit.ErrorHandling
 open eShop.ConstrainedTypes
 
-type CorrelationId = String.NonWhiteSpace
+[<Measure>]
+type eventId
 
-module CorrelationId =
-    let create = String.NonWhiteSpace.create (nameof CorrelationId)
-
-    let value = String.NonWhiteSpace.value
-
+type EventId = Id<eventId>
 
 type Event<'payload> =
-    { Data: 'payload
-      CorrelationId: CorrelationId option
+    { Id: EventId
+      Data: 'payload
       OccurredAt: DateTimeOffset }
 
 module Event =
-    let createNew occurredAt payload =
-        { Data = payload
-          CorrelationId = None
-          OccurredAt = occurredAt }
-
-    let createExisting occurredAt correlationId payload =
-        { Data = payload
-          CorrelationId = Some correlationId
-          OccurredAt = occurredAt }
-
     let mapPayload (newData: 'b) (ev: Event<'a>) : Event<'b> =
-        { Data = newData
-          CorrelationId = ev.CorrelationId
+        { Id = ev.Id
+          Data = newData
           OccurredAt = ev.OccurredAt }
 
     let typeName<'payload> =
@@ -41,65 +28,60 @@ module Event =
         payloadType.DeclaringType.Name + payloadType.Name
 
 
-type EventHandler<'state, 'eventId, 'eventPayload, 'ioError> =
-    AggregateId<'state> -> 'eventId -> Event<'eventPayload> -> AsyncResult<unit, 'ioError>
+type EventHandler<'state, 'eventPayload, 'ioError> =
+    AggregateId<'state> -> Event<'eventPayload> -> AsyncResult<unit, 'ioError>
 
 type EventHandlerName = string
 
 type SuccessfulEventHandlers = EventHandlerName Set
 
-type EventHandlerRegistry<'state, 'eventId, 'eventPayload, 'ioError> =
-    Map<EventHandlerName, EventHandler<'state, 'eventId, 'eventPayload, 'ioError>>
+type EventHandlerRegistry<'state, 'eventPayload, 'ioError> =
+    Map<EventHandlerName, EventHandler<'state, 'eventPayload, 'ioError>>
 
-type PersistEvents<'state, 'eventId, 'eventPayload, 'ioError> =
-    AggregateId<'state> -> Event<'eventPayload> list -> AsyncResult<('eventId * Event<'eventPayload>) list, 'ioError>
+type PersistEvents<'state, 'eventPayload, 'ioError> =
+    AggregateId<'state> -> Event<'eventPayload> list -> AsyncResult<unit, 'ioError>
 
-type ReadUnprocessedEvents<'state, 'eventId, 'eventPayload, 'ioError> =
-    unit
-        -> AsyncResult<(AggregateId<'state> * 'eventId * Event<'eventPayload> * SuccessfulEventHandlers) list, 'ioError>
+type ReadUnprocessedEvents<'state, 'eventPayload, 'ioError> =
+    unit -> AsyncResult<(AggregateId<'state> * Event<'eventPayload> * SuccessfulEventHandlers) list, 'ioError>
 
-type PersistSuccessfulEventHandlers<'eventId, 'ioError> =
-    'eventId -> SuccessfulEventHandlers -> AsyncResult<unit, 'ioError>
+type PersistSuccessfulEventHandlers<'ioError> = EventId -> SuccessfulEventHandlers -> AsyncResult<unit, 'ioError>
 
-type MarkEventAsProcessed<'eventId, 'ioError> = 'eventId -> AsyncResult<unit, 'ioError>
+type MarkEventAsProcessed<'ioError> = EventId -> AsyncResult<unit, 'ioError>
 
 [<RequireQualifiedAccess>]
 module EventsProcessor =
     type private Delay = TimeSpan
     type private Attempt = int
 
-    type EventsProcessorError<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError> =
+    type EventsProcessorError<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError> =
         | ReadingUnprocessedEventsFailed of 'eventLogIoError
         | PersistingSuccessfulEventHandlersFailed of
             AggregateId<'state> *
-            'eventId *
+            Event<'eventPayload> *
             SuccessfulEventHandlers *
             'eventLogIoError
-        | MarkingEventAsProcessedFailed of 'eventId * 'eventLogIoError
+        | MarkingEventAsProcessedFailed of Event<'eventPayload> * 'eventLogIoError
         | EventHandlerFailed of
             Attempt *
             AggregateId<'state> *
-            'eventId *
             Event<'eventPayload> *
             EventHandlerName *
             'eventHandlingIoError
         | MaxEventProcessingRetriesReached of
             Attempt *
             AggregateId<'state> *
-            'eventId *
             Event<'eventPayload> *
             EventHandlerName Set
 
-    type EventsProcessorOptions<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError> =
+    type EventsProcessorOptions<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError> =
         private
-            { EventHandlerRegistry: EventHandlerRegistry<'state, 'eventId, 'eventPayload, 'eventHandlingIoError>
+            { EventHandlerRegistry: EventHandlerRegistry<'state, 'eventPayload, 'eventHandlingIoError>
               Retries: Delay list
               ErrorHandler:
-                  (EventsProcessorError<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
-                      -> unit) option }
+                  (EventsProcessorError<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError> -> unit) option }
 
-    let init<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
-        : EventsProcessorOptions<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError> =
+    let init<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
+        : EventsProcessorOptions<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError> =
         { EventHandlerRegistry = Map.empty
           Retries = ([ 1; 2; 3; 10 ]: float list) |> List.map TimeSpan.FromMinutes
           ErrorHandler = None }
@@ -110,61 +92,54 @@ module EventsProcessor =
 
     let withRetries retries options = { options with Retries = retries }
 
-    let registerHandler<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
+    let registerHandler<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
         handlerName
-        (handler: EventHandler<'state, 'eventId, 'eventPayload, 'eventHandlingIoError>)
-        (options: EventsProcessorOptions<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>)
+        (handler: EventHandler<'state, 'eventPayload, 'eventHandlingIoError>)
+        (options: EventsProcessorOptions<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>)
         =
         { options with
             EventHandlerRegistry = options.EventHandlerRegistry |> Map.add handlerName handler }
 
-    type private Command<'state, 'eventId, 'eventPayload, 'ioError> =
+    type private Command<'state, 'eventPayload, 'ioError> =
         | Process of
-            (AggregateId<'state> *
-            'eventId *
-            Event<'eventPayload> *
-            EventHandlerRegistry<'state, 'eventId, 'eventPayload, 'ioError>) list
+            (AggregateId<'state> * Event<'eventPayload> * EventHandlerRegistry<'state, 'eventPayload, 'ioError>) list
         | Retry of
             Attempt *
             AggregateId<'state> *
-            'eventId *
             Event<'eventPayload> *
-            EventHandlerRegistry<'state, 'eventId, 'eventPayload, 'ioError>
+            EventHandlerRegistry<'state, 'eventPayload, 'ioError>
 
-    type T<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
+    type T<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
         internal
         (
-            persistEvents: PersistEvents<'state, 'eventId, 'eventPayload, 'eventLogIoError>,
-            readUnprocessedEvents: ReadUnprocessedEvents<'state, 'eventId, 'eventPayload, 'eventLogIoError>,
-            persistSuccessfulHandlers: PersistSuccessfulEventHandlers<'eventId, 'eventLogIoError>,
-            markEventAsProcessed: MarkEventAsProcessed<'eventId, 'eventLogIoError>,
-            options: EventsProcessorOptions<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
+            persistEvents: PersistEvents<'state, 'eventPayload, 'eventLogIoError>,
+            readUnprocessedEvents: ReadUnprocessedEvents<'state, 'eventPayload, 'eventLogIoError>,
+            persistSuccessfulHandlers: PersistSuccessfulEventHandlers<'eventLogIoError>,
+            markEventAsProcessed: MarkEventAsProcessed<'eventLogIoError>,
+            options: EventsProcessorOptions<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
         ) =
         let handleError err =
             options.ErrorHandler |> Option.teeSome (fun handler -> handler err) |> ignore
 
-        let scheduleRetry postCommand attempt aggregateId eventId eventData failedHandlers =
+        let scheduleRetry postCommand attempt aggregateId event failedHandlers =
             async {
                 do! options.Retries |> List.item (attempt - 1) |> Task.Delay |> Async.AwaitTask
 
-                return
-                    (attempt, aggregateId, eventId, eventData, failedHandlers)
-                    |> Retry
-                    |> postCommand
+                return (attempt, aggregateId, event, failedHandlers) |> Retry |> postCommand
             }
 
         let maxAttempts = (options.Retries |> List.length) + 1
 
-        let processEvent scheduleRetry aggregateId eventId eventData attempt handlers =
+        let processEvent scheduleRetry aggregateId event attempt handlers =
             async {
                 let! successfulHandlers, failedHandlers =
                     handlers
                     |> Seq.map (fun (KeyValue(handlerName, handler)) ->
-                        eventData
-                        |> handler aggregateId eventId
+                        event
+                        |> handler aggregateId
                         |> AsyncResult.map (fun _ -> handlerName)
                         |> AsyncResult.teeError (fun error ->
-                            EventHandlerFailed(attempt, aggregateId, eventId, eventData, handlerName, error)
+                            EventHandlerFailed(attempt, aggregateId, event, handlerName, error)
                             |> handleError)
                         |> AsyncResult.setError (handlerName, handler))
                     |> Async.Sequential
@@ -172,28 +147,25 @@ module EventsProcessor =
 
                 do!
                     successfulHandlers
-                    |> persistSuccessfulHandlers eventId
+                    |> persistSuccessfulHandlers event.Id
                     |> AsyncResult.teeError (fun error ->
-                        PersistingSuccessfulEventHandlersFailed(aggregateId, eventId, successfulHandlers, error)
+                        PersistingSuccessfulEventHandlersFailed(aggregateId, event, successfulHandlers, error)
                         |> handleError)
                     |> AsyncResult.ignoreError
 
                 do!
                     match failedHandlers with
                     | [] ->
-                        eventId
+                        event.Id
                         |> markEventAsProcessed
                         |> AsyncResult.teeError (fun err ->
-                            (eventId, err) |> MarkingEventAsProcessedFailed |> handleError)
+                            (event, err) |> MarkingEventAsProcessedFailed |> handleError)
                         |> AsyncResult.ignoreError
                     | failedHandlers ->
                         match attempt = maxAttempts with
-                        | false ->
-                            failedHandlers
-                            |> Map.ofList
-                            |> scheduleRetry attempt aggregateId eventId eventData
+                        | false -> failedHandlers |> Map.ofList |> scheduleRetry attempt aggregateId event
                         | true ->
-                            (attempt, aggregateId, eventId, eventData, failedHandlers |> List.map fst |> Set.ofList)
+                            (attempt, aggregateId, event, failedHandlers |> List.map fst |> Set.ofList)
                             |> MaxEventProcessingRetriesReached
                             |> handleError
                             |> Async.retn
@@ -209,15 +181,15 @@ module EventsProcessor =
 
                     do!
                         processingData
-                        |> List.map (fun (aggregateId, eventId, eventData, handlers) ->
-                            handlers |> processEvent aggregateId eventId eventData attempt)
+                        |> List.map (fun (aggregateId, event, handlers) ->
+                            handlers |> processEvent aggregateId event attempt)
                         |> Async.Sequential
                         |> Async.Ignore
 
-                | Retry(attempt, aggregateId, eventId, eventData, handlersToRetry) ->
+                | Retry(attempt, aggregateId, event, handlersToRetry) ->
                     let attempt = attempt + 1
 
-                    do! handlersToRetry |> processEvent aggregateId eventId eventData attempt
+                    do! handlersToRetry |> processEvent aggregateId event attempt
             }
 
         let restoreState =
@@ -225,12 +197,12 @@ module EventsProcessor =
             >> AsyncResult.teeError (ReadingUnprocessedEventsFailed >> handleError)
             >> AsyncResult.defaultValue []
             >> Async.map (
-                List.map (fun (aggregateId, eventId, event, successfulHandlers) ->
-                    aggregateId, eventId, event, options.EventHandlerRegistry |> Map.removeKeys successfulHandlers)
+                List.map (fun (aggregateId, event, successfulHandlers) ->
+                    aggregateId, event, options.EventHandlerRegistry |> Map.removeKeys successfulHandlers)
             )
 
         let processor =
-            MailboxProcessor<Command<_, _, _, _>>.Start(fun inbox ->
+            MailboxProcessor<Command<_, _, _>>.Start(fun inbox ->
                 let scheduleRetry = scheduleRetry inbox.Post
                 let handleCommand = handleCommand scheduleRetry
 
@@ -254,12 +226,11 @@ module EventsProcessor =
         member this.Process =
             fun aggregateId events ->
                 asyncResult {
-                    let! eventsWithIds = events |> persistEvents aggregateId
+                    do! events |> persistEvents aggregateId
 
-                    eventsWithIds
-                    |> List.sortBy (snd >> _.OccurredAt)
-                    |> List.map (fun (eventId, eventData) ->
-                        aggregateId, eventId, eventData, options.EventHandlerRegistry)
+                    events
+                    |> List.sortBy _.OccurredAt
+                    |> List.map (fun event -> aggregateId, event, options.EventHandlerRegistry)
                     |> Process
                     |> processor.Post
                 }
@@ -268,13 +239,13 @@ module EventsProcessor =
             member this.Dispose() = processor.Dispose()
 
     let build
-        (persistEvents: PersistEvents<'state, 'eventId, 'eventPayload, 'eventLogIoError>)
-        (readUnprocessedEvents: ReadUnprocessedEvents<'state, 'eventId, 'eventPayload, 'eventLogIoError>)
-        (persistSuccessfulHandlers: PersistSuccessfulEventHandlers<'eventId, 'eventLogIoError>)
-        (markEventAsProcessed: MarkEventAsProcessed<'eventId, 'eventLogIoError>)
-        (options: EventsProcessorOptions<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>)
+        (persistEvents: PersistEvents<'state, 'eventPayload, 'eventLogIoError>)
+        (readUnprocessedEvents: ReadUnprocessedEvents<'state, 'eventPayload, 'eventLogIoError>)
+        (persistSuccessfulHandlers: PersistSuccessfulEventHandlers<'eventLogIoError>)
+        (markEventAsProcessed: MarkEventAsProcessed<'eventLogIoError>)
+        (options: EventsProcessorOptions<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>)
         =
-        new T<_, _, _, _, _>(
+        new T<_, _, _, _>(
             persistEvents,
             readUnprocessedEvents,
             persistSuccessfulHandlers,
@@ -282,5 +253,5 @@ module EventsProcessor =
             options
         )
 
-type EventsProcessor<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError> =
-    EventsProcessor.T<'state, 'eventId, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
+type EventsProcessor<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError> =
+    EventsProcessor.T<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>

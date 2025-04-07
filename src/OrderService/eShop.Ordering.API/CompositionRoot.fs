@@ -52,8 +52,8 @@ let getStandaloneSqlSessionFromSp (sp: IServiceProvider) =
 
 let inline private buildPersistEvents
     (services: Services)
-    (persistEvents: DbTransaction -> PersistEvents<_, _, _, _>)
-    : PersistEvents<_, _, _, _> =
+    (persistEvents: DbTransaction -> PersistEvents<_, _, _>)
+    : PersistEvents<_, _, _> =
     fun aggregateId events ->
         asyncResult {
             let connection = (services |> getDbConnection) ()
@@ -69,8 +69,7 @@ let inline private buildPersistEvents
                 |> AsyncResult.teeAnyAsync (connection.CloseAsync >> Async.AwaitTask)
         }
 
-
-type OrderAggregateEventDispatcher = RabbitMQ.OrderAggregateEventDispatcher<EventId>
+type OrderAggregateEventDispatcher = RabbitMQ.OrderAggregateEventDispatcher
 
 let private buildOrderAggregateEventDispatcher (services: Services) : string * OrderAggregateEventDispatcher =
     let rabbitMQConnection = services.Get<IConnection>()
@@ -81,7 +80,7 @@ let private buildOrderAggregateEventDispatcher (services: Services) : string * O
     RabbitMQ.OrderAggregateEventDispatcher.create jsonOptions rabbitMQConnection
 
 type OrderAggregateEventsProcessor =
-    EventsProcessor<OrderAggregate.State, EventId, OrderAggregate.Event, SqlIoError, RabbitMQIoError>
+    EventsProcessor<OrderAggregate.State, OrderAggregate.Event, SqlIoError, RabbitMQIoError>
 
 let private buildOrderAggregateEventsProcessor services : OrderAggregateEventsProcessor =
     let sqlSession = services |> getStandaloneSqlSession
@@ -101,61 +100,46 @@ let private buildOrderAggregateEventsProcessor services : OrderAggregateEventsPr
     let eventDispatcherName, eventDispatcher =
         services |> buildOrderAggregateEventDispatcher
 
-    let logError (error: EventsProcessor.EventsProcessorError<'state, _, _, SqlIoError, _>) =
+    let logError (error: EventsProcessor.EventsProcessorError<'state, _, SqlIoError, _>) =
         match error with
         | EventsProcessor.ReadingUnprocessedEventsFailed eventLogIoError ->
             logger.LogError("Reading unprocessed events failed: {Error}", eventLogIoError)
 
         | EventsProcessor.PersistingSuccessfulEventHandlersFailed(AggregateId aggregateId,
-                                                                  eventId,
+                                                                  event,
                                                                   successfulHandlers,
                                                                   eventLogIoError) ->
             logger.LogError(
-                "Persisting successful event handlers ({SuccessfulEventHandlers}) for Event {EventId} (Aggregate {AggregateType} - {AggregateId}) failed: {Error}",
+                "Persisting successful event handlers ({SuccessfulEventHandlers}) for Event {Event} (Aggregate {AggregateType} - {AggregateId}) failed: {Error}",
                 (successfulHandlers |> String.concat ", "),
-                eventId |> EventId.value,
+                event,
                 Aggregate.typeName<'state>,
                 aggregateId,
                 eventLogIoError
             )
 
-        | EventsProcessor.MarkingEventAsProcessedFailed(eventId, eventLogIoError) ->
-            logger.LogError(
-                "Marking Event {EventId} as processed failed: {Error}",
-                eventId |> EventId.value,
-                eventLogIoError
-            )
+        | EventsProcessor.MarkingEventAsProcessedFailed(event, eventLogIoError) ->
+            logger.LogError("Marking Event {Event} as processed failed: {Error}", event, eventLogIoError)
 
-        | EventsProcessor.EventHandlerFailed(attempt,
-                                             AggregateId aggregateId,
-                                             eventId,
-                                             event,
-                                             handlerName,
-                                             eventHandlingIoError) ->
+        | EventsProcessor.EventHandlerFailed(attempt, AggregateId aggregateId, event, handlerName, eventHandlingIoError) ->
             logger.LogError(
-                "Handler {HandlerName} for Event {EventId} (Aggregate {AggregateType} - {AggregateId}) failed after #{Attempt} attempt. Event data: {Event}, error: {Error}",
+                "Handler {HandlerName} for Event {Event} (Aggregate {AggregateType} - {AggregateId}) failed after #{Attempt} attempt. Error: {Error}",
                 handlerName,
-                eventId |> EventId.value,
+                event,
                 Aggregate.typeName<'state>,
                 aggregateId,
                 attempt,
-                event,
                 eventHandlingIoError
             )
 
-        | EventsProcessor.MaxEventProcessingRetriesReached(attempt,
-                                                           AggregateId aggregateId,
-                                                           eventId,
-                                                           event,
-                                                           handlerNames) ->
+        | EventsProcessor.MaxEventProcessingRetriesReached(attempt, AggregateId aggregateId, event, handlerNames) ->
             logger.LogCritical(
-                "Handlers {HandlerNames} for Event {EventId} (Aggregate {AggregateType} - {AggregateId}) reached maximum attempts ({attempt}) and won't be retried. Event data: {Event}",
+                "Handlers {HandlerNames} for Event {Event} (Aggregate {AggregateType} - {AggregateId}) reached maximum attempts ({attempt}) and won't be retried",
                 (handlerNames |> String.concat ", "),
-                eventId |> EventId.value,
+                event,
                 Aggregate.typeName<'state>,
                 aggregateId,
-                attempt,
-                event
+                attempt
             )
 
     EventsProcessor.init
@@ -179,6 +163,8 @@ let private buildOrderWorkflowExecutor (services: Services) workflowToExecute =
 
     let getUtcNow = services.Get<GetUtcNow>()
 
+    let generateEventId = services.Get<GenerateId<eventId>>()
+
     let eventsProcessor = services.Get<OrderAggregateEventsProcessor>()
 
     fun dbTransaction ->
@@ -188,7 +174,7 @@ let private buildOrderWorkflowExecutor (services: Services) workflowToExecute =
         let persistOrder = dbTransaction |> orderPort.PersistOrderAggregate
 
         workflowToExecute
-        |> WorkflowExecutor.execute getUtcNow readOrder persistOrder eventsProcessor.Process
+        |> WorkflowExecutor.execute getUtcNow generateEventId readOrder persistOrder eventsProcessor.Process
     |> buildTransactionalWorkflowExecutor services
 
 
@@ -197,18 +183,18 @@ type EventDrivenOrderWorkflowError =
     | InvalidEventData of string
 
 type EventDrivenOrderWorkflow =
-    EventHandler<OrderAggregate.State, EventId, IntegrationEvent.Consumed, EventDrivenOrderWorkflowError>
+    EventHandler<OrderAggregate.State, IntegrationEvent.Consumed, EventDrivenOrderWorkflowError>
 
 let private buildEventDrivenOrderWorkflow services : string * EventDrivenOrderWorkflow =
     (nameof EventDrivenOrderWorkflow),
-    fun orderAggregateId eventId integrationEvent ->
+    fun orderAggregateId event ->
         let inline toWorkflowError x =
             x |> AsyncResult.mapError WorkflowExecutorError
 
         let inline executeWorkflow command workflow =
             buildOrderWorkflowExecutor services workflow orderAggregateId command
 
-        match integrationEvent.Data with
+        match event.Data with
         | IntegrationEvent.Consumed.GracePeriodConfirmed _ ->
             AwaitOrderStockItemsValidationWorkflow.build
             |> executeWorkflow ()
@@ -227,7 +213,7 @@ let private buildEventDrivenOrderWorkflow services : string * EventDrivenOrderWo
                     |> Result.map (fun items ->
                         ({ RejectedOrderItems = items }: OrderAggregate.Command.SetStockRejectedOrderStatus))
                     |> Result.setError (
-                        $"Invalid event %s{(eventId |> EventId.value).ToString()} of type %s{nameof IntegrationEvent.Consumed.OrderStockRejected}: no rejected stock found"
+                        $"Invalid event %s{event.Id |> EventId.toString} of type %s{nameof IntegrationEvent.Consumed.OrderStockRejected}: no rejected stock found"
                         |> InvalidEventData
                     )
 
@@ -244,7 +230,7 @@ let private buildEventDrivenOrderWorkflow services : string * EventDrivenOrderWo
             PayOrderWorkflow.build |> executeWorkflow () |> toWorkflowError
 
 type OrderIntegrationEventsProcessor =
-    EventsProcessor<OrderAggregate.State, EventId, IntegrationEvent.Consumed, SqlIoError, EventDrivenOrderWorkflowError>
+    EventsProcessor<OrderAggregate.State, IntegrationEvent.Consumed, SqlIoError, EventDrivenOrderWorkflowError>
 
 let private buildOrderIntegrationEventsProcessor services : OrderIntegrationEventsProcessor =
     let sqlSession = services |> getStandaloneSqlSession
@@ -269,57 +255,46 @@ let private buildOrderIntegrationEventsProcessor services : OrderIntegrationEven
     let eventDrivenOrderWorkflowName, eventDrivenOrderWorkflow =
         services |> buildEventDrivenOrderWorkflow
 
-    let logError (error: EventsProcessor.EventsProcessorError<'state, _, _, SqlIoError, _>) =
+    let logError (error: EventsProcessor.EventsProcessorError<'state, _, SqlIoError, _>) =
         match error with
         | EventsProcessor.ReadingUnprocessedEventsFailed eventLogIoError ->
             logger.LogError("Reading unprocessed events failed: {Error}", eventLogIoError)
 
         | EventsProcessor.PersistingSuccessfulEventHandlersFailed(AggregateId aggregateId,
-                                                                  eventId,
+                                                                  event,
                                                                   successfulHandlers,
                                                                   eventLogIoError) ->
             logger.LogError(
-                "Persisting successful event handlers ({SuccessfulEventHandlers}) for Event {EventId} (Aggregate {AggregateType} - {AggregateId}) failed: {Error}",
+                "Persisting successful event handlers ({SuccessfulEventHandlers}) for Event {Event} (Aggregate {AggregateType} - {AggregateId}) failed: {Error}",
                 (successfulHandlers |> String.concat ", "),
-                eventId |> EventId.value,
+                event,
                 Aggregate.typeName<'state>,
                 aggregateId,
                 eventLogIoError
             )
 
-        | EventsProcessor.MarkingEventAsProcessedFailed(eventId, eventLogIoError) ->
-            logger.LogError("Marking Event {EventId} as processed failed: {Error}", eventId, eventLogIoError)
+        | EventsProcessor.MarkingEventAsProcessedFailed(event, eventLogIoError) ->
+            logger.LogError("Marking Event {Event} as processed failed: {Error}", event, eventLogIoError)
 
-        | EventsProcessor.EventHandlerFailed(attempt,
-                                             AggregateId aggregateId,
-                                             eventId,
-                                             event,
-                                             handlerName,
-                                             eventHandlingIoError) ->
+        | EventsProcessor.EventHandlerFailed(attempt, AggregateId aggregateId, event, handlerName, eventHandlingIoError) ->
             logger.LogError(
-                "Handler {HandlerName} for Event {EventId} (Aggregate {AggregateType} - {AggregateId}) failed after #{Attempt} attempt. Event data: {Event}, error: {Error}",
+                "Handler {HandlerName} for Event {Event} (Aggregate {AggregateType} - {AggregateId}) failed after #{Attempt} attempt. Error: {Error}",
                 handlerName,
-                eventId |> EventId.value,
+                event,
                 Aggregate.typeName<'state>,
                 aggregateId,
                 attempt,
-                event,
                 eventHandlingIoError
             )
 
-        | EventsProcessor.MaxEventProcessingRetriesReached(attempt,
-                                                           AggregateId aggregateId,
-                                                           eventId,
-                                                           event,
-                                                           handlerNames) ->
+        | EventsProcessor.MaxEventProcessingRetriesReached(attempt, AggregateId aggregateId, event, handlerNames) ->
             logger.LogCritical(
-                "Handlers {HandlerNames} for Event {EventId} (Aggregate {AggregateType} - {AggregateId}) reached maximum attempts ({attempt}) and won't be retried. Event data: {Event}",
+                "Handlers {HandlerNames} for Event {Event} (Aggregate {AggregateType} - {AggregateId}) reached maximum attempts ({attempt}) and won't be retried",
                 (handlerNames |> String.concat ", "),
-                eventId |> EventId.value,
+                event,
                 Aggregate.typeName<'state>,
                 aggregateId,
-                attempt,
-                event
+                attempt
             )
 
     EventsProcessor.init

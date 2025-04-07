@@ -1,6 +1,7 @@
 ﻿namespace eShop.DomainDrivenDesign
 
 open System
+open eShop.ConstrainedTypes
 open eShop.Prelude
 open FsToolkit.ErrorHandling
 
@@ -32,6 +33,7 @@ type Workflow<'state, 'command, 'domainError, 'ioError> =
 module WorkflowExecutor =
     let execute
         (getNow: GetUtcNow)
+        (generateEventId: GenerateId<eventId>)
         (readAggregate: ReadAggregate<'state, 'ioError>)
         (persistAggregate: PersistAggregate<'state, 'ioError>)
         (publishEvents: PublishEvents<'state, 'event, 'ioError>)
@@ -51,7 +53,10 @@ module WorkflowExecutor =
 
                 do!
                     events
-                    |> List.map (Event.createNew now)
+                    |> List.map (fun payload ->
+                        { Id = generateEventId ()
+                          Data = payload
+                          OccurredAt = getNow () })
                     |> publishEvents aggregateId
                     |> mapError PublishEventsIoError
             }

@@ -330,15 +330,12 @@ module internal Dto =
                 }
             |> Result.mapError (String.concat "; ")
 
-type PersistOrderAggregateEvents =
-    OrderAggregateManagementPort.PersistOrderAggregateEvents<EventId, SqlIoError>
+type PersistOrderAggregateEvents = OrderAggregateManagementPort.PersistOrderAggregateEvents<SqlIoError>
 
 let persistOrderAggregateEvents dbSchema dbTransaction : PersistOrderAggregateEvents =
     Postgres.persistEvents Dto.Event.ofDomain dbSchema dbTransaction
 
-type ReadUnprocessedOrderAggregateEvents =
-    ReadUnprocessedEvents<OrderAggregate.State, EventId, OrderAggregate.Event, SqlIoError>
+type ReadUnprocessedOrderAggregateEvents = ReadUnprocessedEvents<OrderAggregate.State, OrderAggregate.Event, SqlIoError>
 
 let readUnprocessedOrderAggregateEvents dbSchema sqlSession : ReadUnprocessedOrderAggregateEvents =
     Postgres.readUnprocessedEvents Dto.Event.toDomain dbSchema sqlSession
-

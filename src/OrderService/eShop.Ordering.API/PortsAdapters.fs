@@ -11,14 +11,14 @@ open eShop.Ordering.Adapters.Postgres
 
 type ISqlOrderEventsProcessorPort<'eventPayload> =
     abstract member PersistOrderEvents:
-        DbTransaction -> PersistEvents<OrderAggregate.State, EventId, 'eventPayload, SqlIoError>
+        DbTransaction -> PersistEvents<OrderAggregate.State, 'eventPayload, SqlIoError>
 
     abstract member ReadUnprocessedOrderEvents:
-        SqlSession -> ReadUnprocessedEvents<OrderAggregate.State, EventId, 'eventPayload, SqlIoError>
+        SqlSession -> ReadUnprocessedEvents<OrderAggregate.State, 'eventPayload, SqlIoError>
 
-    abstract member PersistSuccessfulEventHandlers: SqlSession -> PersistSuccessfulEventHandlers<EventId, SqlIoError>
+    abstract member PersistSuccessfulEventHandlers: SqlSession -> PersistSuccessfulEventHandlers<SqlIoError>
 
-    abstract member MarkEventAsProcessed: SqlSession -> MarkEventAsProcessed<EventId, SqlIoError>
+    abstract member MarkEventAsProcessed: SqlSession -> MarkEventAsProcessed<SqlIoError>
 
 type ISqlOrderAggregateEventsProcessorPort = ISqlOrderEventsProcessorPort<OrderAggregate.Event>
 

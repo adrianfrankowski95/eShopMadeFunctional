@@ -66,8 +66,7 @@ let private configureRabbitMQ (services: IServiceCollection) =
         IntegrationEvent.Consumed.names,
         IntegrationEvent.Consumed.getOrderId,
         IntegrationEvent.Consumed.deserialize,
-        _.GetRequiredService<CompositionRoot.OrderIntegrationEventsProcessor>()
-        >> _.Process
+        _.GetRequiredService<CompositionRoot.OrderIntegrationEventsProcessor>().Process
     )
 
 let private configureAdapters (services: IServiceCollection) =

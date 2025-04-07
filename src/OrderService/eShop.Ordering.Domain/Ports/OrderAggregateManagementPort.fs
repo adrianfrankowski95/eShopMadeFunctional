@@ -8,7 +8,6 @@ type ReadOrderAggregate<'ioError> = ReadAggregate<OrderAggregate.State, 'ioError
 
 type PersistOrderAggregate<'ioError> = PersistAggregate<OrderAggregate.State, 'ioError>
 
-type PersistOrderAggregateEvents<'eventId, 'ioError> =
-    PersistEvents<OrderAggregate.State, 'eventId, OrderAggregate.Event, 'ioError>
+type PersistOrderAggregateEvents<'ioError> = PersistEvents<OrderAggregate.State, OrderAggregate.Event, 'ioError>
 
 type PublishOrderAggregateEvents<'ioError> = PublishEvents<OrderAggregate.State, OrderAggregate.Event, 'ioError>
