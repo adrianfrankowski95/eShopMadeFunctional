@@ -9,6 +9,7 @@ open Microsoft.AspNetCore.Builder
 open Microsoft.Extensions.Configuration
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.Hosting
+open eShop.ConstrainedTypes
 open eShop.DomainDrivenDesign
 open eShop.Ordering.API.PortsAdapters
 open eShop.Ordering.Adapters.Common
@@ -51,6 +52,9 @@ let private configureSerialization (services: IServiceCollection) =
 let private configureTime (services: IServiceCollection) =
     services.AddTransient<GetUtcNow>(Func<IServiceProvider, GetUtcNow>(fun _ () -> DateTimeOffset.UtcNow))
 
+let private configureGenerators (services: IServiceCollection) =
+    services.AddTransient<GenerateId<eventId>>(Func<IServiceProvider, GenerateId<eventId>>(fun _ -> EventId.generate))
+
 let private configureOrderAggregateEventsProcessor (services: IServiceCollection) =
     services.AddSingleton<CompositionRoot.OrderAggregateEventsProcessor>(
         CompositionRoot.buildOrderAggregateEventsProcessorFromSp
@@ -63,10 +67,9 @@ let private configureOrderIntegrationEventsProcessor (services: IServiceCollecti
 
 let private configureRabbitMQ (services: IServiceCollection) =
     services.AddRabbitMQEventHandler(
-        IntegrationEvent.Consumed.names,
+        IntegrationEvent.Consumed.eventNames,
         IntegrationEvent.Consumed.getOrderId,
-        IntegrationEvent.Consumed.deserialize,
-        _.GetRequiredService<CompositionRoot.OrderIntegrationEventsProcessor>().Process
+        IntegrationEvent.Consumed.deserialize
     )
 
 let private configureAdapters (services: IServiceCollection) =
@@ -86,6 +89,7 @@ let private configureServices (builder: IHostApplicationBuilder) =
     builder.Services.AddProblemDetails().AddGiraffe()
     |> configureSerialization
     |> configureTime
+    |> configureGenerators
     |> configurePostgres builder.Configuration builder.Environment
     |> configureRabbitMQ
     |> configureAdapters

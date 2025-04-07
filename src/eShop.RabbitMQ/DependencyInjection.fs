@@ -39,13 +39,9 @@ type IHostApplicationBuilder with
 
 type IServiceCollection with
     // TODO: Add OpenTelemetry
-    member this.AddRabbitMQEventHandler<'state, 'eventPayload, 'publishEventsIoError>
-        (
-            eventNamesToHandle,
-            aggregateIdSelector,
-            deserializeEvent,
-            getPublishEvents: IServiceProvider -> PublishEvents<'state, 'eventPayload, 'publishEventsIoError>
-        ) =
+    member this.AddRabbitMQEventHandler<'state, 'eventPayload>
+        (eventNamesToHandle, aggregateIdSelector, deserializeEvent)
+        =
         this.AddSingleton(
             typeof<IHostedService>,
             (fun sp ->
@@ -62,7 +58,8 @@ type IServiceCollection with
 
                         let config = sp.GetRequiredService<IOptions<Configuration.RabbitMQOptions>>().Value
 
-                        let publishEvents = sp |> getPublishEvents
+                        let eventsProcessor =
+                            sp.GetRequiredService<EventsProcessor<'state, 'eventPayload, _, _>>()
 
                         RabbitMQ.registerEventHandler
                             eventNamesToHandle
@@ -72,7 +69,7 @@ type IServiceCollection with
                             config
                             logger
                             getUtcNow
-                            publishEvents
+                            eventsProcessor.Process
                         |> Result.valueOr failwith
 
                         Task.CompletedTask

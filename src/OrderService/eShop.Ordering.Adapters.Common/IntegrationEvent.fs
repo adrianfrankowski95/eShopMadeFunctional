@@ -54,7 +54,7 @@ module Consumed =
             eventName, (caseInfo, unionCaseType))
         |> Map.ofArray
 
-    let names = nameTypeMap |> Map.keys |> Set.ofSeq
+    let eventNames = nameTypeMap |> Map.keys |> Set.ofSeq
 
     let deserialize (jsonOptions: JsonSerializerOptions) (eventName: RabbitMQ.EventName) (json: string) =
         let deserialize targetType =
