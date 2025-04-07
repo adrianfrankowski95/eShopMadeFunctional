@@ -32,7 +32,7 @@ module Postgres =
             VALUES (@EventId, @AggregateId, @AggregateType, @EventType, @EventData, @OccurredAt);"""
 
         let inline readUnprocessedEvents (DbSchema schema) =
-            $"""SELECT "EventId", "CorrelationId", "AggregateId", "AggregateType", "EventData", "OccurredAt", "SuccessfulHandlers"
+            $"""SELECT "EventId", "AggregateId", "AggregateType", "EventData", "OccurredAt", "SuccessfulHandlers"
             FROM "%s{schema}"."EventProcessingLog"
             WHERE "AggregateType" = @AggregateType AND "EventType" = @EventType AND "ProcessedAt" IS NULL
             ORDER BY "OccurredAt" ASC;"""
