@@ -39,7 +39,7 @@ type IHostApplicationBuilder with
 
 type IServiceCollection with
     // TODO: Add OpenTelemetry
-    member this.AddRabbitMQEventHandler<'state, 'eventPayload>
+    member this.AddRabbitMQEventHandler<'state, 'eventPayload, 'ioError>
         (eventNamesToHandle, aggregateIdSelector, deserializeEvent)
         =
         this.AddSingleton(
@@ -59,7 +59,7 @@ type IServiceCollection with
                         let config = sp.GetRequiredService<IOptions<Configuration.RabbitMQOptions>>().Value
 
                         let eventsProcessor =
-                            sp.GetRequiredService<EventsProcessor<'state, 'eventPayload, _, _>>()
+                            sp.GetRequiredService<EventsProcessor<'state, 'eventPayload, 'ioError, _>>()
 
                         RabbitMQ.registerEventHandler
                             eventNamesToHandle
