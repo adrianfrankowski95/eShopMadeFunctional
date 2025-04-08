@@ -40,7 +40,6 @@ module RabbitMQ =
 
         let value (EventName eventName) = eventName
 
-
     let private createChannel (connection: IConnection) = Result.catch connection.CreateModel
 
     let private ensureExchange (channel: IModel) =
@@ -114,14 +113,7 @@ module RabbitMQ =
     let private ack (ea: BasicDeliverEventArgs) (channel: IModel) =
         channel.BasicAck(ea.DeliveryTag, multiple = false)
 
-    let private nack (ea: BasicDeliverEventArgs) (logger: ILogger<'eventPayload>) (channel: IModel) error =
-        logger.LogError(
-            "An error occurred for MessageId {MessageId} of type {MessageType}: {Error}",
-            ea.BasicProperties.MessageId,
-            ea.BasicProperties.Type,
-            error
-        )
-
+    let private nack (ea: BasicDeliverEventArgs) (channel: IModel) =
         channel.BasicNack(ea.DeliveryTag, multiple = false, requeue = false)
 
     let internal initConsumer (connection: IConnection) (config: Configuration.RabbitMQOptions) =
@@ -178,11 +170,43 @@ module RabbitMQ =
         (publishEvents: PublishEvents<'state, 'eventPayload, 'ioError>)
         =
         result {
-            let! queueName = config.SubscriptionClientName |> QueueName.create
+            let inline handleResult (ea: BasicDeliverEventArgs) =
+                AsyncResult.tee (fun _ ->
+                    ack ea consumer.Model
+
+                    logger.LogInformation(
+                        "Successfully acknowledged MessageId {MessageId} of type {MessageType}",
+                        ea.BasicProperties.MessageId,
+                        ea.BasicProperties.Type
+                    ))
+                >> AsyncResult.teeError (fun err ->
+                    logger.LogError(
+                        "An error occurred for MessageId {MessageId} of type {MessageType}: {Error}",
+                        ea.BasicProperties.MessageId,
+                        ea.BasicProperties.Type,
+                        err
+                    )
+
+                    nack ea consumer.Model)
+                >> AsyncResult.ignoreError
+                >> Async.StartImmediateAsTask
 
             do!
                 consumer.IsRunning
                 |> Result.requireTrue $"""Consumer %s{consumer.ConsumerTags |> String.concat ", "} is not running"""
+
+            let! queueName = config.SubscriptionClientName |> QueueName.create
+
+            do!
+                eventNamesToHandle
+                |> Set.toList
+                |> List.traverseResultA (fun (EventName eventName) -> consumer.Model |> bindQueue queueName eventName)
+                |> Result.mapError (
+                    List.map _.Message
+                    >> String.concat Environment.NewLine
+                    >> (+) "Failed to bind RabbitMQ queues: %s"
+                )
+                |> Result.ignore
 
             consumer.add_Received (fun _ ea ->
                 asyncResult {
@@ -216,28 +240,14 @@ module RabbitMQ =
                         |> publishEvents aggregateId
                         |> AsyncResult.mapError Choice2Of2
                 }
-                |> AsyncResult.tee (fun _ -> ack ea consumer.Model)
-                |> AsyncResult.teeError (nack ea logger consumer.Model)
-                |> AsyncResult.ignoreError
-                |> Async.StartImmediateAsTask
+                |> handleResult ea
                 :> Task)
-
-            do!
-                eventNamesToHandle
-                |> Set.toList
-                |> List.traverseResultA (fun (EventName eventName) -> consumer.Model |> bindQueue queueName eventName)
-                |> Result.mapError (
-                    List.map _.Message
-                    >> String.concat Environment.NewLine
-                    >> (+) "Failed to bind RabbitMQ queues: %s"
-                )
-                |> Result.ignore
         }
 
     let createEventDispatcher
+        (connection: IConnection)
         (createEventName: 'eventPayload -> Result<EventName, string>)
         (serializePayload: 'eventPayload -> Result<byte array, exn>)
-        (connection: IConnection)
         : RabbitMQEventDispatcher<'eventPayload> =
         fun (event: Event<'eventPayload>) ->
             asyncResult {

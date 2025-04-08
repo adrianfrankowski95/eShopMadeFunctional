@@ -66,9 +66,9 @@ let private configureOrderIntegrationEventsProcessor (services: IServiceCollecti
     )
 
 let private configureRabbitMQ (services: IServiceCollection) =
-    services.AddRabbitMQEventHandler<_, _, SqlIoError>(
+    services.AddRabbitMQEventHandler(
         IntegrationEvent.Consumed.eventNames,
-        IntegrationEvent.Consumed.getOrderId,
+        IntegrationEvent.Consumed.getOrderAggregateId,
         IntegrationEvent.Consumed.deserialize
     )
 

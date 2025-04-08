@@ -17,9 +17,9 @@ type Event<'payload> =
       OccurredAt: DateTimeOffset }
 
 module Event =
-    let mapPayload (newData: 'b) (ev: Event<'a>) : Event<'b> =
+    let inline mapPayload ([<InlineIfLambda>] mapping: 'a -> 'b) (ev: Event<'a>) : Event<'b> =
         { Id = ev.Id
-          Data = newData
+          Data = ev.Data |> mapping
           OccurredAt = ev.OccurredAt }
 
     let typeName<'payload> =
@@ -77,18 +77,15 @@ module EventsProcessor =
         private
             { EventHandlerRegistry: EventHandlerRegistry<'state, 'eventPayload, 'eventHandlingIoError>
               Retries: Delay list
-              ErrorHandler:
-                  (EventsProcessorError<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError> -> unit) option }
+              ErrorHandler: EventsProcessorError<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError> -> unit }
 
     let init<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
         : EventsProcessorOptions<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError> =
         { EventHandlerRegistry = Map.empty
           Retries = ([ 1; 2; 3; 10 ]: float list) |> List.map TimeSpan.FromMinutes
-          ErrorHandler = None }
+          ErrorHandler = fun _ -> () }
 
-    let withErrorHandler handler options =
-        { options with
-            ErrorHandler = handler |> Some }
+    let withErrorHandler handler options = { options with ErrorHandler = handler }
 
     let withRetries retries options = { options with Retries = retries }
 
@@ -115,14 +112,12 @@ module EventsProcessor =
             markEventAsProcessed: MarkEventAsProcessed<'eventLogIoError>,
             options: EventsProcessorOptions<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
         ) =
-        let handleError err =
-            options.ErrorHandler |> Option.teeSome (fun handler -> handler err) |> ignore
 
         let scheduleRetry postCommand cmd =
             async {
                 do! options.Retries |> List.item (cmd.Attempt - 1) |> Task.Delay |> Async.AwaitTask
 
-                return cmd |> postCommand
+                return { cmd with Attempt = cmd.Attempt + 1 } |> postCommand
             }
 
         let maxAttempts = (options.Retries |> List.length) + 1
@@ -137,7 +132,7 @@ module EventsProcessor =
                         |> AsyncResult.map (fun _ -> handlerName)
                         |> AsyncResult.teeError (fun error ->
                             EventHandlerFailed(cmd.Attempt, cmd.AggregateId, cmd.Event, handlerName, error)
-                            |> handleError)
+                            |> options.ErrorHandler)
                         |> AsyncResult.setError (handlerName, handler))
                     |> Async.Sequential
                     |> Async.map (Result.extractList >> Tuple.mapFst Set.ofList)
@@ -147,7 +142,7 @@ module EventsProcessor =
                     |> persistSuccessfulHandlers cmd.Event.Id
                     |> AsyncResult.teeError (fun error ->
                         PersistingSuccessfulEventHandlersFailed(cmd.AggregateId, cmd.Event, successfulHandlers, error)
-                        |> handleError)
+                        |> options.ErrorHandler)
                     |> AsyncResult.ignoreError
 
                 do!
@@ -156,7 +151,7 @@ module EventsProcessor =
                         cmd.Event.Id
                         |> markEventAsProcessed
                         |> AsyncResult.teeError (fun err ->
-                            (cmd.Event, err) |> MarkingEventAsProcessedFailed |> handleError)
+                            (cmd.Event, err) |> MarkingEventAsProcessedFailed |> options.ErrorHandler)
                         |> AsyncResult.ignoreError
                     | failedHandlers ->
                         match cmd.Attempt = maxAttempts with
@@ -167,17 +162,17 @@ module EventsProcessor =
                         | true ->
                             (cmd.Attempt, cmd.AggregateId, cmd.Event, failedHandlers |> List.map fst |> Set.ofList)
                             |> MaxEventProcessingRetriesReached
-                            |> handleError
+                            |> options.ErrorHandler
                             |> Async.retn
             }
 
         let restoreState =
             readUnprocessedEvents
-            >> AsyncResult.teeError (ReadingUnprocessedEventsFailed >> handleError)
+            >> AsyncResult.teeError (ReadingUnprocessedEventsFailed >> options.ErrorHandler)
             >> AsyncResult.defaultValue []
             >> Async.map (
                 List.map (fun (aggregateId, event, successfulHandlers) ->
-                    { Attempt = 0
+                    { Attempt = 1
                       Event = event
                       AggregateId = aggregateId
                       Handlers = options.EventHandlerRegistry |> Map.removeKeys successfulHandlers })
@@ -192,7 +187,7 @@ module EventsProcessor =
                     async {
                         let! cmd = inbox.Receive()
 
-                        do! { cmd with Attempt = cmd.Attempt + 1 } |> processEvent
+                        do! cmd |> processEvent
 
                         return! loop ()
                     }
@@ -213,7 +208,7 @@ module EventsProcessor =
                     events
                     |> List.sortBy _.OccurredAt
                     |> List.iter (fun event ->
-                        { Attempt = 0
+                        { Attempt = 1
                           Event = event
                           AggregateId = aggregateId
                           Handlers = options.EventHandlerRegistry }

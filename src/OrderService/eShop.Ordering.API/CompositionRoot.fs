@@ -69,15 +69,17 @@ let inline private buildPersistEvents
                 |> AsyncResult.teeAnyAsync (connection.CloseAsync >> Async.AwaitTask)
         }
 
-type OrderAggregateEventDispatcher = RabbitMQ.OrderAggregateEventDispatcher
+type OrderAggregateEventDispatcher = EventHandler<OrderAggregate.State, OrderAggregate.Event, RabbitMQIoError>
 
-let private buildOrderAggregateEventDispatcher (services: Services) : string * OrderAggregateEventDispatcher =
+let private buildOrderAggregateEventDispatcher (services: Services) : OrderAggregateEventDispatcher =
     let rabbitMQConnection = services.Get<IConnection>()
 
     let jsonOptions = services.Get<JsonSerializerOptions>()
 
-    (nameof RabbitMQ.OrderAggregateEventDispatcher),
-    RabbitMQ.OrderAggregateEventDispatcher.create jsonOptions rabbitMQConnection
+    fun orderAggregateId orderAggregateEvent ->
+        orderAggregateEvent
+        |> Event.mapPayload (IntegrationEvent.Published.ofAggregateEvent orderAggregateId)
+        |> RabbitMQ.OrderIntegrationEventDispatcher.create jsonOptions rabbitMQConnection
 
 type OrderAggregateEventsProcessor =
     EventsProcessor<OrderAggregate.State, OrderAggregate.Event, SqlIoError, RabbitMQIoError>
@@ -97,10 +99,7 @@ let private buildOrderAggregateEventsProcessor services : OrderAggregateEventsPr
 
     let markEventsProcessed = sqlSession |> eventsProcessorPort.MarkEventAsProcessed
 
-    let eventDispatcherName, eventDispatcher =
-        services |> buildOrderAggregateEventDispatcher
-
-    let logError (error: EventsProcessor.EventsProcessorError<'state, _, SqlIoError, _>) =
+    let errorLogger (error: EventsProcessor.EventsProcessorError<'state, _, SqlIoError, _>) =
         match error with
         | EventsProcessor.ReadingUnprocessedEventsFailed eventLogIoError ->
             logger.LogError("Reading unprocessed events failed: {Error}", eventLogIoError)
@@ -142,9 +141,22 @@ let private buildOrderAggregateEventsProcessor services : OrderAggregateEventsPr
                 attempt
             )
 
+    let eventDispatcher = services |> buildOrderAggregateEventDispatcher
+
+    let eventLogger =
+        fun (aggregateId: AggregateId<'state>) event ->
+            logger.LogInformation(
+                "An Event occurred for Aggregate {AggregateType} - {AggregateId}: {Event}",
+                Aggregate.typeName<'state>,
+                aggregateId |> AggregateId.value,
+                event
+            )
+            |> AsyncResult.ok
+
     EventsProcessor.init
-    |> EventsProcessor.registerHandler eventDispatcherName eventDispatcher
-    |> EventsProcessor.withErrorHandler logError
+    |> EventsProcessor.registerHandler (nameof RabbitMQ.OrderIntegrationEventDispatcher) eventDispatcher
+    |> EventsProcessor.registerHandler "EventLogger" eventLogger
+    |> EventsProcessor.withErrorHandler errorLogger
     |> EventsProcessor.build persistEvents readEvents persistHandlers markEventsProcessed
 
 let buildOrderAggregateEventsProcessorFromSp (sp: IServiceProvider) =
@@ -178,23 +190,22 @@ let private buildOrderWorkflowExecutor (services: Services) workflowToExecute =
     |> buildTransactionalWorkflowExecutor services
 
 
-type EventDrivenOrderWorkflowError =
+type EventDrivenOrderWorkflowDispatcherError =
     | WorkflowExecutorError of WorkflowExecutorError<OrderAggregate.InvalidStateError, SqlIoError>
     | InvalidEventData of string
 
-type EventDrivenOrderWorkflow =
-    EventHandler<OrderAggregate.State, IntegrationEvent.Consumed, EventDrivenOrderWorkflowError>
+type EventDrivenOrderWorkflowDispatcher =
+    EventHandler<OrderAggregate.State, IntegrationEvent.Consumed, EventDrivenOrderWorkflowDispatcherError>
 
-let private buildEventDrivenOrderWorkflow services : string * EventDrivenOrderWorkflow =
-    (nameof EventDrivenOrderWorkflow),
-    fun orderAggregateId event ->
+let private buildEventDrivenOrderWorkflow services : EventDrivenOrderWorkflowDispatcher =
+    fun orderAggregateId integrationEvent ->
         let inline toWorkflowError x =
             x |> AsyncResult.mapError WorkflowExecutorError
 
         let inline executeWorkflow command workflow =
             buildOrderWorkflowExecutor services workflow orderAggregateId command
 
-        match event.Data with
+        match integrationEvent.Data with
         | IntegrationEvent.Consumed.GracePeriodConfirmed _ ->
             AwaitOrderStockItemsValidationWorkflow.build
             |> executeWorkflow ()
@@ -213,7 +224,7 @@ let private buildEventDrivenOrderWorkflow services : string * EventDrivenOrderWo
                     |> Result.map (fun items ->
                         ({ RejectedOrderItems = items }: OrderAggregate.Command.SetStockRejectedOrderStatus))
                     |> Result.setError (
-                        $"Invalid event %s{event.Id |> EventId.toString} of type %s{nameof IntegrationEvent.Consumed.OrderStockRejected}: no rejected stock found"
+                        $"Invalid event %s{integrationEvent.Id |> EventId.toString} of type %s{nameof IntegrationEvent.Consumed.OrderStockRejected}: no rejected stock found"
                         |> InvalidEventData
                     )
 
@@ -230,7 +241,7 @@ let private buildEventDrivenOrderWorkflow services : string * EventDrivenOrderWo
             PayOrderWorkflow.build |> executeWorkflow () |> toWorkflowError
 
 type OrderIntegrationEventsProcessor =
-    EventsProcessor<OrderAggregate.State, IntegrationEvent.Consumed, SqlIoError, EventDrivenOrderWorkflowError>
+    EventsProcessor<OrderAggregate.State, IntegrationEvent.Consumed, SqlIoError, EventDrivenOrderWorkflowDispatcherError>
 
 let private buildOrderIntegrationEventsProcessor services : OrderIntegrationEventsProcessor =
     let sqlSession = services |> getStandaloneSqlSession
@@ -252,10 +263,7 @@ let private buildOrderIntegrationEventsProcessor services : OrderIntegrationEven
         fun (attempt: int) -> TimeSpan.FromSeconds(Math.Pow(2, attempt))
         |> List.init config.Value.RetryCount
 
-    let eventDrivenOrderWorkflowName, eventDrivenOrderWorkflow =
-        services |> buildEventDrivenOrderWorkflow
-
-    let logError (error: EventsProcessor.EventsProcessorError<'state, _, SqlIoError, _>) =
+    let errorLogger (error: EventsProcessor.EventsProcessorError<'state, _, SqlIoError, _>) =
         match error with
         | EventsProcessor.ReadingUnprocessedEventsFailed eventLogIoError ->
             logger.LogError("Reading unprocessed events failed: {Error}", eventLogIoError)
@@ -297,10 +305,23 @@ let private buildOrderIntegrationEventsProcessor services : OrderIntegrationEven
                 attempt
             )
 
+    let eventDrivenOrderWorkflow = services |> buildEventDrivenOrderWorkflow
+
+    let eventLogger =
+        fun (aggregateId: AggregateId<'state>) event ->
+            logger.LogInformation(
+                "An Event occurred for Aggregate {AggregateType} - {AggregateId}: {Event}",
+                Aggregate.typeName<'state>,
+                aggregateId |> AggregateId.value,
+                event
+            )
+            |> AsyncResult.ok
+
     EventsProcessor.init
     |> EventsProcessor.withRetries retries
-    |> EventsProcessor.registerHandler eventDrivenOrderWorkflowName eventDrivenOrderWorkflow
-    |> EventsProcessor.withErrorHandler logError
+    |> EventsProcessor.registerHandler (nameof EventDrivenOrderWorkflowDispatcher) eventDrivenOrderWorkflow
+    |> EventsProcessor.registerHandler "EventLogger" eventLogger
+    |> EventsProcessor.withErrorHandler errorLogger
     |> EventsProcessor.build persistEvents readEvents persistHandlers markEventsProcessed
 
 let buildOrderIntegrationEventsProcessorFromSp (sp: IServiceProvider) =

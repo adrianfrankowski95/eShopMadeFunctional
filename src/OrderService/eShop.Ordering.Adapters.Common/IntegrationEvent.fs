@@ -66,7 +66,7 @@ module Consumed =
         fun () -> nameTypeMap |> Map.find eventName |> Tuple.mapSnd deserialize |> createUnion
         |> Result.catch
 
-    let getOrderId (integrationEvent: T) =
+    let getOrderAggregateId (integrationEvent: T) =
         match integrationEvent with
         | GracePeriodConfirmed ev -> ev.OrderId
         | OrderStockConfirmed ev -> ev.OrderId
@@ -135,31 +135,31 @@ module Published =
         | OrderStatusChangedToStockConfirmed of OrderStatusChangedToStockConfirmed
         | OrderStatusChangedToSubmitted of OrderStatusChangedToSubmitted
 
-    let ofDomain (AggregateId aggregateId) (domainEvent: OrderAggregate.Event) =
+    let ofAggregateEvent (AggregateId orderId) (domainEvent: OrderAggregate.Event) =
         match domainEvent with
         | OrderAggregate.Event.OrderStarted ev ->
-            ({ OrderId = aggregateId
+            ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString }
             : OrderStatusChangedToStarted)
             |> T.OrderStatusChangedToStarted
 
         | OrderAggregate.Event.PaymentMethodVerified ev ->
-            ({ OrderId = aggregateId
+            ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString }
             : OrderStatusChangedToSubmitted)
             |> T.OrderStatusChangedToSubmitted
 
         | OrderAggregate.Event.OrderCancelled ev ->
-            ({ OrderId = aggregateId
+            ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString }
             : OrderStatusChangedToCancelled)
             |> T.OrderStatusChangedToCancelled
 
         | OrderAggregate.Event.OrderStatusChangedToAwaitingValidation ev ->
-            ({ OrderId = aggregateId
+            ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString
                OrderStockItems =
@@ -172,14 +172,14 @@ module Published =
             |> T.OrderStatusChangedToAwaitingValidation
 
         | OrderAggregate.Event.OrderStockConfirmed ev ->
-            ({ OrderId = aggregateId
+            ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString }
             : OrderStatusChangedToStockConfirmed)
             |> T.OrderStatusChangedToStockConfirmed
 
         | OrderAggregate.Event.OrderPaid ev ->
-            ({ OrderId = aggregateId
+            ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString
                OrderStockItems =
@@ -192,7 +192,7 @@ module Published =
             |> T.OrderStatusChangedToPaid
 
         | OrderAggregate.Event.OrderShipped ev ->
-            ({ OrderId = aggregateId
+            ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString }
             : OrderStatusChangedToShipped)

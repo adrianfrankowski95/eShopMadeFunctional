@@ -8,7 +8,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="OrderAggregateEventDispatcher.fs" />
+        <Compile Include="OrderIntegrationEventDispatcher.fs" />
     </ItemGroup>
 
     <ItemGroup>
