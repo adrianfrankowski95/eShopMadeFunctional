@@ -42,14 +42,14 @@ module internal Dto =
 
         let ofOrder =
             function
-            | OrderAggregate.State.Init -> None
-            | OrderAggregate.State.Draft _ -> OrderStatus.Draft |> Some
-            | OrderAggregate.State.Submitted _ -> OrderStatus.Submitted |> Some
-            | OrderAggregate.State.AwaitingStockValidation _ -> OrderStatus.AwaitingStockValidation |> Some
-            | OrderAggregate.State.WithConfirmedStock _ -> OrderStatus.StockConfirmed |> Some
-            | OrderAggregate.State.Paid _ -> OrderStatus.Paid |> Some
-            | OrderAggregate.State.Shipped _ -> OrderStatus.Shipped |> Some
-            | OrderAggregate.State.Cancelled _ -> OrderStatus.Cancelled |> Some
+            | OrderAggregate.Init -> None
+            | OrderAggregate.Draft _ -> OrderStatus.Draft |> Some
+            | OrderAggregate.Submitted _ -> OrderStatus.Submitted |> Some
+            | OrderAggregate.AwaitingStockValidation _ -> OrderStatus.AwaitingStockValidation |> Some
+            | OrderAggregate.WithConfirmedStock _ -> OrderStatus.StockConfirmed |> Some
+            | OrderAggregate.Paid _ -> OrderStatus.Paid |> Some
+            | OrderAggregate.Shipped _ -> OrderStatus.Shipped |> Some
+            | OrderAggregate.Cancelled _ -> OrderStatus.Cancelled |> Some
 
     [<CLIMutable>]
     type Order =
@@ -218,7 +218,7 @@ module internal Dto =
                                 ({ BuyerId = buyerId
                                    UnvalidatedOrderItems = items }
                                 : OrderAggregate.State.Draft)
-                                |> OrderAggregate.State.Draft
+                                |> OrderAggregate.Draft
                         )
                     | Submitted ->
                         validation {
@@ -244,7 +244,7 @@ module internal Dto =
                                    StartedAt = startedAt
                                    UnconfirmedOrderItems = orderItems }
                                 : OrderAggregate.State.Submitted)
-                                |> OrderAggregate.State.Submitted
+                                |> OrderAggregate.Submitted
                         }
                     | AwaitingStockValidation ->
                         validation {
@@ -270,7 +270,7 @@ module internal Dto =
                                    StartedAt = startedAt
                                    UnconfirmedOrderItems = orderItems }
                                 : OrderAggregate.State.AwaitingStockValidation)
-                                |> OrderAggregate.State.AwaitingStockValidation
+                                |> OrderAggregate.AwaitingStockValidation
                         }
                     | StockConfirmed ->
                         validation {
@@ -302,7 +302,7 @@ module internal Dto =
                                    ConfirmedOrderItems = orderItems
                                    Description = description }
                                 : OrderAggregate.State.WithConfirmedStock)
-                                |> OrderAggregate.State.WithConfirmedStock
+                                |> OrderAggregate.WithConfirmedStock
                         }
                     | Paid ->
                         validation {
@@ -334,7 +334,7 @@ module internal Dto =
                                    PaidOrderItems = orderItems
                                    Description = description }
                                 : OrderAggregate.State.Paid)
-                                |> OrderAggregate.State.Paid
+                                |> OrderAggregate.Paid
                         }
                     | Shipped ->
                         validation {
@@ -366,7 +366,7 @@ module internal Dto =
                                    ShippedOrderItems = orderItems
                                    Description = description }
                                 : OrderAggregate.State.Shipped)
-                                |> OrderAggregate.State.Shipped
+                                |> OrderAggregate.Shipped
                         }
                     | Cancelled ->
                         validation {
@@ -396,9 +396,9 @@ module internal Dto =
                                    CancelledOrderItems = orderItems
                                    Description = description }
                                 : OrderAggregate.State.Cancelled)
-                                |> OrderAggregate.State.Cancelled
+                                |> OrderAggregate.Cancelled
                         }))
-            |> Option.defaultValue (OrderAggregate.State.Init |> Ok)
+            |> Option.defaultValue (OrderAggregate.Init |> Ok)
             |> Result.mapError (String.concat "; ")
 
 module private Sql =
@@ -501,12 +501,12 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
 
             do!
                 order
-                |> OrderAggregate.State.getBuyerId
+                |> OrderAggregate.getBuyerId
                 |> Option.map (fun buyerId ->
                     {| BuyerId = buyerId |> BuyerId.value
                        BuyerName =
                         order
-                        |> OrderAggregate.State.getBuyerName
+                        |> OrderAggregate.getBuyerName
                         |> Option.map BuyerName.value
                         |> Option.toObj |}
                     |> Dapper.execute sqlSession (Sql.upsertBuyer dbSchema)
@@ -515,10 +515,10 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
 
             let! maybePaymentMethodId =
                 order
-                |> OrderAggregate.State.getPaymentMethod
+                |> OrderAggregate.getPaymentMethod
                 |> Option.map (fun paymentMethod ->
                     order
-                    |> OrderAggregate.State.getBuyerId
+                    |> OrderAggregate.getBuyerId
                     |> Result.requireSome ("Missing BuyerId for existing Payment Method" |> InvalidData)
                     |> AsyncResult.ofResult
                     |> AsyncResult.bind (fun buyerId ->
@@ -535,22 +535,22 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                 order
                 |> Dto.OrderStatus.ofOrder
                 |> Option.map (fun status ->
-                    let maybeAddress = order |> OrderAggregate.State.getAddress
+                    let maybeAddress = order |> OrderAggregate.getAddress
 
                     {| Id = aggregateId
                        BuyerId =
                         order
-                        |> OrderAggregate.State.getBuyerId
+                        |> OrderAggregate.getBuyerId
                         |> Option.map BuyerId.value
                         |> Option.toNullable
                        PaymentMethodId = maybePaymentMethodId |> Option.toNullable
                        Status = status |> Dto.OrderStatus.toString
                        Description =
                         order
-                        |> OrderAggregate.State.getDescription
+                        |> OrderAggregate.getDescription
                         |> Option.map Description.value
                         |> Option.toObj
-                       StartedAt = order |> OrderAggregate.State.getStartedAt |> Option.toNullable
+                       StartedAt = order |> OrderAggregate.getStartedAt |> Option.toNullable
                        Street = maybeAddress |> Option.map (_.Street >> Street.value) |> Option.toObj
                        City = maybeAddress |> Option.map (_.City >> City.value) |> Option.toObj
                        Country = maybeAddress |> Option.map (_.Country >> Country.value) |> Option.toObj
@@ -561,7 +561,7 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
 
             do!
                 order
-                |> OrderAggregate.State.getOrderItems
+                |> OrderAggregate.getOrderItems
                 |> Map.toList
                 |> List.traverseAsyncResultM (fun (id, item) ->
                     {| ProductId = id |> ProductId.value

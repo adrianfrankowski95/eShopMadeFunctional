@@ -32,9 +32,9 @@ module Postgres =
             VALUES (@EventId, @AggregateId, @AggregateType, @EventType, @EventData, @OccurredAt);"""
 
         let inline readUnprocessedEvents (DbSchema schema) =
-            $"""SELECT "EventId", "AggregateId", "AggregateType", "EventData", "OccurredAt", "SuccessfulHandlers"
+            $"""SELECT "EventId", "AggregateId", "AggregateType", "EventData", "EventType", "OccurredAt", "SuccessfulHandlers"
             FROM "%s{schema}"."EventProcessingLog"
-            WHERE "AggregateType" = @AggregateType AND "EventType" = @EventType AND "ProcessedAt" IS NULL
+            WHERE "AggregateType" = @AggregateType AND "EventType" = @Discriminator AND "ProcessedAt" IS NULL
             ORDER BY "OccurredAt" ASC;"""
 
         let inline persistSuccessfulEventHandlers (DbSchema schema) =
@@ -82,7 +82,7 @@ module Postgres =
                 {| EventId = ev.Id |> EventId.value
                    AggregateId = aggregateId
                    AggregateType = Aggregate.typeName<'state>
-                   EventType = Event.typeName<'eventPayload>
+                   EventType = typeof<'eventPayload>.FullName
                    EventData = ev.Data |> eventPayloadToDto |> JsonbParameter<'eventPayloadDto>
                    OccurredAt = ev.OccurredAt |})
             >> Dapper.execute (SqlSession.Sustained dbTransaction) (Sql.persistEvent dbSchema)
@@ -97,7 +97,7 @@ module Postgres =
         : ReadUnprocessedEvents<'state, 'eventPayload> =
         fun () ->
             {| AggregateType = Aggregate.typeName<'state>
-               EventType = Event.typeName<'eventPayload> |}
+               EventType = typeof<'eventPayload>.FullName |}
             |> Dapper.query<Dto.Event<'eventPayloadDto>> sqlSession (Sql.readUnprocessedEvents dbSchema)
             |> AsyncResult.bind (
                 Seq.traverseResultA (Dto.Event.toDomain<'state, 'eventPayloadDto, 'eventPayload> dtoToEventPayload)

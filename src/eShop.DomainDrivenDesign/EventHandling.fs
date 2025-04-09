@@ -2,6 +2,7 @@
 
 open System
 open System.Threading.Tasks
+open Microsoft.FSharp.Reflection
 open eShop.Prelude
 open FsToolkit.ErrorHandling
 open eShop.ConstrainedTypes
@@ -22,11 +23,13 @@ module Event =
           Data = ev.Data |> mapping
           OccurredAt = ev.OccurredAt }
 
-    let typeName<'payload> =
-        let payloadType = typeof<'payload>
+    // Gets either a union case name of the payload or a type name directly
+    let getType (ev: Event<'t>) =
+        let payloadType = typeof<'t>
 
-        payloadType.DeclaringType.Name + payloadType.Name
-
+        match FSharpType.IsUnion(payloadType) with
+        | true -> FSharpValue.GetUnionFields(ev.Data, payloadType) |> fst |> _.Name
+        | false -> payloadType.Name
 
 type EventHandler<'state, 'eventPayload, 'ioError> =
     AggregateId<'state> -> Event<'eventPayload> -> AsyncResult<unit, 'ioError>

@@ -12,7 +12,7 @@ module ConfirmOrderItemsStockWorkflow =
     let build: T<'ioError> =
         fun _ state _ ->
             OrderAggregate.Command.SetStockConfirmedOrderStatus
-            |> OrderAggregate.State.evolve state
+            |> OrderAggregate.evolve state
             |> Result.mapError Left
             |> AsyncResult.ofResult
 

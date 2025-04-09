@@ -2,6 +2,7 @@
 
 open System
 
+[<Struct>]
 type Id<[<Measure>] 't> private (rawId: Guid) =
     member private this.raw = rawId
 

@@ -83,7 +83,7 @@ module StartOrderWorkflow =
                 return!
                     createOrderCommand
                     |> OrderAggregate.Command.CreateOrder
-                    |> OrderAggregate.State.evolve state
+                    |> OrderAggregate.evolve state
                     |> Result.mapError (InvalidOrderState >> Left)
             }
 

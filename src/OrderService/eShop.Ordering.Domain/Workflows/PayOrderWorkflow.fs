@@ -12,7 +12,7 @@ module PayOrderWorkflow =
     let build: T<'ioError> =
         fun _ state _ ->
             OrderAggregate.Command.SetPaidOrderStatus
-            |> OrderAggregate.State.evolve state
+            |> OrderAggregate.evolve state
             |> Result.mapError Left
             |> AsyncResult.ofResult
 

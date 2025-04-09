@@ -20,7 +20,7 @@ module RejectOrderItemsStockWorkflow =
         fun _ state command ->
             command
             |> OrderAggregate.Command.SetStockRejectedOrderStatus
-            |> OrderAggregate.State.evolve state
+            |> OrderAggregate.evolve state
             |> Result.mapError Left
             |> AsyncResult.ofResult
 

@@ -12,7 +12,7 @@ module AwaitOrderStockItemsValidationWorkflow =
     let build: T<'ioError> =
         fun _ state _ ->
             OrderAggregate.Command.SetAwaitingStockValidationOrderStatus
-            |> OrderAggregate.State.evolve state
+            |> OrderAggregate.evolve state
             |> Result.mapError Left
             |> AsyncResult.ofResult
 

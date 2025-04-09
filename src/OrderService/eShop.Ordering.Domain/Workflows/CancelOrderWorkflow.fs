@@ -12,7 +12,7 @@ module CancelOrderWorkflow =
     let build: T<'ioError> =
         fun _ state _ ->
             OrderAggregate.Command.CancelOrder
-            |> OrderAggregate.State.evolve state
+            |> OrderAggregate.evolve state
             |> Result.mapError Left
             |> AsyncResult.ofResult
 

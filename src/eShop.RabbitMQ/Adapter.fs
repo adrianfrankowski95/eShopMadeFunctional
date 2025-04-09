@@ -162,7 +162,7 @@ module RabbitMQ =
     let internal registerEventHandler
         (eventNamesToHandle: EventName Set)
         (aggregateIdSelector: 'eventPayload -> AggregateId<'state>)
-        (deserializeEvent: EventName -> string -> Result<'eventPayload, exn>)
+        (deserializePayload: EventName -> string -> Result<'eventPayload, exn>)
         (consumer: AsyncEventingBasicConsumer)
         (config: Configuration.RabbitMQOptions)
         (logger: ILogger<'eventPayload>)
@@ -227,7 +227,7 @@ module RabbitMQ =
 
                     let! eventPayload =
                         Encoding.UTF8.GetString(ea.Body.Span)
-                        |> deserializeEvent eventName
+                        |> deserializePayload eventName
                         |> Result.mapError (DeserializationError >> Choice1Of2)
 
                     let aggregateId = eventPayload |> aggregateIdSelector
@@ -265,7 +265,7 @@ module RabbitMQ =
 
                 let properties = channel.CreateBasicProperties()
                 properties.MessageId <- event.Id |> EventId.toString
-                properties.Type <- Event.typeName<'eventPayload>
+                properties.Type <- event |> Event.getType
                 properties.DeliveryMode <- 2uy
                 properties.Timestamp <- event.OccurredAt.ToUnixTimeSeconds() |> AmqpTimestamp
                 properties.ContentType <- "application/json"
