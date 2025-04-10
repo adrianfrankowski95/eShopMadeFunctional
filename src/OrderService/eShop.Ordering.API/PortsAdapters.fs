@@ -1,17 +1,19 @@
 ﻿module eShop.Ordering.API.PortsAdapters
 
 open System.Data.Common
+open Microsoft.Extensions.Configuration
 open eShop.DomainDrivenDesign
 open eShop.Ordering.Adapters.Common
+open eShop.Ordering.Adapters.Http
 open eShop.Ordering.Domain.Model
 open eShop.Ordering.Domain.Ports
 open eShop.Postgres
 open eShop.DomainDrivenDesign.Postgres
 open eShop.Ordering.Adapters.Postgres
+open FsToolkit.ErrorHandling
 
 type ISqlOrderEventsProcessorPort<'eventPayload> =
-    abstract member PersistOrderEvents:
-        DbTransaction -> PersistEvents<OrderAggregate.State, 'eventPayload, SqlIoError>
+    abstract member PersistOrderEvents: DbTransaction -> PersistEvents<OrderAggregate.State, 'eventPayload, SqlIoError>
 
     abstract member ReadUnprocessedOrderEvents:
         SqlSession -> ReadUnprocessedEvents<OrderAggregate.State, 'eventPayload, SqlIoError>
@@ -75,3 +77,13 @@ type PostgresPaymentManagementAdapter(dbSchema: DbSchema) =
     interface ISqlPaymentManagementPort with
         member this.GetSupportedCardTypes(sqlSession) =
             PaymentManagementAdapter.getSupportedCardTypes dbSchema sqlSession
+
+
+type IPaymentManagementPort<'ioError> =
+    abstract member VerifyPaymentMethod: PaymentManagementPort.VerifyPaymentMethod<'ioError>
+
+type HttpPaymentManagementAdapter(shouldAcceptPayment) =
+
+    interface IPaymentManagementPort<HttpIoError> with
+        member this.VerifyPaymentMethod =
+            PaymentManagementAdapter.verifyPaymentMethod shouldAcceptPayment

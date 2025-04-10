@@ -44,7 +44,7 @@ let private configurePostgres (config: IConfiguration) (env: IHostEnvironment) (
     let schema = "ordering" |> DbSchema
     let connectionString = config.GetConnectionString("orderingdb")
 
-    services.AddPostgres connectionString schema dbScripts env
+    services.AddPostgres(connectionString, schema, dbScripts, env)
 
 let private configureSerialization (services: IServiceCollection) =
     JsonFSharpOptions.Default().ToJsonSerializerOptions() |> services.AddSingleton
@@ -78,6 +78,10 @@ let private configureAdapters (services: IServiceCollection) =
         .AddTransient<ISqlOrderAggregateEventsProcessorPort, PostgresOrderAggregateEventsProcessorAdapter>()
         .AddTransient<ISqlOrderIntegrationEventsProcessorPort, PostgresOrderIntegrationEventsProcessorAdapter>()
         .AddTransient<ISqlPaymentManagementPort, PostgresPaymentManagementAdapter>()
+        .AddTransient<IPaymentManagementPort<_>, HttpPaymentManagementAdapter>(
+            _.GetRequiredService<IConfiguration>().GetValue<bool>("ShouldAcceptPayment")
+            >> HttpPaymentManagementAdapter
+        )
 
 let private configureGiraffe (services: IServiceCollection) =
     services

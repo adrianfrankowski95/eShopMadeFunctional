@@ -1,6 +1,7 @@
 ﻿module eShop.RabbitMQ.DependencyInjection
 
 open System
+open System.Runtime.CompilerServices
 open System.Text.Json
 open System.Threading.Tasks
 open Microsoft.Extensions.Configuration
@@ -13,18 +14,27 @@ open RabbitMQ.Client
 open RabbitMQ.Client.Events
 open eShop.DomainDrivenDesign
 
-type IHostApplicationBuilder with
-    member this.AddRabbitMQ(connectionName) =
-        this.AddRabbitMQClient(
+type Extensions =
+    [<Extension>]
+    static member AddRabbitMQ(builder: IHostApplicationBuilder, connectionName) =
+        let isNotDevelopment = builder.Environment.IsDevelopment() |> not
+
+        builder.AddRabbitMQClient(
             connectionName,
+            configureSettings =
+                (fun settings ->
+                    settings.DisableTracing <- isNotDevelopment
+                    settings.DisableHealthChecks <- isNotDevelopment),
             configureConnectionFactory =
-                fun factory ->
+                (fun factory ->
                     factory.DispatchConsumersAsync <- true
-                    factory.AutomaticRecoveryEnabled <- true
+                    factory.AutomaticRecoveryEnabled <- true)
         )
 
-        this.Services
-            .Configure<Configuration.RabbitMQOptions>(this.Configuration.GetRequiredSection(Configuration.SectionName))
+        builder.Services
+            .Configure<Configuration.RabbitMQOptions>(
+                builder.Configuration.GetRequiredSection(Configuration.SectionName)
+            )
             .AddSingleton<AsyncEventingBasicConsumer>(fun sp ->
                 let connection = sp.GetRequiredService<IConnection>()
                 let config = sp.GetRequiredService<IOptions<Configuration.RabbitMQOptions>>().Value
@@ -35,14 +45,13 @@ type IHostApplicationBuilder with
                 |> Result.valueOr failwith)
         |> ignore
 
-        this
+        builder
 
-type IServiceCollection with
-    // TODO: Add OpenTelemetry
-    member this.AddRabbitMQEventHandler<'state, 'eventPayload, 'ioError>
-        (eventNamesToHandle, aggregateIdSelector, deserializeEvent)
+    [<Extension>]
+    static member AddRabbitMQEventHandler<'state, 'eventPayload, 'ioError>
+        (services: IServiceCollection, eventNamesToHandle, aggregateIdSelector, deserializeEvent)
         =
-        this.AddSingleton(
+        services.AddSingleton(
             typeof<IHostedService>,
             (fun sp ->
                 { new IHostedService with

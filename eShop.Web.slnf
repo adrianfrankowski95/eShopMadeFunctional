@@ -2,7 +2,6 @@
   "solution": {
     "path": "eShop.sln",
     "projects": [
-      
       "src\\eShop.AppHost\\eShop.AppHost.csproj",
       "src\\eShop.ConstrainedTypes\\eShop.ConstrainedTypes.fsproj",
       "src\\eShop.DomainDrivenDesign.Postgres\\eShop.DomainDrivenDesign.Postgres.fsproj",
@@ -24,6 +23,7 @@
       "src\\LegacyPaymentService\\PaymentProcessor\\PaymentProcessor.csproj",
       "src\\Mobile.Bff.Shopping\\Mobile.Bff.Shopping.csproj",
       "src\\OrderService\\eShop.Ordering.Adapters.Common\\eShop.Ordering.Adapters.Common.fsproj",
+      "src\\OrderService\\eShop.Ordering.Adapters.Http\\eShop.Ordering.Adapters.Http.fsproj",
       "src\\OrderService\\eShop.Ordering.Adapters.Postgres\\eShop.Ordering.Adapters.Postgres.fsproj",
       "src\\OrderService\\eShop.Ordering.Adapters.RabbitMQ\\eShop.Ordering.Adapters.RabbitMQ.fsproj",
       "src\\OrderService\\eShop.Ordering.API\\eShop.Ordering.API.fsproj",

@@ -17,12 +17,14 @@ open eShop.DomainDrivenDesign.Postgres
 open eShop.Ordering.API.PortsAdapters
 open eShop.Ordering.Adapters
 open eShop.Ordering.Adapters.Common
+open eShop.Ordering.Adapters.Http
 open eShop.Ordering.Domain.Model
 open eShop.Ordering.Domain.Workflows
 open eShop.Postgres
 open eShop.RabbitMQ
 open FsToolkit.ErrorHandling
 open eShop.Prelude
+open eShop.Prelude.Operators
 
 // Note: This object is required since we can't just pass type GetService<'t> = unit -> 't
 // and get different generic type each time the function is invoked.
@@ -327,6 +329,41 @@ let private buildOrderIntegrationEventsProcessor services : OrderIntegrationEven
 let buildOrderIntegrationEventsProcessorFromSp (sp: IServiceProvider) =
     sp |> Services.fromSp |> buildOrderIntegrationEventsProcessor
 
+type OrderWorkflowIoError = Either<SqlIoError, HttpIoError>
 
-// let buildStartOrderWorkflow (services: Services) =
-//     services |> buildOrderWorkflowExecutor StartOrderWorkflow
+let private buildStartOrderWorkflow (services: Services) =
+    let sqlPaymentPort = services.Get<ISqlPaymentManagementPort>()
+    let sqlOrderPort = services.Get<ISqlOrderAggregateManagementPort>()
+    let paymentPort = services.Get<IPaymentManagementPort<HttpIoError>>()
+
+    let getUtcNow = services.Get<GetUtcNow>()
+
+    let generateEventId = services.Get<GenerateId<eventId>>()
+
+    let processEvents =
+        services.Get<OrderAggregateEventsProcessor>().Process
+        >>> AsyncResult.mapError Left
+
+    let verifyPaymentMethod =
+        paymentPort.VerifyPaymentMethod >> AsyncResult.mapError (Either.mapRight Right)
+
+    fun dbTransaction ->
+        let readOrder =
+            dbTransaction
+            |> SqlSession.Sustained
+            |> sqlOrderPort.ReadOrderAggregate
+            >> AsyncResult.mapError Left
+
+        let persistOrder =
+            dbTransaction |> sqlOrderPort.PersistOrderAggregate
+            >>> AsyncResult.mapError Left
+
+        let getSupportedCardTypes =
+            dbTransaction
+            |> SqlSession.Sustained
+            |> sqlPaymentPort.GetSupportedCardTypes
+            >> AsyncResult.mapError Left
+
+        StartOrderWorkflow.build getSupportedCardTypes verifyPaymentMethod
+        |> WorkflowExecutor.execute getUtcNow generateEventId readOrder persistOrder processEvents
+    |> buildTransactionalWorkflowExecutor services

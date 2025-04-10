@@ -7,6 +7,15 @@ open FsToolkit.ErrorHandling
 
 type PaymentMethodExpiredError = PaymentMethodExpiredError
 
+// Note: After verification, remove properties that are no longer needed or should not be stored anywhere
+type VerifiedPaymentMethod =
+    internal
+        { CardType: CardType
+          CardNumber: CardNumber
+          CardHolderName: CardHolderName
+          CardExpiration: DateOnly }
+
+
 type UnverifiedPaymentMethod =
     private
         { CardType: CardType
@@ -33,11 +42,8 @@ module UnverifiedPaymentMethod =
                   CardExpiration = expiration }
         }
 
-
-// Note: After verification, remove properties that are no longer needed or should not be stored anywhere
-type VerifiedPaymentMethod =
-    internal
-        { CardType: CardType
-          CardNumber: CardNumber
-          CardHolderName: CardHolderName
-          CardExpiration: DateOnly }
+    let internal verify (paymentMethod: UnverifiedPaymentMethod) : VerifiedPaymentMethod =
+        { CardExpiration = paymentMethod.CardExpiration
+          CardNumber = paymentMethod.CardNumber
+          CardHolderName = paymentMethod.CardHolderName
+          CardType = paymentMethod.CardType }
