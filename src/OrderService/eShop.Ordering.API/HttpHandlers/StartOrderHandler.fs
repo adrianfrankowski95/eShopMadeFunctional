@@ -6,13 +6,13 @@ open Giraffe
 open Giraffe.HttpStatusCodeHandlers.ServerErrors
 open Microsoft.AspNetCore.Http
 open eShop.ConstrainedTypes
+open eShop.DomainDrivenDesign
 open eShop.Ordering.API
 open eShop.Ordering.API.GiraffeExtensions
 open eShop.Ordering.Domain.Model
 open eShop.Ordering.Domain.Model.ValueObjects
 open eShop.Ordering.Domain.Workflows
 open FsToolkit.ErrorHandling
-open eShop.Prelude
 
 [<CLIMutable>]
 type OrderItemDto =
@@ -49,7 +49,7 @@ module Request =
             and! country = request.Country |> Country.create
             and! zipCode = request.ZipCode |> ZipCode.create
             and! street = request.Street |> Street.create
-            and! cardNumber = request.CardNumber |> CardNumber.create
+            and! cardNumber = $"{request.CardNumber[^4..]}XXXX" |> CardNumber.create
             and! cardHolderName = request.CardHolderName |> CardHolderName.create
             and! cardSecurityNumber = request.CardSecurityNumber |> CardSecurityNumber.create
 
@@ -97,14 +97,15 @@ module Request =
         |> Result.mapError (String.concat "; " >> RequestErrors.BAD_REQUEST)
 
 let post
-    (buildStartOrderWorkflow: HttpContext -> StartOrderWorkflow.Command -> AsyncResult<unit, _>)
+    (buildStartOrderWorkflow: HttpContext -> Workflow<OrderAggregate.State, StartOrderWorkflow.Command, _, _>)
     (request: Request)
     : HttpHandler =
     fun next ctx ->
+        let orderId = 0 |> AggregateId.ofInt<OrderAggregate.State>
+
         CurrentUser.create ctx
         |> Result.bind (Request.toWorkflowCommand request)
         |> AsyncResult.ofResult
-        |> AsyncResult.bind (buildStartOrderWorkflow ctx)
+        |> AsyncResult.bind (buildStartOrderWorkflow ctx orderId >> AsyncResult.mapError INTERNAL_ERROR)
         |> AsyncResult.map Successful.OK
-        |> AsyncResult.mapError internalError
         |> HttpFuncResult.ofAsyncResult next ctx

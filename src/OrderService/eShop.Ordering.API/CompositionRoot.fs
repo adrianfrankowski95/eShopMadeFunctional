@@ -367,3 +367,8 @@ let private buildStartOrderWorkflow (services: Services) =
         StartOrderWorkflow.build getSupportedCardTypes verifyPaymentMethod
         |> WorkflowExecutor.execute getUtcNow generateEventId readOrder persistOrder processEvents
     |> buildTransactionalWorkflowExecutor services
+
+let buildStartOrderWorkflowFromCtx
+    (ctx: HttpContext)
+    : Workflow<OrderAggregate.State, StartOrderWorkflow.Command, _, _> =
+    ctx |> Services.fromCtx |> buildStartOrderWorkflow
