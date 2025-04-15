@@ -127,5 +127,5 @@ module TypeHandlers =
         SqlMapper.AddTypeHandler(OptionHandler<byte[]>())
         SqlMapper.AddTypeHandler(DateOnlyHandler())
         SqlMapper.AddTypeHandler(DateOnlyOptionHandler())
-        SqlMapper.AddTypeHandler(DateTimeOffsetHandler())
+        SqlMapper.AddTypeHandler(DateTimeOffsetHandler()) // Properly handles TimestampTZ <-> DateTimeOffset mapping
         SqlMapper.AddTypeHandler(DateTimeOffsetOptionHandler())
