@@ -13,8 +13,8 @@ type DbConnectionString = string
 type DbSchema = DbSchema of string
 
 type SqlIoError =
-    | SerializationException of exn
-    | DeserializationException of exn
+    | SerializationError of exn
+    | DeserializationError of exn
     | SqlException of exn
     | InvalidData of string
 

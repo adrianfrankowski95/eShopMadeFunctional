@@ -48,9 +48,15 @@ type Extensions =
         builder
 
     [<Extension>]
-    static member AddRabbitMQEventHandler<'state, 'eventPayload, 'ioError>
-        (services: IServiceCollection, eventNamesToHandle, aggregateIdSelector, deserializeEvent)
-        =
+    static member AddRabbitMQEventHandler<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
+        (
+            services: IServiceCollection,
+            eventNamesToHandle,
+            aggregateIdSelector,
+            deserializeEvent,
+            getEventProcessor:
+                IServiceProvider -> EventsProcessor<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
+        ) =
         services.AddSingleton(
             typeof<IHostedService>,
             (fun sp ->
@@ -67,8 +73,7 @@ type Extensions =
 
                         let config = sp.GetRequiredService<IOptions<Configuration.RabbitMQOptions>>().Value
 
-                        let eventsProcessor =
-                            sp.GetRequiredService<EventsProcessor<'state, 'eventPayload, 'ioError, _>>()
+                        let eventsProcessor = sp |> getEventProcessor
 
                         RabbitMQ.registerEventHandler
                             eventNamesToHandle

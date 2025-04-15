@@ -13,8 +13,8 @@ module internal Dto =
 module private Sql =
     let getSupportedCardTypes (DbSchema schema) =
         $"""
-        SELECT "Id", "Name",
-        FROM "{schema}"."CardTypes"
+        SELECT id as "Id", name as "Name"
+        FROM "%s{schema}".card_types
         """
 
 type GetSupportedCardTypes = PaymentManagementPort.GetSupportedCardTypes<SqlIoError>

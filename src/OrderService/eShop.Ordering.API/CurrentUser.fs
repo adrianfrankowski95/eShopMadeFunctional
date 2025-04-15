@@ -2,10 +2,13 @@
 
 open Giraffe
 open Microsoft.AspNetCore.Http
+open Microsoft.Extensions.Logging
 open eShop.ConstrainedTypes
 open FsToolkit.ErrorHandling
 open eShop.Ordering.Domain.Model
 open eShop.ServiceDefaults
+
+type private Logger = Logger
 
 [<Measure>]
 type userId
@@ -25,6 +28,11 @@ type CurrentUser = { Id: UserId; Name: UserName }
 [<RequireQualifiedAccess>]
 module CurrentUser =
     let create (ctx: HttpContext) =
+        let logError err =
+            ctx
+                .GetLogger<Logger>()
+                .LogError("An error occurred when processing StartOrder request: {Error}", [| err |])
+
         validation {
             do!
                 ctx.User.Identity.IsAuthenticated
@@ -42,7 +50,12 @@ module CurrentUser =
 
             return { Id = userId; Name = userName }
         }
-        |> Result.mapError (String.concat "; " >> RequestErrors.UNAUTHORIZED "" "")
+        |> Result.mapError (
+            String.concat "; "
+            >> fun err ->
+                err |> logError
+                err |> RequestErrors.UNAUTHORIZED "" ""
+        )
 
     let asBuyer (user: CurrentUser) : Buyer =
         { Id = user.Id |> Id.value |> BuyerId.ofGuid

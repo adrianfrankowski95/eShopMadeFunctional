@@ -2,10 +2,9 @@
 module eShop.Postgres.Dapper
 
 open System
+open System.Data
 open Dapper
 open FsToolkit.ErrorHandling
-open Npgsql
-open NpgsqlTypes
 
 let private (|SqlSession|) =
     function
@@ -31,6 +30,32 @@ let executeScalar<'t> (SqlSession(dbConnection, transaction)) sql param =
 
 [<RequireQualifiedAccess>]
 module TypeHandlers =
+    type DateOnlyHandler<'t>() =
+        inherit SqlMapper.TypeHandler<DateOnly>()
+
+        override _.SetValue(param, value) =
+            param.Value <- value.ToDateTime(TimeOnly.MinValue)
+            param.DbType <- DbType.Date
+
+        override _.Parse value =
+            match value with
+            | :? DateOnly as dateOnly -> dateOnly
+            | _ -> DateOnly.FromDateTime(value :?> DateTime)
+
+    type DateOnlyOptionTypeHandler() =
+        inherit SqlMapper.TypeHandler<option<DateOnly>>()
+
+        override _.SetValue(param, value) =
+            match value with
+            | Some dateOnly -> param.Value <- dateOnly
+            | None -> param.Value <- null
+
+        override _.Parse value =
+            if isNull value || value = box DBNull.Value then
+                None
+            else
+                DateOnly.FromDateTime(value :?> DateTime) |> Some
+
     type OptionHandler<'t>() =
         inherit SqlMapper.TypeHandler<option<'t>>()
 
@@ -67,15 +92,8 @@ module TypeHandlers =
         SqlMapper.AddTypeHandler(OptionHandler<bool>())
         SqlMapper.AddTypeHandler(OptionHandler<TimeSpan>())
         SqlMapper.AddTypeHandler(OptionHandler<byte[]>())
-
-module Parameters =
-    type JsonbParameter<'t>(value: 't) =
-
-        interface SqlMapper.ICustomQueryParameter with
-            member this.AddParameter(command, name) =
-                let parameter = NpgsqlParameter<'t>()
-                parameter.TypedValue <- value
-                parameter.NpgsqlDbType <- NpgsqlDbType.Jsonb
-                parameter.ParameterName <- name
-
-                command.Parameters.Add(parameter) |> ignore
+        SqlMapper.AddTypeHandler(DateOnlyHandler())
+        SqlMapper.AddTypeHandler(DateOnlyOptionTypeHandler())
+        SqlMapper.AddTypeMap(typeof<DateTime>, DbType.DateTime2)
+        SqlMapper.AddTypeMap(typeof<DateTimeOffset>, DbType.DateTimeOffset)
+        SqlMapper.AddTypeMap(typeof<DateOnly>, DbType.Date)

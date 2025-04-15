@@ -3,8 +3,8 @@ module eShop.Ordering.API.HttpHandlers.StartOrderHandler
 
 open System
 open Giraffe
-open Giraffe.HttpStatusCodeHandlers.ServerErrors
 open Microsoft.AspNetCore.Http
+open Microsoft.Extensions.Logging
 open eShop.ConstrainedTypes
 open eShop.DomainDrivenDesign
 open eShop.Ordering.API
@@ -14,13 +14,15 @@ open eShop.Ordering.Domain.Model.ValueObjects
 open eShop.Ordering.Domain.Workflows
 open FsToolkit.ErrorHandling
 
+type Logger = Logger
+
 [<CLIMutable>]
 type OrderItemDto =
     { ProductId: int
       ProductName: string
       UnitPrice: decimal
       Discount: decimal
-      Units: int
+      Quantity: int
       PictureUrl: string }
 
 [<CLIMutable>]
@@ -32,29 +34,27 @@ type Request =
       Street: string
       CardNumber: string
       CardHolderName: string
-      CardExpiration: DateOnly
+      CardExpiration: DateTime
       CardSecurityNumber: string
       CardTypeId: int
-      OrderItems: OrderItemDto list }
+      Items: OrderItemDto list }
 
 [<RequireQualifiedAccess>]
 module Request =
-    let toWorkflowCommand
-        (request: Request)
-        (currentUser: CurrentUser)
-        : Result<StartOrderWorkflow.Command, HttpHandler> =
+    let toWorkflowCommand (request: Request) (currentUser: CurrentUser) : Result<StartOrderWorkflow.Command, _> =
         validation {
             let! city = request.City |> City.create
             and! state = request.State |> State.create
             and! country = request.Country |> Country.create
             and! zipCode = request.ZipCode |> ZipCode.create
             and! street = request.Street |> Street.create
-            and! cardNumber = $"{request.CardNumber[^4..]}XXXX" |> CardNumber.create
+            //and! cardNumber = request.CardNumber |> String. |> CardNumber.create
+            and! cardNumber = request.CardNumber[..7] + "XXXX" |> CardNumber.create
             and! cardHolderName = request.CardHolderName |> CardHolderName.create
             and! cardSecurityNumber = request.CardSecurityNumber |> CardSecurityNumber.create
 
             and! orderItems =
-                request.OrderItems
+                request.Items
                 |> List.traverseResultA (fun item ->
                     validation {
                         let productId = item.ProductId |> ProductId.ofInt
@@ -63,7 +63,7 @@ module Request =
                         let! productName = item.ProductName |> ProductName.create
                         and! unitPrice = item.UnitPrice |> UnitPrice.create
                         and! discount = item.Discount |> Discount.create
-                        and! units = item.Units |> Units.create
+                        and! units = item.Quantity |> Units.create
 
                         let unvalidatedOrderItem: UnvalidatedOrderItem =
                             { Discount = discount
@@ -87,25 +87,41 @@ module Request =
                        ZipCode = zipCode
                        Street = street }
                    CardTypeId = request.CardTypeId |> CardTypeId.ofInt
-                   CardExpiration = request.CardExpiration
+                   CardExpiration = DateOnly.FromDateTime(request.CardExpiration)
                    CardNumber = cardNumber
                    OrderItems = orderItems
                    CardHolderName = cardHolderName
                    CardSecurityNumber = cardSecurityNumber }
                 : StartOrderWorkflow.Command)
         }
-        |> Result.mapError (String.concat "; " >> RequestErrors.BAD_REQUEST)
+        |> Result.mapError (String.concat "; ")
 
 let post
     (buildStartOrderWorkflow: HttpContext -> Workflow<OrderAggregate.State, StartOrderWorkflow.Command, _, _>)
     (request: Request)
     : HttpHandler =
     fun next ctx ->
-        let orderId = 0 |> AggregateId.ofInt<OrderAggregate.State>
+        asyncResult {
+            let orderId = 0 |> AggregateId.ofInt<OrderAggregate.State>
 
-        CurrentUser.create ctx
-        |> Result.bind (Request.toWorkflowCommand request)
-        |> AsyncResult.ofResult
-        |> AsyncResult.bind (buildStartOrderWorkflow ctx orderId >> AsyncResult.mapError INTERNAL_ERROR)
-        |> AsyncResult.map Successful.OK
+            let logError err =
+                ctx
+                    .GetLogger<Logger>()
+                    .LogError("An error occurred while processing StartOrder request: {Error}", [| err |])
+
+            let! workflowCommand =
+                CurrentUser.create ctx
+                |> Result.bind (
+                    Request.toWorkflowCommand request
+                    >> Result.teeError logError
+                    >> Result.mapError (_.ToString() >> RequestErrors.BAD_REQUEST)
+                )
+
+            return!
+                workflowCommand
+                |> buildStartOrderWorkflow ctx orderId
+                |> AsyncResult.map Successful.OK
+                |> AsyncResult.teeError logError
+                |> AsyncResult.mapError (_.ToString() >> ServerErrors.INTERNAL_ERROR)
+        }
         |> HttpFuncResult.ofAsyncResult next ctx

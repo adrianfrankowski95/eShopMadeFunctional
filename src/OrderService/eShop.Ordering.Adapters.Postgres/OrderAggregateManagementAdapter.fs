@@ -68,7 +68,7 @@ module internal Dto =
           CardTypeName: string option
           PaymentMethodCardNumber: string option
           PaymentMethodCardHolderName: string option
-          PaymentMethodExpiration: DateOnly option
+          PaymentMethodCardExpiration: DateOnly option
           Street: string option
           City: string option
           State: string option
@@ -177,7 +177,7 @@ module internal Dto =
                     |> Result.requireSome "Missing CardHolderName"
                     |> Result.bind CardHolderName.create
 
-                and! expiration = dto.PaymentMethodExpiration |> Result.requireSome "Missing Expiration"
+                and! expiration = dto.PaymentMethodCardExpiration |> Result.requireSome "Missing Expiration"
 
                 return
                     ({ CardType = { Id = cardTypeId; Name = cardTypeName }
@@ -405,74 +405,77 @@ module private Sql =
     let getOrderById (DbSchema schema) =
         $"""
         SELECT
-            orders."Id", orders."Status", orders."Description", orders."Street", orders."City", orders."State", orders."Country", orders."ZipCode", orders."StartedAt",
-            items."ProductId" AS "ItemProductId", items."ProductName" AS "ItemProductName", items."UnitPrice" AS "ItemUnitPrice",
-            items."Units" AS "ItemUnits", items."Discount" AS "ItemDiscount", items."PictureUrl" AS "ItemPictureUrl",
-            buyers."Id" AS "BuyerId", buyers."Name" AS "BuyerName",
-            cardTypes."Id" AS "CardTypeId", cardTypes."Name" AS "CardTypeName",
-            paymentMethods."CardNumber" AS "PaymentMethodCardNumber", paymentMethods."CardHolderName" AS "PaymentMethodCardHolderName",
-            paymentMethods."Expiration" AS "PaymentMethodExpiration"
-        FROM "{schema}"."Orders" AS orders
-        LEFT JOIN "{schema}"."OrderItems" AS items ON items."OrderId" = orders."Id"
-        LEFT JOIN "{schema}"."Buyers" AS buyers ON buyers."Id" = orders."BuyerId"
-        LEFT JOIN "{schema}"."PaymentMethods" AS paymentMethods ON paymentMethods."Id" = orders."PaymentMethodId"
-        LEFT JOIN "{schema}"."CardTypes" AS cardTypes ON cardTypes."Id" = paymentMethods."CardTypeId"
-        WHERE orders."Id" = @OrderId
+            orders.id as "Id", orders.status as "Status", orders.description as "Description",
+            items.product_id as "ItemProductId", items.product_name as "ItemProductName",
+            items.unit_price as "ItemUnitPrice", items.units as "ItemUnits", items.discount as "ItemDiscount",
+            items.picture_url as "ItemPictureUrl", buyers.id as "BuyerId", buyers.name as "BuyerName",
+            card_types.id as "CardTypeId", card_types.name as "CardTypeName",
+            payment_methods.card_number as "PaymentMethodCardNumber",
+            payment_methods.card_holder_name as "PaymentMethodCardHolderName",
+            payment_methods.card_expiration as "PaymentMethodCardExpiration",
+            orders.street as "Street", orders.city as "City", orders.state as "State", orders.country as "Country",
+            orders.zip_code as "ZipCode", orders.started_at as "StartedAt"
+        FROM "%s{schema}".orders AS orders
+        LEFT JOIN "%s{schema}".order_items AS items ON items.order_id = orders.id
+        LEFT JOIN "%s{schema}".buyers AS buyers ON buyers.id = orders.buyer_id
+        LEFT JOIN "%s{schema}".payment_methods AS payment_methods ON payment_methods.id = orders.payment_method_id
+        LEFT JOIN "%s{schema}".card_types AS card_types ON card_types.id = payment_methods.card_type_id
+        WHERE orders.id = @OrderId
         """
 
     let getOrAddPaymentMethod (DbSchema schema) =
         $"""
         WITH incoming AS (
-            MERGE INTO "{schema}"."PaymentMethods" AS existing
+            MERGE INTO "%s{schema}".payment_methods AS existing
             USING (VALUES (@BuyerId, @CardTypeId, @CardNumber, @CardHolderName, @CardExpiration))
-                AS pt("BuyerId", "CardTypeId", "CardNumber", "CardHolderName", "CardExpiration")
-                ON pt."BuyerId" = existing."BuyerId"
-                    AND pt."CardTypeId" = existing."CardTypeId"
-                    AND pt."CardNumber" = existing."CardNumber"
-                    AND pt."CardHolderName" = existing."CardHolderName"
-                    AND pt."CardExpiration" = existing."CardExpiration"
-            WHEN MATCHED THEN DO NOTHING
-            WHEN NOT MATCHED THEN INSERT ("BuyerId", "CardTypeId", "CardNumber", "CardHolderName", "CardExpiration")
-                VALUES (pt."BuyerId", pt."CardTypeId", pt."CardNumber", pt."CardHolderName", pt."CardExpiration")
-            RETURNING existing."Id"
-        )
-        SELECT "Id" FROM incoming
+                    AS pt(buyer_id, card_type_id, card_number, card_holder_name, card_expiration)
+                    ON pt.buyer_id = existing.buyer_id
+                        AND pt.card_type_id = existing.card_type_id
+                        AND pt.card_number = existing.card_number
+                        AND pt.card_holder_name = existing.card_holder_name
+                        AND pt.card_expiration = existing.card_expiration
+                WHEN MATCHED THEN DO NOTHING
+                WHEN NOT MATCHED THEN INSERT (buyer_id, card_type_id, card_number, card_holder_name, card_expiration)
+                    VALUES (pt.buyer_id, pt.card_type_id, pt.card_number, pt.card_holder_name, pt.card_expiration)
+                RETURNING existing.id
+            )
+        SELECT id FROM incoming
         UNION ALL
-        SELECT "Id" FROM "{schema}"."PaymentMethods"
+        SELECT id FROM "%s{schema}".payment_methods
         WHERE
-            "BuyerId" = @BuyerId
-            AND "CardTypeId" = @CardTypeId
-            AND "CardNumber" = @CardNumber
-            AND "CardHolderName" = @CardHolderName
-            AND "Expiration" = @Expiration
+            buyer_id = @BuyerId
+            AND card_type_id = @CardTypeId
+            AND card_number = @CardNumber
+            AND card_holder_name = @CardHolderName
+            AND card_expiration = @CardExpiration
         """
 
     let upsertBuyer (DbSchema schema) =
         $"""
-        INSERT INTO "{schema}"."Buyers" ("Id", "Name") VALUES (@BuyerId, @BuyerName)
-        ON CONFLICT ("Id")
-        DO UPDATE SET "Name" = COALESCE(EXCLUDED."Name", "Name")
+        INSERT INTO "%s{schema}".buyers (id, name) VALUES (@BuyerId, @BuyerName)
+        ON CONFLICT (id)
+        DO UPDATE SET name = COALESCE(EXCLUDED.name, @BuyerName)
         """
 
     let upsertOrderItem (DbSchema schema) =
         $"""
-        INSERT INTO "{schema}"."OrderItems" ("ProductId", "OrderId", "ProductName", "UnitPrice", "Units", "Discount", "PictureUrl")
+        INSERT INTO "%s{schema}".order_items (product_id, order_id, product_name, unit_price, units, discount, picture_url)
         VALUES (@ProductId, @OrderId, @ProductName, @UnitPrice, @Units, @Discount, @PictureUrl)
-        ON CONFLICT ("ProductId", "OrderId")
+        ON CONFLICT (product_id, order_id)
         DO UPDATE SET
-            "ProductName" = EXCLUDED."ProductName", "UnitPrice" = EXCLUDED."UnitPrice",
-            "Units" = EXCLUDED."Units", "Discount" = EXCLUDED."Discount", "PictureUrl" = EXCLUDED."PictureUrl"
+            product_name = EXCLUDED.product_name, unit_price = EXCLUDED.unit_price,
+            units = EXCLUDED.units, discount = EXCLUDED.discount, picture_url = EXCLUDED.picture_url
         """
 
     let upsertOrder (DbSchema schema) =
         $"""
-        INSERT INTO "{schema}"."Orders" ("Id", "BuyerId", "PaymentMethodId", "Status", "Description", "StartedAt", "Street", "City", "State", "Country", "ZipCode")
+        INSERT INTO "%s{schema}".orders (id, buyer_id, payment_method_id, status, description, started_at, street, city, state, country, zip_code)
         VALUES (@Id, @BuyerId, @PaymentMethodId, @Status, @Description, @StartedAt, @Street, @City, @State, @Country, @ZipCode)
-        ON CONFLICT ("Id")
+        ON CONFLICT (id)
         DO UPDATE SET
-            "BuyerId" = EXCLUDED."BuyerId", "PaymentMethodId" = EXCLUDED."PaymentMethodId",
-            "Status" = EXCLUDED."Status", "Description" = EXCLUDED."Description", "StartedAt" = EXCLUDED."StartedAt", "Street" = EXCLUDED."Street",
-            "City" = EXCLUDED."City", "State" = EXCLUDED."State", "Country" = EXCLUDED."Country", "ZipCode" = EXCLUDED."ZipCode"
+            buyer_id = EXCLUDED.buyer_id, payment_method_id = EXCLUDED.payment_method_id,
+            status = EXCLUDED.status, description = EXCLUDED.description, started_at = EXCLUDED.started_at, street = EXCLUDED.street,
+            city = EXCLUDED.city, state = EXCLUDED.state, country = EXCLUDED.country, zip_code = EXCLUDED.zip_code
         """
 
 type ReadOrderAggregate = OrderAggregateManagementPort.ReadOrderAggregate<SqlIoError>
@@ -542,19 +545,18 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                         order
                         |> OrderAggregate.getBuyerId
                         |> Option.map BuyerId.value
-                        |> Option.toNullable
-                       PaymentMethodId = maybePaymentMethodId |> Option.toNullable
+                       PaymentMethodId = maybePaymentMethodId
                        Status = status |> Dto.OrderStatus.toString
                        Description =
                         order
                         |> OrderAggregate.getDescription
                         |> Option.map Description.value
-                        |> Option.toObj
-                       StartedAt = order |> OrderAggregate.getStartedAt |> Option.toNullable
-                       Street = maybeAddress |> Option.map (_.Street >> Street.value) |> Option.toObj
-                       City = maybeAddress |> Option.map (_.City >> City.value) |> Option.toObj
-                       Country = maybeAddress |> Option.map (_.Country >> Country.value) |> Option.toObj
-                       ZipCode = maybeAddress |> Option.map (_.ZipCode >> ZipCode.value) |> Option.toObj |}
+                       StartedAt = order |> OrderAggregate.getStartedAt
+                       Street = maybeAddress |> Option.map (_.Street >> Street.value)
+                       City = maybeAddress |> Option.map (_.City >> City.value)
+                       State = maybeAddress |> Option.map (_.State >> State.value)
+                       Country = maybeAddress |> Option.map (_.Country >> Country.value)
+                       ZipCode = maybeAddress |> Option.map (_.ZipCode >> ZipCode.value) |}
                     |> Dapper.execute sqlSession (Sql.upsertOrder dbSchema)
                     |> AsyncResult.ignore)
                 |> Option.defaultValue (AsyncResult.ok ())
@@ -570,7 +572,7 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                        UnitPrice = item |> OrderItem.getUnitPrice |> UnitPrice.value
                        Units = item |> OrderItem.getUnits |> Units.value
                        Discount = item |> OrderItem.getDiscount |> Discount.value
-                       PictureUrl = item |> OrderItem.getPictureUrl |> Option.toObj |}
+                       PictureUrl = item |> OrderItem.getPictureUrl |}
                     |> Dapper.execute sqlSession (Sql.upsertOrderItem dbSchema))
                 |> AsyncResult.ignore
         }

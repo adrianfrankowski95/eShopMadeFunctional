@@ -4,21 +4,29 @@ open Giraffe
 open Microsoft.AspNetCore.Http
 open eShop.Ordering.API.HttpHandlers
 
-let notLoggedIn =
-    RequestErrors.UNAUTHORIZED "Basic" "Some Realm" "You must be logged in."
+let private requiresLoggedIn: HttpHandler =
+    requiresAuthentication (RequestErrors.UNAUTHORIZED "" "" "You must be logged in.")
+
+let private ordersApi: HttpHandler =
+    choose
+        [ subRoute
+              "/"
+              (choose
+                  [ GET >=> json []
+                    POST
+                    >=> bindJson<StartOrderHandler.Request> (
+                        StartOrderHandler.post CompositionRoot.buildStartOrderWorkflowFromCtx
+                    ) ])
+
+          routef "/%i" (fun orderId -> GET >=> text $"Get order by ID: %d{orderId}")
+
+          route "/cardtypes" >=> GET >=> text "Get card types"
+
+          route "/ship" >=> PUT >=> text "Ship order"
+
+          route "/cancel" >=> PUT >=> text "Cancel order"
+
+          route "/draft" >=> POST >=> text "Create draft order" ]
 
 let webApp: (HttpFunc -> HttpContext -> HttpFuncResult) =
-    choose
-        [ subRoute "api/orders" (requiresAuthentication notLoggedIn)
-          >=> (choose
-              [ GET >=> route "/" >=> text "Get orders by user"
-                GET >=> routef "/%i" (fun orderId -> text $"Get order by ID: %d{orderId}")
-                GET >=> route "/cardtypes" >=> text "Get card types"
-                PUT >=> route "/ship" >=> text "Ship order"
-                PUT >=> route "/cancel" >=> text "Cancel order"
-                POST
-                >=> route "/"
-                >=> bindJson<StartOrderHandler.Request> (
-                    StartOrderHandler.post CompositionRoot.buildStartOrderWorkflowFromCtx
-                )
-                POST >=> route "/draft" >=> text "Create draft order" ]) ]
+    subRoute "/api" (choose [ subRoute "/orders" ordersApi ])

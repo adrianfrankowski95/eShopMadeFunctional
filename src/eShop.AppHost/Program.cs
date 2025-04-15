@@ -7,11 +7,11 @@ builder.AddForwardedHeaders();
 var redis = builder.AddRedis("redis");
 var rabbitMq = builder.AddRabbitMQ("eventbus")
     .WithManagementPlugin()
-    .WithLifetime(ContainerLifetime.Persistent);
+    .WithLifetime(ContainerLifetime.Session);
 var postgres = builder.AddPostgres("postgres")
     .WithImage("pgvector/pgvector")
     .WithImageTag("pg17")
-    .WithLifetime(ContainerLifetime.Persistent);
+    .WithLifetime(ContainerLifetime.Session);
 
 var catalogDb = postgres.AddDatabase("catalogdb");
 var identityDb = postgres.AddDatabase("identitydb");
@@ -100,10 +100,10 @@ webhooksClient.WithEnvironment("CallBackUrl", webhooksClient.GetEndpoint(launchP
 
 // Identity has a reference to all of the apps for callback urls, this is a cyclic reference
 identityApi.WithEnvironment("BasketApiClient", basketApi.GetEndpoint("http"))
-           .WithEnvironment("OrderingApiClient", orderingApi.GetEndpoint("http"))
-           .WithEnvironment("WebhooksApiClient", webHooksApi.GetEndpoint("http"))
-           .WithEnvironment("WebhooksWebClient", webhooksClient.GetEndpoint(launchProfileName))
-           .WithEnvironment("WebAppClient", webApp.GetEndpoint(launchProfileName));
+    .WithEnvironment("OrderingApiClient", orderingApi.GetEndpoint("http"))
+    .WithEnvironment("WebhooksApiClient", webHooksApi.GetEndpoint("http"))
+    .WithEnvironment("WebhooksWebClient", webhooksClient.GetEndpoint(launchProfileName))
+    .WithEnvironment("WebAppClient", webApp.GetEndpoint(launchProfileName));
 
 builder.Build().Run();
 

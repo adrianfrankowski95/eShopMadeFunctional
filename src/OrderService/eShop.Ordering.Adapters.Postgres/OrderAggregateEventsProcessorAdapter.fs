@@ -332,10 +332,10 @@ module internal Dto =
 
 type PersistOrderAggregateEvents = OrderAggregateManagementPort.PersistOrderAggregateEvents<SqlIoError>
 
-let persistOrderAggregateEvents dbSchema dbTransaction : PersistOrderAggregateEvents =
-    Postgres.persistEvents Dto.Event.ofDomain dbSchema dbTransaction
+let persistOrderAggregateEvents jsonOptions dbSchema dbTransaction : PersistOrderAggregateEvents =
+    Postgres.persistEvents Dto.Event.ofDomain jsonOptions dbSchema dbTransaction
 
 type ReadUnprocessedOrderAggregateEvents = ReadUnprocessedEvents<OrderAggregate.State, OrderAggregate.Event, SqlIoError>
 
-let readUnprocessedOrderAggregateEvents dbSchema sqlSession : ReadUnprocessedOrderAggregateEvents =
-    Postgres.readUnprocessedEvents Dto.Event.toDomain dbSchema sqlSession
+let readUnprocessedOrderAggregateEvents jsonOptions dbSchema sqlSession : ReadUnprocessedOrderAggregateEvents =
+    Postgres.readUnprocessedEvents Dto.Event.toDomain jsonOptions dbSchema sqlSession

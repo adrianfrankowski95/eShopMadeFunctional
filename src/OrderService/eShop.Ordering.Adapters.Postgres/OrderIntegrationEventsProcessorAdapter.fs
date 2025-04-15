@@ -9,11 +9,11 @@ open eShop.Postgres
 
 type PersistOrderIntegrationEvents = PersistEvents<OrderAggregate.State, IntegrationEvent.Consumed, SqlIoError>
 
-let persistOrderIntegrationEvents dbSchema sqlSession : PersistOrderIntegrationEvents =
-    Postgres.persistEvents Ok dbSchema sqlSession
+let persistOrderIntegrationEvents jsonOptions dbSchema sqlSession : PersistOrderIntegrationEvents =
+    Postgres.persistEvents id jsonOptions dbSchema sqlSession
 
 type ReadUnprocessedOrderIntegrationEvents =
     ReadUnprocessedEvents<OrderAggregate.State, IntegrationEvent.Consumed, SqlIoError>
 
-let readUnprocessedOrderIntegrationEvents dbSchema sqlSession : ReadUnprocessedOrderIntegrationEvents =
-    Postgres.readUnprocessedEvents Ok dbSchema sqlSession
+let readUnprocessedOrderIntegrationEvents jsonOptions dbSchema sqlSession : ReadUnprocessedOrderIntegrationEvents =
+    Postgres.readUnprocessedEvents Ok jsonOptions dbSchema sqlSession

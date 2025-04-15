@@ -1,15 +1,15 @@
 ﻿CREATE SCHEMA IF NOT EXISTS "$Schema$";
 
-CREATE TABLE "$Schema$"."EventProcessingLog"
+CREATE TABLE "$Schema$".event_processing_log
 (
-    "EventId"            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    "AggregateId"        INTEGER     NOT NULL,
-    "AggregateType"      VARCHAR(50) NOT NULL,
-    "EventType"          TEXT        NOT NULL,
-    "EventData"          JSONB       NOT NULL,
-    "OccurredAt"         TIMESTAMPTZ NOT NULL,
-    "SuccessfulHandlers" TEXT[]      NOT NULL DEFAULT '{}',
-    "ProcessedAt"        TIMESTAMPTZ NULL
+    event_id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    aggregate_id        INTEGER     NOT NULL,
+    aggregate_type      VARCHAR(50) NOT NULL,
+    event_type          TEXT        NOT NULL,
+    event_data          JSONB       NOT NULL,
+    occurred_at         TIMESTAMPTZ NOT NULL,
+    successful_handlers TEXT[]      NOT NULL DEFAULT '{}',
+    processed_at        TIMESTAMPTZ NULL
 );
 
-CREATE INDEX IX_AggregateType_EventType_OccuredAt_ProcessedAt ON "$Schema$"."EventProcessingLog" ("AggregateType", "EventType", "OccurredAt" ASC, "ProcessedAt" NULLS FIRST)
+CREATE INDEX ix_aggregate_type_event_type_occured_at_processed_at ON "$Schema$".event_processing_log (aggregate_type, event_type, occurred_at ASC, processed_at NULLS FIRST)

@@ -67,9 +67,9 @@ namespace eShop.OrderProcessor.Services
                 using var conn = dataSource.CreateConnection();
                 using var command = conn.CreateCommand();
                 command.CommandText = """
-                    SELECT "Id"
-                    FROM ordering.orders
-                    WHERE CURRENT_TIMESTAMP - "OrderDate" >= @GracePeriodTime AND "OrderStatus" = 'Submitted'
+                    SELECT id
+                    FROM "ordering".orders
+                    WHERE CURRENT_TIMESTAMP - started_at >= @GracePeriodTime AND status = 'Submitted'
                     """;
                 command.Parameters.AddWithValue("GracePeriodTime", TimeSpan.FromMinutes(_options.GracePeriodTime));
 

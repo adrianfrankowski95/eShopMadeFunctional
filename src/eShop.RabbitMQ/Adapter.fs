@@ -204,7 +204,7 @@ module RabbitMQ =
                 |> Result.mapError (
                     List.map _.Message
                     >> String.concat Environment.NewLine
-                    >> (+) "Failed to bind RabbitMQ queues: %s"
+                    >> (+) "Failed to bind RabbitMQ queues: "
                 )
                 |> Result.ignore
 

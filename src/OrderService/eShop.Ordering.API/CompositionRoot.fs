@@ -89,17 +89,17 @@ type OrderAggregateEventsProcessor =
 let private buildOrderAggregateEventsProcessor services : OrderAggregateEventsProcessor =
     let sqlSession = services |> getStandaloneSqlSession
     let logger = services.Get<ILogger<OrderAggregateEventsProcessor>>()
-    let eventsProcessorPort = services.Get<ISqlOrderAggregateEventsProcessorPort>()
+    let eventsProcessorAdapter = services.Get<ISqlOrderAggregateEventsProcessorAdapter>()
 
     let persistEvents =
-        eventsProcessorPort.PersistOrderEvents |> buildPersistEvents services
+        eventsProcessorAdapter.PersistOrderEvents |> buildPersistEvents services
 
-    let readEvents = sqlSession |> eventsProcessorPort.ReadUnprocessedOrderEvents
+    let readEvents = sqlSession |> eventsProcessorAdapter.ReadUnprocessedOrderEvents
 
     let persistHandlers =
-        sqlSession |> eventsProcessorPort.PersistSuccessfulEventHandlers
+        sqlSession |> eventsProcessorAdapter.PersistSuccessfulEventHandlers
 
-    let markEventsProcessed = sqlSession |> eventsProcessorPort.MarkEventAsProcessed
+    let markEventsProcessed = sqlSession |> eventsProcessorAdapter.MarkEventAsProcessed
 
     let errorLogger (error: EventsProcessor.EventsProcessorError<'state, _, SqlIoError, _>) =
         match error with
@@ -173,7 +173,7 @@ let private buildTransactionalWorkflowExecutor (services: Services) =
     |> TransactionalWorkflowExecutor.execute
 
 let private buildOrderWorkflowExecutor (services: Services) workflowToExecute =
-    let orderPort = services.Get<ISqlOrderAggregateManagementPort>()
+    let orderAdapter = services.Get<ISqlOrderAggregateManagementAdapter>()
 
     let getUtcNow = services.Get<GetUtcNow>()
 
@@ -183,9 +183,9 @@ let private buildOrderWorkflowExecutor (services: Services) workflowToExecute =
 
     fun dbTransaction ->
         let readOrder =
-            dbTransaction |> SqlSession.Sustained |> orderPort.ReadOrderAggregate
+            dbTransaction |> SqlSession.Sustained |> orderAdapter.ReadOrderAggregate
 
-        let persistOrder = dbTransaction |> orderPort.PersistOrderAggregate
+        let persistOrder = dbTransaction |> orderAdapter.PersistOrderAggregate
 
         workflowToExecute
         |> WorkflowExecutor.execute getUtcNow generateEventId readOrder persistOrder eventsProcessor.Process
@@ -249,17 +249,17 @@ let private buildOrderIntegrationEventsProcessor services : OrderIntegrationEven
     let sqlSession = services |> getStandaloneSqlSession
     let config = services.Get<IOptions<Configuration.RabbitMQOptions>>()
     let logger = services.Get<ILogger<OrderIntegrationEventsProcessor>>()
-    let eventsProcessorPort = services.Get<ISqlOrderIntegrationEventsProcessorPort>()
+    let eventsProcessorAdapter = services.Get<ISqlOrderIntegrationEventsProcessorAdapter>()
 
     let persistEvents =
-        eventsProcessorPort.PersistOrderEvents |> buildPersistEvents services
+        eventsProcessorAdapter.PersistOrderEvents |> buildPersistEvents services
 
-    let readEvents = sqlSession |> eventsProcessorPort.ReadUnprocessedOrderEvents
+    let readEvents = sqlSession |> eventsProcessorAdapter.ReadUnprocessedOrderEvents
 
     let persistHandlers =
-        sqlSession |> eventsProcessorPort.PersistSuccessfulEventHandlers
+        sqlSession |> eventsProcessorAdapter.PersistSuccessfulEventHandlers
 
-    let markEventsProcessed = sqlSession |> eventsProcessorPort.MarkEventAsProcessed
+    let markEventsProcessed = sqlSession |> eventsProcessorAdapter.MarkEventAsProcessed
 
     let retries =
         fun (attempt: int) -> TimeSpan.FromSeconds(Math.Pow(2, attempt))
@@ -332,9 +332,9 @@ let buildOrderIntegrationEventsProcessorFromSp (sp: IServiceProvider) =
 type OrderWorkflowIoError = Either<SqlIoError, HttpIoError>
 
 let private buildStartOrderWorkflow (services: Services) =
-    let sqlPaymentPort = services.Get<ISqlPaymentManagementPort>()
-    let sqlOrderPort = services.Get<ISqlOrderAggregateManagementPort>()
-    let paymentPort = services.Get<IPaymentManagementPort<HttpIoError>>()
+    let sqlPaymentAdapter = services.Get<ISqlPaymentManagementAdapter>()
+    let sqlOrderAdapter = services.Get<ISqlOrderAggregateManagementAdapter>()
+    let httpPaymentAdapter = services.Get<IHttpPaymentManagementAdapter>()
 
     let getUtcNow = services.Get<GetUtcNow>()
 
@@ -345,23 +345,23 @@ let private buildStartOrderWorkflow (services: Services) =
         >>> AsyncResult.mapError Left
 
     let verifyPaymentMethod =
-        paymentPort.VerifyPaymentMethod >> AsyncResult.mapError (Either.mapRight Right)
+        httpPaymentAdapter.VerifyPaymentMethod >> AsyncResult.mapError (Either.mapRight Right)
 
     fun dbTransaction ->
         let readOrder =
             dbTransaction
             |> SqlSession.Sustained
-            |> sqlOrderPort.ReadOrderAggregate
+            |> sqlOrderAdapter.ReadOrderAggregate
             >> AsyncResult.mapError Left
 
         let persistOrder =
-            dbTransaction |> sqlOrderPort.PersistOrderAggregate
+            dbTransaction |> sqlOrderAdapter.PersistOrderAggregate
             >>> AsyncResult.mapError Left
 
         let getSupportedCardTypes =
             dbTransaction
             |> SqlSession.Sustained
-            |> sqlPaymentPort.GetSupportedCardTypes
+            |> sqlPaymentAdapter.GetSupportedCardTypes
             >> AsyncResult.mapError Left
 
         StartOrderWorkflow.build getSupportedCardTypes verifyPaymentMethod

@@ -69,16 +69,17 @@ let private configureRabbitMQ (services: IServiceCollection) =
     services.AddRabbitMQEventHandler(
         IntegrationEvent.Consumed.eventNames,
         IntegrationEvent.Consumed.getOrderAggregateId,
-        IntegrationEvent.Consumed.deserialize
+        IntegrationEvent.Consumed.deserialize,
+        _.GetRequiredService<CompositionRoot.OrderIntegrationEventsProcessor>()
     )
 
 let private configureAdapters (services: IServiceCollection) =
     services
-        .AddTransient<ISqlOrderAggregateManagementPort, PostgresOrderAggregateManagementAdapter>()
-        .AddTransient<ISqlOrderAggregateEventsProcessorPort, PostgresOrderAggregateEventsProcessorAdapter>()
-        .AddTransient<ISqlOrderIntegrationEventsProcessorPort, PostgresOrderIntegrationEventsProcessorAdapter>()
-        .AddTransient<ISqlPaymentManagementPort, PostgresPaymentManagementAdapter>()
-        .AddTransient<IPaymentManagementPort<_>, HttpPaymentManagementAdapter>(
+        .AddTransient<ISqlOrderAggregateManagementAdapter, PostgresOrderAggregateManagementAdapter>()
+        .AddTransient<ISqlOrderAggregateEventsProcessorAdapter, PostgresOrderAggregateEventsProcessorAdapter>()
+        .AddTransient<ISqlOrderIntegrationEventsProcessorAdapter, PostgresOrderIntegrationEventsProcessorAdapter>()
+        .AddTransient<ISqlPaymentManagementAdapter, PostgresPaymentManagementAdapter>()
+        .AddTransient<IHttpPaymentManagementAdapter, HttpPaymentManagementAdapter>(
             _.GetRequiredService<IConfiguration>().GetValue<bool>("ShouldAcceptPayment")
             >> HttpPaymentManagementAdapter
         )

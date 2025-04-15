@@ -22,6 +22,7 @@ type Extensions =
             env: IHostEnvironment
         ) =
         Dapper.TypeHandlers.register ()
+        Dapper.DefaultTypeMap.MatchNamesWithUnderscores <- true
 
         dbScripts
         |> Map.map Postgres.executeScripts
@@ -32,12 +33,17 @@ type Extensions =
 
         services
             .AddSingleton<NpgsqlDataSource>(fun sp ->
-                sp.GetRequiredService<JsonSerializerOptions>()
-                |> NpgsqlDataSourceBuilder(connectionString)
-                    .EnableParameterLogging(env.IsDevelopment())
-                    .EnableDynamicJson()
-                    .ConfigureJsonOptions
-                |> _.Build())
+                let isDevelopment = env.IsDevelopment()
+                let jsonOptions = sp.GetRequiredService<JsonSerializerOptions>()
+
+                let builder = NpgsqlDataSourceBuilder(connectionString)
+                builder.ConnectionStringBuilder.LogParameters <- isDevelopment
+                builder.ConnectionStringBuilder.IncludeErrorDetail <- isDevelopment
+
+                builder
+                    .EnableParameterLogging(isDevelopment)
+                    .ConfigureJsonOptions(jsonOptions)
+                    .Build())
             .AddTransient<GetDbConnection>(
                 Func<IServiceProvider, GetDbConnection>(fun sp ->
                     fun () -> sp.GetRequiredService<NpgsqlDataSource>().CreateConnection() :> DbConnection)
