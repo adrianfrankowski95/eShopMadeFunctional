@@ -49,7 +49,7 @@ type OrderStatusChangedToShipped =
       BuyerIdentityGuid: string }
 
 [<CLIMutable>]
-type OrderStockItem = { ProductId: string; Units: int }
+type OrderStockItem = { ProductId: int; Units: int }
 
 [<CLIMutable>]
 type OrderStatusChangedToAwaitingValidation =
@@ -164,7 +164,7 @@ module Published =
                  ev.StockToValidate
                  |> NonEmptyMap.toList
                  |> List.map (fun (productId, units) ->
-                     { ProductId = productId |> ProductId.toString
+                     { ProductId = productId |> ProductId.value
                        Units = units |> Units.value }) }
             : OrderStatusChangedToAwaitingValidation)
             |> Published.OrderStatusChangedToAwaitingValidation
@@ -184,7 +184,7 @@ module Published =
                  ev.PaidOrderItems
                  |> NonEmptyMap.toList
                  |> List.map (fun (productId, orderItem) ->
-                     { ProductId = productId |> ProductId.toString
+                     { ProductId = productId |> ProductId.value
                        Units = orderItem.Units |> Units.value }) }
             : OrderStatusChangedToPaid)
             |> Published.OrderStatusChangedToPaid

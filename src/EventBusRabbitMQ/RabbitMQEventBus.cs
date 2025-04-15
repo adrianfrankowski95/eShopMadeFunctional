@@ -76,7 +76,9 @@ public sealed class RabbitMQEventBus(
             // persistent
             properties.DeliveryMode = 2;
             properties.Timestamp =
-                new AmqpTimestamp((long)(@event.CreationDate.ToUniversalTime() - DateTime.UnixEpoch).TotalSeconds);
+                new AmqpTimestamp(
+                    (long)(new DateTimeOffset(DateTime.SpecifyKind(@event.CreationDate.ToUniversalTime(),
+                        DateTimeKind.Utc)) - DateTimeOffset.UnixEpoch).TotalSeconds);
             properties.MessageId = @event.Id.ToString();
             properties.Type = @event.GetType().Name;
 

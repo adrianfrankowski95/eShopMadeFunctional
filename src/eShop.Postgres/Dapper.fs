@@ -2,9 +2,10 @@
 module eShop.Postgres.Dapper
 
 open System
-open System.Data
 open Dapper
 open FsToolkit.ErrorHandling
+open Npgsql
+open NpgsqlTypes
 
 let private (|SqlSession|) =
     function
@@ -35,14 +36,14 @@ module TypeHandlers =
 
         override _.SetValue(param, value) =
             param.Value <- value.ToDateTime(TimeOnly.MinValue)
-            param.DbType <- DbType.Date
+            (param :?> NpgsqlParameter).NpgsqlDbType <- NpgsqlDbType.Date
 
         override _.Parse value =
             match value with
             | :? DateOnly as dateOnly -> dateOnly
-            | _ -> DateOnly.FromDateTime(value :?> DateTime)
+            | _ -> value :?> DateTime |> DateOnly.FromDateTime
 
-    type DateOnlyOptionTypeHandler() =
+    type DateOnlyOptionHandler() =
         inherit SqlMapper.TypeHandler<option<DateOnly>>()
 
         override _.SetValue(param, value) =
@@ -50,11 +51,44 @@ module TypeHandlers =
             | Some dateOnly -> param.Value <- dateOnly
             | None -> param.Value <- null
 
+            (param :?> NpgsqlParameter).NpgsqlDbType <- NpgsqlDbType.Date
+
         override _.Parse value =
             if isNull value || value = box DBNull.Value then
                 None
             else
-                DateOnly.FromDateTime(value :?> DateTime) |> Some
+                value :?> DateTime |> DateOnly.FromDateTime |> Some
+
+    type DateTimeOffsetHandler() =
+        inherit SqlMapper.TypeHandler<DateTimeOffset>()
+
+        override _.SetValue(param, value) =
+            (param :?> NpgsqlParameter).NpgsqlDbType <- NpgsqlDbType.TimestampTz
+            param.Value <- value
+
+        override _.Parse value =
+            match value with
+            | :? DateTimeOffset as dateTimeOffset -> dateTimeOffset
+            | _ -> DateTime.SpecifyKind(value :?> DateTime, DateTimeKind.Utc) |> DateTimeOffset
+
+    type DateTimeOffsetOptionHandler() =
+        inherit SqlMapper.TypeHandler<Option<DateTimeOffset>>()
+
+        override _.SetValue(param, value) =
+            match value with
+            | Some dateTimeOffset -> param.Value <- dateTimeOffset
+            | None -> param.Value <- null
+
+            (param :?> NpgsqlParameter).NpgsqlDbType <- NpgsqlDbType.TimestampTz
+
+        override _.Parse value =
+            if isNull value || value = box DBNull.Value then
+                None
+            else
+                match value with
+                | :? DateTimeOffset as dateTimeOffset -> dateTimeOffset
+                | _ -> DateTime.SpecifyKind(value :?> DateTime, DateTimeKind.Utc) |> DateTimeOffset
+                |> Some
 
     type OptionHandler<'t>() =
         inherit SqlMapper.TypeHandler<option<'t>>()
@@ -88,12 +122,10 @@ module TypeHandlers =
         SqlMapper.AddTypeHandler(OptionHandler<string>())
         SqlMapper.AddTypeHandler(OptionHandler<char>())
         SqlMapper.AddTypeHandler(OptionHandler<DateTime>())
-        SqlMapper.AddTypeHandler(OptionHandler<DateTimeOffset>())
         SqlMapper.AddTypeHandler(OptionHandler<bool>())
         SqlMapper.AddTypeHandler(OptionHandler<TimeSpan>())
         SqlMapper.AddTypeHandler(OptionHandler<byte[]>())
         SqlMapper.AddTypeHandler(DateOnlyHandler())
-        SqlMapper.AddTypeHandler(DateOnlyOptionTypeHandler())
-        SqlMapper.AddTypeMap(typeof<DateTime>, DbType.DateTime2)
-        SqlMapper.AddTypeMap(typeof<DateTimeOffset>, DbType.DateTimeOffset)
-        SqlMapper.AddTypeMap(typeof<DateOnly>, DbType.Date)
+        SqlMapper.AddTypeHandler(DateOnlyOptionHandler())
+        SqlMapper.AddTypeHandler(DateTimeOffsetHandler())
+        SqlMapper.AddTypeHandler(DateTimeOffsetOptionHandler())
