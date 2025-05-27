@@ -1,19 +1,13 @@
-﻿using System;
-using Azure.AI.OpenAI;
-using eShop.WebApp;
-using eShop.WebAppComponents.Services;
+﻿using eShop.WebAppComponents.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Server;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.JsonWebTokens;
 using eShop.WebApp.Services.OrderStatus.IntegrationEvents;
 using eShop.Basket.API.Grpc;
 using eShop.EventBusRabbitMQ;
-using OllamaSharp;
-using OpenAI;
 
 public static class Extensions
 {
