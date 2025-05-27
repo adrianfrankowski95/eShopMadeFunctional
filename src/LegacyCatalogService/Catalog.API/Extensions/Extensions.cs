@@ -1,7 +1,5 @@
 ﻿using eShop.Catalog.API.Services;
 using eShop.EventBusRabbitMQ;
-using Microsoft.Extensions.AI;
-using OpenAI;
 
 public static class Extensions
 {
@@ -40,18 +38,13 @@ public static class Extensions
 
         if (builder.Configuration["OllamaEnabled"] is string ollamaEnabled && bool.Parse(ollamaEnabled))
         {
-            builder.AddOllamaSharpEmbeddingGenerator("embedding");
-            builder.Services.AddEmbeddingGenerator(b => b.GetRequiredService<IEmbeddingGenerator<string, Embedding<float>>>())
-                .UseOpenTelemetry()
-                .UseLogging();
+            builder.AddOllamaApiClient("embedding")
+                .AddEmbeddingGenerator();
         }
-        else if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("openai")))
+        else if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("textEmbeddingModel")))
         {
-            builder.AddOpenAIClientFromConfiguration("openai");
-            builder.Services.AddEmbeddingGenerator(sp => sp.GetRequiredService<OpenAIClient>().AsEmbeddingGenerator(builder.Configuration["AI:OpenAI:EmbeddingModel"]!))
-                .UseOpenTelemetry()
-                .UseLogging()
-                .Build();
+            builder.AddOpenAIClientFromConfiguration("textEmbeddingModel")
+                .AddEmbeddingGenerator();
         }
 
         builder.Services.AddScoped<ICatalogAI, CatalogAI>();

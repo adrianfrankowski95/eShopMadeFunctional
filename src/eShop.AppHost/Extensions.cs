@@ -16,7 +16,8 @@ internal static class Extensions
 
     private class AddForwardHeadersHook : IDistributedApplicationLifecycleHook
     {
-        public Task BeforeStartAsync(DistributedApplicationModel appModel, CancellationToken cancellationToken = default)
+        public Task BeforeStartAsync(DistributedApplicationModel appModel,
+            CancellationToken cancellationToken = default)
         {
             foreach (var p in appModel.GetProjectResources())
             {
@@ -41,7 +42,7 @@ internal static class Extensions
         const string textEmbeddingModelName = "text-embedding-3-small";
         const string chatModelName = "gpt-4o-mini";
 
-        // to use an existing OpenAI resource, add the following to the AppHost user secrets:
+        // to use an existing OpenAI resource as a connection string, add the following to the AppHost user secrets:
         // "ConnectionStrings": {
         //   "openai": "Key=<API Key>" (to use https://api.openai.com/)
         //     -or-
@@ -60,9 +61,29 @@ internal static class Extensions
             //   "ResourceGroupPrefix": "<prefix>",
             //   "Location": "<location>"
             // }
-            openAI = builder.AddAzureOpenAI(openAIName)
+            var openAiTyped = builder.AddAzureOpenAI(openAIName);
+
+            // to use an existing Azure OpenAI resource via provisioning, add the following to the AppHost user secrets:
+            // "Parameters": {
+            //   "openaiName": "<Azure OpenAI resource name>",
+            //   "openaiResourceGroup": "<Azure OpenAI resource group>"
+            // }
+            // - or -
+            // leave the parameters out to create a new Azure OpenAI resource
+            if (builder.Configuration["Parameters:openaiName"] is not null &&
+                builder.Configuration["Parameters:openaiResourceGroup"] is not null)
+            {
+                openAiTyped.AsExisting(
+                    builder.AddParameter("openaiName"),
+                    builder.AddParameter("openaiResourceGroup"));
+            }
+
+            openAiTyped
                 .AddDeployment(new AzureOpenAIDeployment(chatModelName, "gpt-4o-mini", "2024-07-18"))
-                .AddDeployment(new AzureOpenAIDeployment(textEmbeddingModelName, "text-embedding-3-small", "1", skuCapacity: 20)); // 20k tokens per minute are needed to seed the initial embeddings
+                .AddDeployment(new AzureOpenAIDeployment(textEmbeddingModelName, "text-embedding-3-small", "1",
+                    skuCapacity: 20)); // 20k tokens per minute are needed to seed the initial embeddings
+
+            openAI = openAiTyped;
         }
 
         catalogApi

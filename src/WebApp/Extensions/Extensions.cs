@@ -12,6 +12,7 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using eShop.WebApp.Services.OrderStatus.IntegrationEvents;
 using eShop.Basket.API.Grpc;
 using eShop.EventBusRabbitMQ;
+using OllamaSharp;
 using OpenAI;
 
 public static class Extensions
@@ -31,7 +32,7 @@ public static class Extensions
         builder.Services.AddSingleton<BasketService>();
         builder.Services.AddSingleton<OrderStatusNotificationService>();
         builder.Services.AddSingleton<IProductImageUrlProvider, ProductImageUrlProvider>();
-        builder.AddAIServices();
+        builder.AddAiServices();
 
         // HTTP and GRPC client registrations
         builder.Services.AddGrpcClient<Basket.BasketClient>(o => o.Address = new("http://basket-api"))
@@ -97,29 +98,21 @@ public static class Extensions
         services.AddCascadingAuthenticationState();
     }
 
-    private static void AddAIServices(this IHostApplicationBuilder builder)
+    private static void AddAiServices(this IHostApplicationBuilder builder)
     {
+        ChatClientBuilder? chatClientBuilder = null;
+        
         if (builder.Configuration["OllamaEnabled"] is string ollamaEnabled && bool.Parse(ollamaEnabled))
         {
-            builder.AddOllamaSharpChatClient("chat");
-            builder.Services.AddChatClient(b => b.GetRequiredService<IChatClient>())
-                .UseFunctionInvocation()
-                .UseOpenTelemetry(configure: t => t.EnableSensitiveData = true)
-                .UseLogging();
+            chatClientBuilder = builder.AddOllamaApiClient("chat")
+                .AddChatClient();
         }
-        else
+        else if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("chatModel")))
         {
-            var chatModel = builder.Configuration.GetSection("AI").Get<AIOptions>()?.OpenAI?.ChatModel;
-            if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("openai")) && !string.IsNullOrWhiteSpace(chatModel))
-            {
-                builder.AddOpenAIClientFromConfiguration("openai");
-                builder.Services.AddChatClient(sp => sp.GetRequiredService<OpenAIClient>().AsChatClient(chatModel ?? "gpt-4o-mini"))
-                    .UseFunctionInvocation()
-                    .UseOpenTelemetry(configure: t => t.EnableSensitiveData = true)
-                    .UseLogging()
-                    .Build();
-            }
+            chatClientBuilder = builder.AddOpenAIClientFromConfiguration("chatModel").AddChatClient();
         }
+        
+        chatClientBuilder?.UseFunctionInvocation();
     }
 
     public static async Task<string?> GetBuyerIdAsync(this AuthenticationStateProvider authenticationStateProvider)
