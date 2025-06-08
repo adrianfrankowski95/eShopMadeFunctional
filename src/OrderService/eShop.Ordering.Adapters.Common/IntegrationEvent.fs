@@ -1,6 +1,7 @@
 ﻿[<RequireQualifiedAccess>]
 module eShop.Ordering.Adapters.Common.IntegrationEvent
 
+open System
 open System.Text.Json
 open Microsoft.FSharp.Reflection
 open FsToolkit.ErrorHandling
@@ -11,40 +12,40 @@ open eShop.Prelude
 open eShop.Ordering.Domain.Model
 
 [<CLIMutable>]
-type GracePeriodConfirmed = { OrderId: int }
+type GracePeriodConfirmed = { OrderId: Guid }
 
 [<CLIMutable>]
-type OrderStockConfirmed = { OrderId: int }
+type OrderStockConfirmed = { OrderId: Guid }
 
 [<CLIMutable>]
 type ConfirmedOrderStockItem = { ProductId: int; HasStock: bool }
 
 [<CLIMutable>]
 type OrderStockRejected =
-    { OrderId: int
+    { OrderId: Guid
       OrderStockItems: ConfirmedOrderStockItem list }
 
 [<CLIMutable>]
-type OrderPaymentFailed = { OrderId: int }
+type OrderPaymentFailed = { OrderId: Guid }
 
 [<CLIMutable>]
-type OrderPaymentSucceeded = { OrderId: int }
+type OrderPaymentSucceeded = { OrderId: Guid }
 
 [<CLIMutable>]
 type OrderStatusChangedToStarted =
-    { OrderId: int
+    { OrderId: Guid
       BuyerName: string
       BuyerIdentityGuid: string }
 
 [<CLIMutable>]
 type OrderStatusChangedToCancelled =
-    { OrderId: int
+    { OrderId: Guid
       BuyerName: string
       BuyerIdentityGuid: string }
 
 [<CLIMutable>]
 type OrderStatusChangedToShipped =
-    { OrderId: int
+    { OrderId: Guid
       BuyerName: string
       BuyerIdentityGuid: string }
 
@@ -53,27 +54,27 @@ type OrderStockItem = { ProductId: int; Units: int }
 
 [<CLIMutable>]
 type OrderStatusChangedToAwaitingValidation =
-    { OrderId: int
+    { OrderId: Guid
       BuyerName: string
       BuyerIdentityGuid: string
       OrderStockItems: OrderStockItem list }
 
 [<CLIMutable>]
 type OrderStatusChangedToPaid =
-    { OrderId: int
+    { OrderId: Guid
       BuyerName: string
       BuyerIdentityGuid: string
       OrderStockItems: OrderStockItem list }
 
 [<CLIMutable>]
 type OrderStatusChangedToStockConfirmed =
-    { OrderId: int
+    { OrderId: Guid
       BuyerName: string
       BuyerIdentityGuid: string }
 
 [<CLIMutable>]
 type OrderStatusChangedToSubmitted =
-    { OrderId: int
+    { OrderId: Guid
       BuyerName: string
       BuyerIdentityGuid: string }
 
@@ -120,7 +121,7 @@ module Consumed =
         | OrderStockRejected ev -> ev.OrderId
         | OrderPaymentFailed ev -> ev.OrderId
         | OrderPaymentSucceeded ev -> ev.OrderId
-        |> AggregateId.ofInt<OrderAggregate.State>
+        |> AggregateId.ofGuid<OrderAggregate.State>
 
 type Published =
     | OrderStatusChangedToStarted of OrderStatusChangedToStarted

@@ -18,7 +18,7 @@ let private ordersApi: HttpHandler =
                         StartOrderHandler.post CompositionRoot.buildStartOrderWorkflowFromCtx
                     ) ])
 
-          routef "/%i" (fun orderId -> GET >=> text $"Get order by ID: %d{orderId}")
+          routef "/%s" (fun orderId -> GET >=> text $"Get order by ID: %s{orderId}")
 
           route "/cardtypes" >=> GET >=> text "Get card types"
 

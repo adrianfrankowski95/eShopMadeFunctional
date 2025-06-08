@@ -8,7 +8,7 @@ open eShop.Prelude
 [<RequireQualifiedAccess>]
 module RejectOrderItemsStockWorkflow =
     type T<'ioError> =
-        ExecutableWorkflow<
+        Workflow<
             OrderAggregate.Command.SetStockRejectedOrderStatus,
             OrderAggregate.State,
             OrderAggregate.Event,

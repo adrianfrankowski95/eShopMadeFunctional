@@ -28,29 +28,28 @@ module TransactionalWorkflowExecutor =
         { options with
             IsolationLevel = isolationLevel }
 
-    let execute (options: Options) workflow : Workflow<_, _, _, _> =
-        fun aggregateId command ->
-            let rec executeInTransaction workflow (retries: Delay list) =
-                asyncResult {
-                    let connection = options.GetDbConnection()
-                    do! connection.OpenAsync()
+    let execute (options: Options) workflow : WorkflowResult<_, _, _> =
+        let rec executeInTransaction workflow (retries: Delay list) =
+            asyncResult {
+                let connection = options.GetDbConnection()
+                do! connection.OpenAsync()
 
-                    let! transaction = connection.BeginTransactionAsync(options.IsolationLevel).AsTask()
+                let! transaction = connection.BeginTransactionAsync(options.IsolationLevel).AsTask()
 
-                    return!
-                        command
-                        |> workflow transaction aggregateId
-                        |> AsyncResult.teeAsync (fun _ -> transaction.CommitAsync() |> Async.AwaitTask)
-                        |> AsyncResult.teeErrorAsync (fun _ -> transaction.RollbackAsync() |> Async.AwaitTask)
-                        |> AsyncResult.teeAnyAsync (connection.CloseAsync >> Async.AwaitTask)
-                        |> AsyncResult.orElseWith (fun error ->
-                            match retries with
-                            | [] -> error |> AsyncResult.error
-                            | head :: tail ->
-                                asyncResult {
-                                    do! head |> Async.Sleep
-                                    return! tail |> executeInTransaction workflow
-                                })
-                }
+                return!
+                    transaction
+                    |> workflow
+                    |> AsyncResult.teeAsync (fun _ -> transaction.CommitAsync() |> Async.AwaitTask)
+                    |> AsyncResult.teeErrorAsync (fun _ -> transaction.RollbackAsync() |> Async.AwaitTask)
+                    |> AsyncResult.teeAnyAsync (connection.CloseAsync >> Async.AwaitTask)
+                    |> AsyncResult.orElseWith (fun error ->
+                        match retries with
+                        | [] -> error |> AsyncResult.error
+                        | head :: tail ->
+                            asyncResult {
+                                do! head |> Async.Sleep
+                                return! tail |> executeInTransaction workflow
+                            })
+            }
 
-            executeInTransaction workflow options.Retries
+        executeInTransaction workflow options.Retries

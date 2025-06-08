@@ -166,7 +166,7 @@ module EventsProcessor =
                             (cmd.Attempt, cmd.AggregateId, cmd.Event, failedHandlers |> List.map fst |> Set.ofList)
                             |> MaxEventProcessingRetriesReached
                             |> options.ErrorHandler
-                            |> Async.retn
+                            |> Async.singleton
             }
 
         let restoreState =

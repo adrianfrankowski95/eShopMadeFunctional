@@ -49,7 +49,7 @@ module Postgres =
         [<CLIMutable>]
         type Event =
             { EventId: Guid
-              AggregateId: int
+              AggregateId: Guid
               EventData: string
               OccurredAt: DateTimeOffset
               SuccessfulHandlers: string array }
@@ -64,7 +64,7 @@ module Postgres =
                 |> Json.deserialize<'eventPayloadDto> jsonOptions
                 |> Result.bind (parsePayload >> Result.mapError InvalidData)
                 |> Result.map (fun payload ->
-                    dto.AggregateId |> AggregateId.ofInt<'state>,
+                    dto.AggregateId |> AggregateId.ofGuid<'state>,
                     { Id = dto.EventId |> EventId.ofGuid
                       Data = payload
                       OccurredAt = dto.OccurredAt },

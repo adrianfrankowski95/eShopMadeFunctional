@@ -17,14 +17,12 @@ open eShop.DomainDrivenDesign
 type Extensions =
     [<Extension>]
     static member AddRabbitMQ(builder: IHostApplicationBuilder, connectionName) =
-        let isNotDevelopment = builder.Environment.IsDevelopment() |> not
-
         builder.AddRabbitMQClient(
             connectionName,
             configureSettings =
                 (fun settings ->
-                    settings.DisableTracing <- isNotDevelopment
-                    settings.DisableHealthChecks <- isNotDevelopment),
+                    settings.DisableTracing <- false
+                    settings.DisableHealthChecks <- false),
             configureConnectionFactory =
                 (fun factory ->
                     factory.DispatchConsumersAsync <- true

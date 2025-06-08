@@ -89,7 +89,9 @@ type OrderAggregateEventsProcessor =
 let private buildOrderAggregateEventsProcessor services : OrderAggregateEventsProcessor =
     let sqlSession = services |> getStandaloneSqlSession
     let logger = services.Get<ILogger<OrderAggregateEventsProcessor>>()
-    let eventsProcessorAdapter = services.Get<ISqlOrderAggregateEventsProcessorAdapter>()
+
+    let eventsProcessorAdapter =
+        services.Get<ISqlOrderAggregateEventsProcessorAdapter>()
 
     let persistEvents =
         eventsProcessorAdapter.PersistOrderEvents |> buildPersistEvents services
@@ -172,7 +174,7 @@ let private buildTransactionalWorkflowExecutor (services: Services) =
     |> TransactionalWorkflowExecutor.withIsolationLevel IsolationLevel.ReadCommitted
     |> TransactionalWorkflowExecutor.execute
 
-let private buildOrderWorkflowExecutor (services: Services) workflowToExecute =
+let private buildOrderWorkflowExecutor (services: Services) orderAggregateId command workflow =
     let orderAdapter = services.Get<ISqlOrderAggregateManagementAdapter>()
 
     let getUtcNow = services.Get<GetUtcNow>()
@@ -187,13 +189,20 @@ let private buildOrderWorkflowExecutor (services: Services) workflowToExecute =
 
         let persistOrder = dbTransaction |> orderAdapter.PersistOrderAggregate
 
-        workflowToExecute
-        |> WorkflowExecutor.execute getUtcNow generateEventId readOrder persistOrder eventsProcessor.Process
+        workflow
+        |> Workflow.runForAggregate
+            getUtcNow
+            generateEventId
+            readOrder
+            persistOrder
+            eventsProcessor.Process
+            orderAggregateId
+            command
     |> buildTransactionalWorkflowExecutor services
 
-
 type EventDrivenOrderWorkflowDispatcherError =
-    | WorkflowExecutorError of WorkflowExecutorError<OrderAggregate.InvalidStateError, SqlIoError>
+    | WorkflowExecutorError of
+        WorkflowExecutionError<OrderAggregate.State, OrderAggregate.InvalidStateError, SqlIoError>
     | InvalidEventData of string
 
 type EventDrivenOrderWorkflowDispatcher =
@@ -204,8 +213,8 @@ let private buildEventDrivenOrderWorkflow services : EventDrivenOrderWorkflowDis
         let inline toWorkflowError x =
             x |> AsyncResult.mapError WorkflowExecutorError
 
-        let inline executeWorkflow command workflow =
-            buildOrderWorkflowExecutor services workflow orderAggregateId command
+        let inline executeWorkflow command =
+            buildOrderWorkflowExecutor services orderAggregateId command
 
         match integrationEvent.Data with
         | IntegrationEvent.Consumed.GracePeriodConfirmed _ ->
@@ -249,7 +258,9 @@ let private buildOrderIntegrationEventsProcessor services : OrderIntegrationEven
     let sqlSession = services |> getStandaloneSqlSession
     let config = services.Get<IOptions<Configuration.RabbitMQOptions>>()
     let logger = services.Get<ILogger<OrderIntegrationEventsProcessor>>()
-    let eventsProcessorAdapter = services.Get<ISqlOrderIntegrationEventsProcessorAdapter>()
+
+    let eventsProcessorAdapter =
+        services.Get<ISqlOrderIntegrationEventsProcessorAdapter>()
 
     let persistEvents =
         eventsProcessorAdapter.PersistOrderEvents |> buildPersistEvents services
@@ -331,7 +342,7 @@ let buildOrderIntegrationEventsProcessorFromSp (sp: IServiceProvider) =
 
 type OrderWorkflowIoError = Either<SqlIoError, HttpIoError>
 
-let private buildStartOrderWorkflow (services: Services) =
+let private buildStartOrderWorkflow (services: Services) command =
     let sqlPaymentAdapter = services.Get<ISqlPaymentManagementAdapter>()
     let sqlOrderAdapter = services.Get<ISqlOrderAggregateManagementAdapter>()
     let httpPaymentAdapter = services.Get<IHttpPaymentManagementAdapter>()
@@ -340,12 +351,16 @@ let private buildStartOrderWorkflow (services: Services) =
 
     let generateEventId = services.Get<GenerateId<eventId>>()
 
+    let generateOrderAggregateId =
+        services.Get<GenerateAggregateId<OrderAggregate.State>>()
+
     let processEvents =
         services.Get<OrderAggregateEventsProcessor>().Process
         >>> AsyncResult.mapError Left
 
     let verifyPaymentMethod =
-        httpPaymentAdapter.VerifyPaymentMethod >> AsyncResult.mapError (Either.mapRight Right)
+        httpPaymentAdapter.VerifyPaymentMethod
+        >> AsyncResult.mapError (Either.mapRight Right)
 
     fun dbTransaction ->
         let readOrder =
@@ -365,10 +380,18 @@ let private buildStartOrderWorkflow (services: Services) =
             >> AsyncResult.mapError Left
 
         StartOrderWorkflow.build getSupportedCardTypes verifyPaymentMethod
-        |> WorkflowExecutor.execute getUtcNow generateEventId readOrder persistOrder processEvents
+        |> Workflow.runForNewAggregate
+            getUtcNow
+            generateEventId
+            generateOrderAggregateId
+            OrderAggregate.initialState
+            readOrder
+            persistOrder
+            processEvents
+            command
     |> buildTransactionalWorkflowExecutor services
 
 let buildStartOrderWorkflowFromCtx
     (ctx: HttpContext)
-    : Workflow<OrderAggregate.State, StartOrderWorkflow.Command, _, _> =
+    : StartOrderWorkflow.Command -> WorkflowResult<OrderAggregate.State, _, _> =
     ctx |> Services.fromCtx |> buildStartOrderWorkflow

@@ -321,6 +321,8 @@ let evolve (state: State) (command: Command) : Result<State * Event list, Invali
 
     | state, _ -> (state, []) |> Ok
 
+let initialState = State.Init
+
 let getBuyerId =
     function
     | Init -> None

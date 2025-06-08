@@ -53,7 +53,7 @@ module internal Dto =
 
     [<CLIMutable>]
     type Order =
-        { Id: int
+        { Id: Guid
           Status: string
           Description: string option
           ItemProductId: int option
@@ -197,7 +197,7 @@ module internal Dto =
                    Name = buyerName }
                 : Buyer))
 
-        let toDomain (maybeOrder: (int * Order seq) option) : Result<OrderAggregate.State, string> =
+        let toDomain (maybeOrder: (Guid * Order seq) option) : Result<OrderAggregate.State, string> =
             maybeOrder
             |> Option.map (fun (_, orders) ->
                 let orderDto = orders |> Seq.head
@@ -233,7 +233,7 @@ module internal Dto =
                                 |> Result.bind (
                                     Seq.choose id
                                     >> NonEmptyMap.ofSeq
-                                    >> Result.mapError ((+) "Invalid OrderItems: " >> Seq.singleton)
+                                    >> Result.mapError ((+) "Invalid OrderItems: " >> Array.singleton)
                                 )
                                 |> Result.mapError (String.concat "; ")
 
@@ -259,7 +259,7 @@ module internal Dto =
                                 |> Result.bind (
                                     Seq.choose id
                                     >> NonEmptyMap.ofSeq
-                                    >> Result.mapError ((+) "Invalid OrderItems: " >> Seq.singleton)
+                                    >> Result.mapError ((+) "Invalid OrderItems: " >> Array.singleton)
                                 )
                                 |> Result.mapError (String.concat "; ")
 
@@ -290,7 +290,7 @@ module internal Dto =
                                 |> Result.bind (
                                     Seq.choose id
                                     >> NonEmptyMap.ofSeq
-                                    >> Result.mapError ((+) "Invalid OrderItems: " >> Seq.singleton)
+                                    >> Result.mapError ((+) "Invalid OrderItems: " >> Array.singleton)
                                 )
                                 |> Result.mapError (String.concat "; ")
 
@@ -322,7 +322,7 @@ module internal Dto =
                                 |> Result.bind (
                                     Seq.choose id
                                     >> NonEmptyMap.ofSeq
-                                    >> Result.mapError ((+) "Invalid OrderItems: " >> Seq.singleton)
+                                    >> Result.mapError ((+) "Invalid OrderItems: " >> Array.singleton)
                                 )
                                 |> Result.mapError (String.concat "; ")
 
@@ -354,7 +354,7 @@ module internal Dto =
                                 |> Result.bind (
                                     Seq.choose id
                                     >> NonEmptyMap.ofSeq
-                                    >> Result.mapError ((+) "Invalid OrderItems: " >> Seq.singleton)
+                                    >> Result.mapError ((+) "Invalid OrderItems: " >> Array.singleton)
                                 )
                                 |> Result.mapError (String.concat "; ")
 
@@ -385,7 +385,7 @@ module internal Dto =
                                 |> Result.bind (
                                     Seq.choose id
                                     >> NonEmptyMap.ofSeq
-                                    >> Result.mapError ((+) "Invalid OrderItems: " >> Seq.singleton)
+                                    >> Result.mapError ((+) "Invalid OrderItems: " >> Array.singleton)
                                 )
                                 |> Result.mapError (String.concat "; ")
 

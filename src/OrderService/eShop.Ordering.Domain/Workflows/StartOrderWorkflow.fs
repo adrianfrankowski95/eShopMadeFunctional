@@ -28,7 +28,7 @@ module StartOrderWorkflow =
         | InvalidOrderItems of Map<ProductId, DiscountHigherThanTotalPriceError>
         | InvalidOrderState of OrderAggregate.InvalidStateError
 
-    type T<'ioError> = ExecutableWorkflow<Command, OrderAggregate.State, OrderAggregate.Event, DomainError, 'ioError>
+    type T<'ioError> = Workflow<Command, OrderAggregate.State, OrderAggregate.Event, DomainError, 'ioError>
 
     let build
         (getSupportedCardTypes: PaymentManagementPort.GetSupportedCardTypes<'ioError>)
@@ -64,7 +64,7 @@ module StartOrderWorkflow =
                         | Left(_: PaymentManagementPort.InvalidPaymentMethodError) ->
                             unverifiedPaymentMethod |> InvalidPaymentMethod |> Left)
 
-                and! validatedOrderItems =
+                let! validatedOrderItems =
                     command.OrderItems
                     |> NonEmptyMap.traverseResultA (fun (productId, unvalidatedOrderItem) ->
                         unvalidatedOrderItem

@@ -97,13 +97,11 @@ module Request =
         |> Result.mapError (String.concat "; ")
 
 let post
-    (buildStartOrderWorkflow: HttpContext -> Workflow<OrderAggregate.State, StartOrderWorkflow.Command, _, _>)
+    (buildStartOrderWorkflow: HttpContext -> StartOrderWorkflow.Command -> WorkflowResult<_, _, _>)
     (request: Request)
     : HttpHandler =
     fun next ctx ->
         asyncResult {
-            let orderId = 0 |> AggregateId.ofInt<OrderAggregate.State>
-
             let logError err =
                 ctx
                     .GetLogger<Logger>()
@@ -119,7 +117,7 @@ let post
 
             return!
                 workflowCommand
-                |> buildStartOrderWorkflow ctx orderId
+                |> buildStartOrderWorkflow ctx
                 |> AsyncResult.map Successful.OK
                 |> AsyncResult.teeError logError
                 |> AsyncResult.mapError (_.ToString() >> ServerErrors.INTERNAL_ERROR)

@@ -120,13 +120,13 @@ module RabbitMQ =
         asyncResult {
             let rec ensureIsOpen (connection: IConnection) (retries: TimeSpan list) =
                 match connection.IsOpen, retries with
-                | true, _ -> true |> Async.retn
+                | true, _ -> true |> Async.singleton
                 | false, head :: tail ->
                     async {
                         do! Async.Sleep head
                         return! ensureIsOpen connection tail
                     }
-                | false, [] -> false |> Async.retn
+                | false, [] -> false |> Async.singleton
 
             let inline exnToMsg msg : Result<_, exn> -> Result<_, string> =
                 Result.mapError (_.Message >> sprintf "%s: %s" msg)

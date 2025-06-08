@@ -13,6 +13,7 @@ open eShop.ConstrainedTypes
 open eShop.DomainDrivenDesign
 open eShop.Ordering.API.PortsAdapters
 open eShop.Ordering.Adapters.Common
+open eShop.Ordering.Domain.Model
 open eShop.Postgres
 open eShop.Postgres.DependencyInjection
 open eShop.ServiceDefaults
@@ -53,7 +54,11 @@ let private configureTime (services: IServiceCollection) =
     services.AddTransient<GetUtcNow>(Func<IServiceProvider, GetUtcNow>(fun _ () -> DateTimeOffset.UtcNow))
 
 let private configureGenerators (services: IServiceCollection) =
-    services.AddTransient<GenerateId<eventId>>(Func<IServiceProvider, GenerateId<eventId>>(fun _ -> EventId.generate))
+    services
+        .AddTransient<GenerateId<eventId>>(Func<IServiceProvider, GenerateId<eventId>>(fun _ -> EventId.generate))
+        .AddTransient<GenerateAggregateId<OrderAggregate.State>>(
+            Func<IServiceProvider, GenerateAggregateId<OrderAggregate.State>>(fun _ -> AggregateId.generate)
+        )
 
 let private configureOrderAggregateEventsProcessor (services: IServiceCollection) =
     services.AddSingleton<CompositionRoot.OrderAggregateEventsProcessor>(
