@@ -109,6 +109,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.Ordering.Adapters.Com
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.Ordering.Adapters.Http", "src\OrderService\eShop.Ordering.Adapters.Http\eShop.Ordering.Adapters.Http.fsproj", "{DFB10615-5935-4113-B91E-1767C31921B3}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.Ordering.Adapters.Logging", "src\OrderService\eShop.Ordering.Adapters.Logging\eShop.Ordering.Adapters.Logging.fsproj", "{22E5D184-6E91-474E-9A09-EB6331619AE2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -271,6 +273,10 @@ Global
 		{DFB10615-5935-4113-B91E-1767C31921B3}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{DFB10615-5935-4113-B91E-1767C31921B3}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{DFB10615-5935-4113-B91E-1767C31921B3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{22E5D184-6E91-474E-9A09-EB6331619AE2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{22E5D184-6E91-474E-9A09-EB6331619AE2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{22E5D184-6E91-474E-9A09-EB6331619AE2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{22E5D184-6E91-474E-9A09-EB6331619AE2}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -321,6 +327,7 @@ Global
 		{715534C3-98AA-4747-A01F-3CF8F36BC0EB} = {980F20CB-CBCB-48E9-A7E5-DEB057C8D1BD}
 		{00C4E315-C3EC-4EF4-AAF1-A2337FAA57EB} = {980F20CB-CBCB-48E9-A7E5-DEB057C8D1BD}
 		{DFB10615-5935-4113-B91E-1767C31921B3} = {980F20CB-CBCB-48E9-A7E5-DEB057C8D1BD}
+		{22E5D184-6E91-474E-9A09-EB6331619AE2} = {980F20CB-CBCB-48E9-A7E5-DEB057C8D1BD}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {25728519-5F0F-4973-8A64-0A81EB4EA8D9}

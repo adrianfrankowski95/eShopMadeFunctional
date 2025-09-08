@@ -5,23 +5,14 @@ open eShop.Ordering.Domain.Model
 open FsToolkit.ErrorHandling
 open eShop.Prelude
 
+type RejectOrderItemsStockWorkflow<'ioError> =
+    Workflow<Order.Command.SetStockRejectedOrderStatus, Order.State, Order.Event, Order.InvalidStateError, 'ioError>
+
 [<RequireQualifiedAccess>]
 module RejectOrderItemsStockWorkflow =
-    type T<'ioError> =
-        Workflow<
-            OrderAggregate.Command.SetStockRejectedOrderStatus,
-            OrderAggregate.State,
-            OrderAggregate.Event,
-            OrderAggregate.InvalidStateError,
-            'ioError
-         >
-
-    let build: T<'ioError> =
+    let build: RejectOrderItemsStockWorkflow<'ioError> =
         fun _ state command ->
-            command
-            |> OrderAggregate.Command.SetStockRejectedOrderStatus
-            |> OrderAggregate.evolve state
+            state
+            |> Order.setStockRejectedStatus command
             |> Result.mapError Left
             |> AsyncResult.ofResult
-
-type RejectOrderItemsStockWorkflow<'ioError> = RejectOrderItemsStockWorkflow.T<'ioError>

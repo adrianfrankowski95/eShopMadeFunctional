@@ -8,6 +8,7 @@ open eShop.Ordering.Domain.Model
 open eShop.Ordering.Domain.Model.ValueObjects
 open eShop.Ordering.Domain.Ports
 open eShop.DomainDrivenDesign
+open eShop.DomainDrivenDesign.Postgres
 open eShop.Postgres
 open eShop.Prelude
 
@@ -42,14 +43,14 @@ module internal Dto =
 
         let ofOrder =
             function
-            | OrderAggregate.Init -> None
-            | OrderAggregate.Draft _ -> OrderStatus.Draft |> Some
-            | OrderAggregate.Submitted _ -> OrderStatus.Submitted |> Some
-            | OrderAggregate.AwaitingStockValidation _ -> OrderStatus.AwaitingStockValidation |> Some
-            | OrderAggregate.WithConfirmedStock _ -> OrderStatus.StockConfirmed |> Some
-            | OrderAggregate.Paid _ -> OrderStatus.Paid |> Some
-            | OrderAggregate.Shipped _ -> OrderStatus.Shipped |> Some
-            | OrderAggregate.Cancelled _ -> OrderStatus.Cancelled |> Some
+            | Order.State.Init -> None
+            | Order.State.Draft _ -> OrderStatus.Draft |> Some
+            | Order.State.Submitted _ -> OrderStatus.Submitted |> Some
+            | Order.State.AwaitingStockValidation _ -> OrderStatus.AwaitingStockValidation |> Some
+            | Order.State.WithConfirmedStock _ -> OrderStatus.StockConfirmed |> Some
+            | Order.State.Paid _ -> OrderStatus.Paid |> Some
+            | Order.State.Shipped _ -> OrderStatus.Shipped |> Some
+            | Order.State.Cancelled _ -> OrderStatus.Cancelled |> Some
 
     [<CLIMutable>]
     type Order =
@@ -197,7 +198,7 @@ module internal Dto =
                    Name = buyerName }
                 : Buyer))
 
-        let toDomain (maybeOrder: (Guid * Order seq) option) : Result<OrderAggregate.State, string> =
+        let toDomain (maybeOrder: (Guid * Order seq) option) : Result<Order.State, string> =
             maybeOrder
             |> Option.map (fun (_, orders) ->
                 let orderDto = orders |> Seq.head
@@ -217,8 +218,8 @@ module internal Dto =
                             >> fun items ->
                                 ({ BuyerId = buyerId
                                    UnvalidatedOrderItems = items }
-                                : OrderAggregate.State.Draft)
-                                |> OrderAggregate.Draft
+                                : Order.State.Draft)
+                                |> Order.State.Draft
                         )
                     | Submitted ->
                         validation {
@@ -243,8 +244,8 @@ module internal Dto =
                                    Address = address
                                    StartedAt = startedAt
                                    UnconfirmedOrderItems = orderItems }
-                                : OrderAggregate.State.Submitted)
-                                |> OrderAggregate.Submitted
+                                : Order.State.Submitted)
+                                |> Order.State.Submitted
                         }
                     | AwaitingStockValidation ->
                         validation {
@@ -269,8 +270,8 @@ module internal Dto =
                                    Address = address
                                    StartedAt = startedAt
                                    UnconfirmedOrderItems = orderItems }
-                                : OrderAggregate.State.AwaitingStockValidation)
-                                |> OrderAggregate.AwaitingStockValidation
+                                : Order.State.AwaitingStockValidation)
+                                |> Order.State.AwaitingStockValidation
                         }
                     | StockConfirmed ->
                         validation {
@@ -301,8 +302,8 @@ module internal Dto =
                                    StartedAt = startedAt
                                    ConfirmedOrderItems = orderItems
                                    Description = description }
-                                : OrderAggregate.State.WithConfirmedStock)
-                                |> OrderAggregate.WithConfirmedStock
+                                : Order.State.WithConfirmedStock)
+                                |> Order.State.WithConfirmedStock
                         }
                     | Paid ->
                         validation {
@@ -333,8 +334,8 @@ module internal Dto =
                                    StartedAt = startedAt
                                    PaidOrderItems = orderItems
                                    Description = description }
-                                : OrderAggregate.State.Paid)
-                                |> OrderAggregate.Paid
+                                : Order.State.Paid)
+                                |> Order.State.Paid
                         }
                     | Shipped ->
                         validation {
@@ -365,8 +366,8 @@ module internal Dto =
                                    StartedAt = startedAt
                                    ShippedOrderItems = orderItems
                                    Description = description }
-                                : OrderAggregate.State.Shipped)
-                                |> OrderAggregate.Shipped
+                                : Order.State.Shipped)
+                                |> Order.State.Shipped
                         }
                     | Cancelled ->
                         validation {
@@ -395,10 +396,328 @@ module internal Dto =
                                    StartedAt = startedAt
                                    CancelledOrderItems = orderItems
                                    Description = description }
-                                : OrderAggregate.State.Cancelled)
-                                |> OrderAggregate.Cancelled
+                                : Order.State.Cancelled)
+                                |> Order.State.Cancelled
                         }))
-            |> Option.defaultValue (OrderAggregate.Init |> Ok)
+            |> Option.defaultValue (Order.State.Init |> Ok)
+            |> Result.mapError (String.concat "; ")
+
+    type OrderItem =
+        { ProductId: int
+          ProductName: string
+          UnitPrice: decimal
+          Units: int
+          Discount: decimal
+          PictureUrl: string option }
+
+    type StockToValidate = { ProductId: int; Units: int }
+
+    type OrderStartedEvent = { BuyerId: Guid; BuyerName: string }
+
+    type PaymentMethodVerifiedEvent =
+        { BuyerId: Guid
+          BuyerName: string
+          CardTypeId: int
+          CardTypeName: string
+          CardNumber: string
+          CardHolderName: string
+          CardExpiration: DateOnly }
+
+    type OrderCancelledEvent = { BuyerId: Guid; BuyerName: string }
+
+    type OrderStatusChangedToAwaitingValidationEvent =
+        { BuyerId: Guid
+          BuyerName: string
+          StockToValidate: StockToValidate list }
+
+    type OrderStockConfirmedEvent =
+        { BuyerId: Guid
+          BuyerName: string
+          ConfirmedOrderItems: OrderItem list }
+
+    type OrderPaidEvent =
+        { BuyerId: Guid
+          BuyerName: string
+          PaidOrderItems: OrderItem list }
+
+    type OrderShippedEvent =
+        { BuyerId: Guid
+          BuyerName: string
+          ShippedOrderItems: OrderItem list }
+
+    type Event =
+        | OrderStarted of OrderStartedEvent
+        | PaymentMethodVerified of PaymentMethodVerifiedEvent
+        | OrderCancelled of OrderCancelledEvent
+        | OrderStatusChangedToAwaitingValidation of OrderStatusChangedToAwaitingValidationEvent
+        | OrderStockConfirmed of OrderStockConfirmedEvent
+        | OrderPaid of OrderPaidEvent
+        | OrderShipped of OrderShippedEvent
+
+    module Event =
+        let ofDomain (event: Order.Event) : Event =
+            match event with
+            | Order.Event.OrderStarted ev ->
+                ({ BuyerId = ev.Buyer.Id |> BuyerId.value
+                   BuyerName = ev.Buyer.Name |> BuyerName.value }
+                : OrderStartedEvent)
+                |> Event.OrderStarted
+
+            | Order.Event.PaymentMethodVerified ev ->
+                { BuyerId = ev.Buyer.Id |> BuyerId.value
+                  BuyerName = ev.Buyer.Name |> BuyerName.value
+                  CardTypeId = ev.VerifiedPaymentMethod.CardType.Id |> CardTypeId.value
+                  CardTypeName = ev.VerifiedPaymentMethod.CardType.Name |> CardTypeName.value
+                  CardNumber = ev.VerifiedPaymentMethod.CardNumber |> CardNumber.value
+                  CardHolderName = ev.VerifiedPaymentMethod.CardHolderName |> CardHolderName.value
+                  CardExpiration = ev.VerifiedPaymentMethod.CardExpiration }
+                |> Event.PaymentMethodVerified
+
+            | Order.Event.OrderCancelled ev ->
+                ({ BuyerId = ev.Buyer.Id |> BuyerId.value
+                   BuyerName = ev.Buyer.Name |> BuyerName.value }
+                : OrderCancelledEvent)
+                |> Event.OrderCancelled
+
+            | Order.Event.OrderStatusChangedToAwaitingValidation ev ->
+                ({ BuyerId = ev.Buyer.Id |> BuyerId.value
+                   BuyerName = ev.Buyer.Name |> BuyerName.value
+                   StockToValidate =
+                     ev.StockToValidate
+                     |> NonEmptyMap.toList
+                     |> List.map (fun (id, units) ->
+                         { Units = units |> Units.value
+                           ProductId = id |> ProductId.value }) }
+                : OrderStatusChangedToAwaitingValidationEvent)
+                |> Event.OrderStatusChangedToAwaitingValidation
+
+            | Order.Event.OrderStockConfirmed ev ->
+                ({ BuyerId = ev.Buyer.Id |> BuyerId.value
+                   BuyerName = ev.Buyer.Name |> BuyerName.value
+                   ConfirmedOrderItems =
+                     ev.ConfirmedOrderItems
+                     |> NonEmptyMap.toList
+                     |> List.map (fun (id, orderItem) ->
+                         { Units = orderItem.Units |> Units.value
+                           ProductId = id |> ProductId.value
+                           Discount = orderItem.Discount |> Discount.value
+                           PictureUrl = orderItem.PictureUrl
+                           ProductName = orderItem.ProductName |> ProductName.value
+                           UnitPrice = orderItem.UnitPrice |> UnitPrice.value }) }
+                : OrderStockConfirmedEvent)
+                |> Event.OrderStockConfirmed
+
+            | Order.Event.OrderPaid ev ->
+                ({ BuyerId = ev.Buyer.Id |> BuyerId.value
+                   BuyerName = ev.Buyer.Name |> BuyerName.value
+                   PaidOrderItems =
+                     ev.PaidOrderItems
+                     |> NonEmptyMap.toList
+                     |> List.map (fun (id, orderItem) ->
+                         { Units = orderItem.Units |> Units.value
+                           ProductId = id |> ProductId.value
+                           Discount = orderItem.Discount |> Discount.value
+                           PictureUrl = orderItem.PictureUrl
+                           ProductName = orderItem.ProductName |> ProductName.value
+                           UnitPrice = orderItem.UnitPrice |> UnitPrice.value }) }
+                : OrderPaidEvent)
+                |> Event.OrderPaid
+
+            | Order.Event.OrderShipped ev ->
+                ({ BuyerId = ev.Buyer.Id |> BuyerId.value
+                   BuyerName = ev.Buyer.Name |> BuyerName.value
+                   ShippedOrderItems =
+                     ev.ShippedOrderItems
+                     |> NonEmptyMap.toList
+                     |> List.map (fun (id, orderItem) ->
+                         { Units = orderItem.Units |> Units.value
+                           ProductId = id |> ProductId.value
+                           Discount = orderItem.Discount |> Discount.value
+                           PictureUrl = orderItem.PictureUrl
+                           ProductName = orderItem.ProductName |> ProductName.value
+                           UnitPrice = orderItem.UnitPrice |> UnitPrice.value }) }
+                : OrderShippedEvent)
+                |> Event.OrderShipped
+
+        let toDomain (dto: Event) : Result<Order.Event, string> =
+            match dto with
+            | OrderStarted ev ->
+                ev.BuyerName
+                |> BuyerName.create
+                |> Result.mapError List.singleton
+                |> Result.map (fun buyerName ->
+                    ({ Buyer =
+                        { Id = ev.BuyerId |> BuyerId.ofGuid
+                          Name = buyerName } }
+                    : Order.Event.OrderStarted)
+                    |> Order.Event.OrderStarted)
+
+            | PaymentMethodVerified ev ->
+                validation {
+                    let buyerId = ev.BuyerId |> BuyerId.ofGuid
+                    let cardTypeId = ev.CardTypeId |> CardTypeId.ofInt
+
+                    let! buyerName = ev.BuyerName |> BuyerName.create
+                    and! cardNumber = ev.CardNumber |> CardNumber.create
+                    and! cardTypeName = ev.CardTypeName |> CardTypeName.create
+                    and! cardHolderName = ev.CardHolderName |> CardHolderName.create
+
+                    return
+                        ({ Buyer = { Id = buyerId; Name = buyerName }
+                           VerifiedPaymentMethod =
+                             { CardType = { Id = cardTypeId; Name = cardTypeName }
+                               CardExpiration = ev.CardExpiration
+                               CardNumber = cardNumber
+                               CardHolderName = cardHolderName } }
+                        : Order.Event.PaymentMethodVerified)
+                        |> Order.Event.PaymentMethodVerified
+                }
+
+            | OrderCancelled ev ->
+                validation {
+                    let buyerId = ev.BuyerId |> BuyerId.ofGuid
+
+                    let! buyerName = ev.BuyerName |> BuyerName.create
+
+                    return
+                        ({ Buyer = { Id = buyerId; Name = buyerName } }: Order.Event.OrderCancelled)
+                        |> Order.Event.OrderCancelled
+                }
+
+            | OrderStatusChangedToAwaitingValidation ev ->
+                validation {
+                    let buyerId = ev.BuyerId |> BuyerId.ofGuid
+
+                    let! buyerName = ev.BuyerName |> BuyerName.create
+
+                    and! stockToValidate =
+                        ev.StockToValidate
+                        |> List.traverseResultA (fun stock ->
+                            stock.Units
+                            |> Units.create
+                            |> Result.map (fun units -> stock.ProductId |> ProductId.ofInt, units))
+                        |> Result.bind (
+                            NonEmptyMap.ofSeq
+                            >> Result.mapError ((+) "Invalid StockToValidate: " >> List.singleton)
+                        )
+
+                    return
+                        ({ Buyer = { Id = buyerId; Name = buyerName }
+                           StockToValidate = stockToValidate }
+                        : Order.Event.OrderStatusChangedToAwaitingValidation)
+                        |> Order.Event.OrderStatusChangedToAwaitingValidation
+                }
+
+            | OrderStockConfirmed ev ->
+                validation {
+                    let buyerId = ev.BuyerId |> BuyerId.ofGuid
+
+                    let! buyerName = ev.BuyerName |> BuyerName.create
+
+                    and! orderItems =
+                        ev.ConfirmedOrderItems
+                        |> List.traverseResultA (fun orderItem ->
+                            validation {
+                                let! productName = orderItem.ProductName |> ProductName.create
+                                and! unitPrice = orderItem.UnitPrice |> UnitPrice.create
+                                and! units = orderItem.Units |> Units.create
+                                and! discount = orderItem.Discount |> Discount.create
+
+                                return
+                                    orderItem.ProductId |> ProductId.ofInt,
+                                    ({ Discount = discount
+                                       Units = units
+                                       PictureUrl = orderItem.PictureUrl
+                                       ProductName = productName
+                                       UnitPrice = unitPrice }
+                                    : OrderItemWithConfirmedStock)
+                            }
+                            |> Result.mapError (String.concat "; "))
+                        |> Result.bind (
+                            NonEmptyMap.ofSeq
+                            >> Result.mapError ((+) "Invalid ConfirmedOrderItems: " >> List.singleton)
+                        )
+
+                    return
+                        ({ Buyer = { Id = buyerId; Name = buyerName }
+                           ConfirmedOrderItems = orderItems }
+                        : Order.Event.OrderStockConfirmed)
+                        |> Order.Event.OrderStockConfirmed
+                }
+
+            | OrderPaid ev ->
+                validation {
+                    let buyerId = ev.BuyerId |> BuyerId.ofGuid
+
+                    let! buyerName = ev.BuyerName |> BuyerName.create
+
+                    and! orderItems =
+                        ev.PaidOrderItems
+                        |> List.traverseResultA (fun orderItem ->
+                            validation {
+                                let! productName = orderItem.ProductName |> ProductName.create
+                                and! unitPrice = orderItem.UnitPrice |> UnitPrice.create
+                                and! units = orderItem.Units |> Units.create
+                                and! discount = orderItem.Discount |> Discount.create
+
+                                return
+                                    orderItem.ProductId |> ProductId.ofInt,
+                                    ({ Discount = discount
+                                       Units = units
+                                       PictureUrl = orderItem.PictureUrl
+                                       ProductName = productName
+                                       UnitPrice = unitPrice }
+                                    : OrderItemWithConfirmedStock)
+                            }
+                            |> Result.mapError (String.concat "; "))
+                        |> Result.bind (
+                            NonEmptyMap.ofSeq
+                            >> Result.mapError ((+) "Invalid PaidOrderItems: " >> List.singleton)
+                        )
+
+                    return
+                        ({ Buyer = { Id = buyerId; Name = buyerName }
+                           PaidOrderItems = orderItems }
+                        : Order.Event.OrderPaid)
+                        |> Order.Event.OrderPaid
+                }
+
+            | OrderShipped ev ->
+                validation {
+                    let buyerId = ev.BuyerId |> BuyerId.ofGuid
+
+                    let! buyerName = ev.BuyerName |> BuyerName.create
+
+                    and! orderItems =
+                        ev.ShippedOrderItems
+                        |> List.traverseResultA (fun orderItem ->
+                            validation {
+                                let! productName = orderItem.ProductName |> ProductName.create
+                                and! unitPrice = orderItem.UnitPrice |> UnitPrice.create
+                                and! units = orderItem.Units |> Units.create
+                                and! discount = orderItem.Discount |> Discount.create
+
+                                return
+                                    orderItem.ProductId |> ProductId.ofInt,
+                                    ({ Discount = discount
+                                       Units = units
+                                       PictureUrl = orderItem.PictureUrl
+                                       ProductName = productName
+                                       UnitPrice = unitPrice }
+                                    : OrderItemWithConfirmedStock)
+                            }
+                            |> Result.mapError (String.concat "; "))
+                        |> Result.bind (
+                            NonEmptyMap.ofSeq
+                            >> Result.mapError ((+) "Invalid ShippedOrderItems: " >> List.singleton)
+                        )
+
+                    return
+                        ({ Buyer = { Id = buyerId; Name = buyerName }
+                           ShippedOrderItems = orderItems }
+                        : Order.Event.OrderShipped)
+                        |> Order.Event.OrderShipped
+                }
             |> Result.mapError (String.concat "; ")
 
 module private Sql =
@@ -504,24 +823,20 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
 
             do!
                 order
-                |> OrderAggregate.getBuyerId
+                |> Order.getBuyerId
                 |> Option.map (fun buyerId ->
                     {| BuyerId = buyerId |> BuyerId.value
-                       BuyerName =
-                        order
-                        |> OrderAggregate.getBuyerName
-                        |> Option.map BuyerName.value
-                        |> Option.toObj |}
+                       BuyerName = order |> Order.getBuyerName |> Option.map BuyerName.value |> Option.toObj |}
                     |> Dapper.execute sqlSession (Sql.upsertBuyer dbSchema)
                     |> AsyncResult.ignore)
                 |> Option.defaultValue (AsyncResult.ok ())
 
             let! maybePaymentMethodId =
                 order
-                |> OrderAggregate.getPaymentMethod
+                |> Order.getPaymentMethod
                 |> Option.map (fun paymentMethod ->
                     order
-                    |> OrderAggregate.getBuyerId
+                    |> Order.getBuyerId
                     |> Result.requireSome ("Missing BuyerId for existing Payment Method" |> InvalidData)
                     |> AsyncResult.ofResult
                     |> AsyncResult.bind (fun buyerId ->
@@ -538,20 +853,14 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                 order
                 |> Dto.OrderStatus.ofOrder
                 |> Option.map (fun status ->
-                    let maybeAddress = order |> OrderAggregate.getAddress
+                    let maybeAddress = order |> Order.getAddress
 
                     {| Id = aggregateId
-                       BuyerId =
-                        order
-                        |> OrderAggregate.getBuyerId
-                        |> Option.map BuyerId.value
+                       BuyerId = order |> Order.getBuyerId |> Option.map BuyerId.value
                        PaymentMethodId = maybePaymentMethodId
                        Status = status |> Dto.OrderStatus.toString
-                       Description =
-                        order
-                        |> OrderAggregate.getDescription
-                        |> Option.map Description.value
-                       StartedAt = order |> OrderAggregate.getStartedAt
+                       Description = order |> Order.getDescription |> Option.map Description.value
+                       StartedAt = order |> Order.getStartedAt
                        Street = maybeAddress |> Option.map (_.Street >> Street.value)
                        City = maybeAddress |> Option.map (_.City >> City.value)
                        State = maybeAddress |> Option.map (_.State >> State.value)
@@ -563,7 +872,7 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
 
             do!
                 order
-                |> OrderAggregate.getOrderItems
+                |> Order.getOrderItems
                 |> Map.toList
                 |> List.traverseAsyncResultM (fun (id, item) ->
                     {| ProductId = id |> ProductId.value
@@ -576,3 +885,13 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                     |> Dapper.execute sqlSession (Sql.upsertOrderItem dbSchema))
                 |> AsyncResult.ignore
         }
+
+type PersistOrderAggregateEvents = OrderAggregateManagementPort.PersistOrderAggregateEvents<SqlIoError>
+
+let persistOrderAggregateEvents jsonOptions dbSchema dbTransaction : PersistOrderAggregateEvents =
+    Postgres.persistEvents Dto.Event.ofDomain jsonOptions dbSchema dbTransaction
+
+type ReadUnprocessedOrderAggregateEvents = ReadUnprocessedEvents<Order.State, Order.Event, SqlIoError>
+
+let readUnprocessedOrderAggregateEvents jsonOptions dbSchema sqlSession : ReadUnprocessedOrderAggregateEvents =
+    Postgres.readUnprocessedEvents Dto.Event.toDomain jsonOptions dbSchema sqlSession

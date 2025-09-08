@@ -47,6 +47,9 @@ type PersistEvents<'state, 'eventPayload, 'ioError> =
 type ReadUnprocessedEvents<'state, 'eventPayload, 'ioError> =
     unit -> AsyncResult<(AggregateId<'state> * Event<'eventPayload> * SuccessfulEventHandlers) list, 'ioError>
 
+type PublishEvents<'state, 'eventPayload, 'ioError> =
+    AggregateId<'state> -> Event<'eventPayload> list -> AsyncResult<unit, 'ioError>
+
 type PersistSuccessfulEventHandlers<'ioError> = EventId -> SuccessfulEventHandlers -> AsyncResult<unit, 'ioError>
 
 type MarkEventAsProcessed<'ioError> = EventId -> AsyncResult<unit, 'ioError>
@@ -109,7 +112,6 @@ module EventsProcessor =
     type T<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
         internal
         (
-            persistEvents: PersistEvents<'state, 'eventPayload, 'eventLogIoError>,
             readUnprocessedEvents: ReadUnprocessedEvents<'state, 'eventPayload, 'eventLogIoError>,
             persistSuccessfulHandlers: PersistSuccessfulEventHandlers<'eventLogIoError>,
             markEventAsProcessed: MarkEventAsProcessed<'eventLogIoError>,
@@ -169,7 +171,7 @@ module EventsProcessor =
                             |> Async.singleton
             }
 
-        let restoreState =
+        let readUnprocessedEvents =
             readUnprocessedEvents
             >> AsyncResult.teeError (ReadingUnprocessedEventsFailed >> options.ErrorHandler)
             >> AsyncResult.defaultValue []
@@ -196,18 +198,16 @@ module EventsProcessor =
                     }
 
                 async {
-                    let! state = restoreState ()
-
-                    state |> List.sortBy _.Event.OccurredAt |> List.iter inbox.Post
+                    do!
+                        readUnprocessedEvents ()
+                        |> Async.map (List.sortBy _.Event.OccurredAt >> List.iter inbox.Post)
 
                     do! loop ()
                 })
 
-        member this.Process =
+        member this.Publish: PublishEvents<'state, 'eventPayload, 'eventHandlingIoError> =
             fun aggregateId events ->
                 asyncResult {
-                    do! events |> persistEvents aggregateId
-
                     events
                     |> List.sortBy _.OccurredAt
                     |> List.iter (fun event ->
@@ -222,19 +222,12 @@ module EventsProcessor =
             member this.Dispose() = processor.Dispose()
 
     let build
-        (persistEvents: PersistEvents<'state, 'eventPayload, 'eventLogIoError>)
         (readUnprocessedEvents: ReadUnprocessedEvents<'state, 'eventPayload, 'eventLogIoError>)
         (persistSuccessfulHandlers: PersistSuccessfulEventHandlers<'eventLogIoError>)
         (markEventAsProcessed: MarkEventAsProcessed<'eventLogIoError>)
         (options: EventsProcessorOptions<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>)
         =
-        new T<_, _, _, _>(
-            persistEvents,
-            readUnprocessedEvents,
-            persistSuccessfulHandlers,
-            markEventAsProcessed,
-            options
-        )
+        new T<_, _, _, _>(readUnprocessedEvents, persistSuccessfulHandlers, markEventAsProcessed, options)
 
 type EventsProcessor<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError> =
     EventsProcessor.T<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>

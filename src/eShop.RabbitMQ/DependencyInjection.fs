@@ -52,8 +52,7 @@ type Extensions =
             eventNamesToHandle,
             aggregateIdSelector,
             deserializeEvent,
-            getEventProcessor:
-                IServiceProvider -> EventsProcessor<'state, 'eventPayload, 'eventLogIoError, 'eventHandlingIoError>
+            buildPersistEvents: IServiceProvider -> PersistEvents<'state, 'eventPayload, 'eventLogIoError>
         ) =
         services.AddSingleton(
             typeof<IHostedService>,
@@ -71,7 +70,7 @@ type Extensions =
 
                         let config = sp.GetRequiredService<IOptions<Configuration.RabbitMQOptions>>().Value
 
-                        let eventsProcessor = sp |> getEventProcessor
+                        let persistEvents = sp |> buildPersistEvents
 
                         RabbitMQ.registerEventHandler
                             eventNamesToHandle
@@ -81,7 +80,7 @@ type Extensions =
                             config
                             logger
                             getUtcNow
-                            eventsProcessor.Process
+                            persistEvents
                         |> Result.valueOr failwith
 
                         Task.CompletedTask

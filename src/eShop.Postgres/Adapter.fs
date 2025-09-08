@@ -16,6 +16,7 @@ type SqlIoError =
     | SerializationError of exn
     | DeserializationError of exn
     | SqlException of exn
+    | TransactionCommitError of exn
     | InvalidData of string
 
 [<RequireQualifiedAccess>]

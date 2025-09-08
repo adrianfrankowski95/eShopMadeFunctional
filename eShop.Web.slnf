@@ -24,6 +24,7 @@
       "src\\Mobile.Bff.Shopping\\Mobile.Bff.Shopping.csproj",
       "src\\OrderService\\eShop.Ordering.Adapters.Common\\eShop.Ordering.Adapters.Common.fsproj",
       "src\\OrderService\\eShop.Ordering.Adapters.Http\\eShop.Ordering.Adapters.Http.fsproj",
+      "src\\OrderService\\eShop.Ordering.Adapters.Logging\\eShop.Ordering.Adapters.Logging.fsproj",
       "src\\OrderService\\eShop.Ordering.Adapters.Postgres\\eShop.Ordering.Adapters.Postgres.fsproj",
       "src\\OrderService\\eShop.Ordering.Adapters.RabbitMQ\\eShop.Ordering.Adapters.RabbitMQ.fsproj",
       "src\\OrderService\\eShop.Ordering.API\\eShop.Ordering.API.fsproj",

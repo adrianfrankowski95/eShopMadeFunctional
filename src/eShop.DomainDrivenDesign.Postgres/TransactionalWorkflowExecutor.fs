@@ -2,6 +2,7 @@
 
 open System
 open System.Data
+open System.Data.Common
 open eShop.DomainDrivenDesign
 open eShop.Postgres
 open eShop.Prelude
@@ -28,28 +29,56 @@ module TransactionalWorkflowExecutor =
         { options with
             IsolationLevel = isolationLevel }
 
-    let execute (options: Options) workflow : WorkflowResult<_, _, _> =
-        let rec executeInTransaction workflow (retries: Delay list) =
+    let inline execute
+        (workflow: DbTransaction -> WorkflowResult<'state, 'event, 'domainError, 'ioError>)
+        (mapSqlIoError: SqlIoError -> 'ioError)
+        (options: Options)
+        =
+        let rec executeInTransaction
+            (workflow: DbTransaction -> WorkflowResult<'state, 'event, 'domainError, 'ioError>)
+            (retries: Delay list)
+            =
             asyncResult {
                 let connection = options.GetDbConnection()
                 do! connection.OpenAsync()
 
                 let! transaction = connection.BeginTransactionAsync(options.IsolationLevel).AsTask()
 
-                return!
+                let! result =
                     transaction
                     |> workflow
-                    |> AsyncResult.teeAsync (fun _ -> transaction.CommitAsync() |> Async.AwaitTask)
                     |> AsyncResult.teeErrorAsync (fun _ -> transaction.RollbackAsync() |> Async.AwaitTask)
-                    |> AsyncResult.teeAnyAsync (connection.CloseAsync >> Async.AwaitTask)
-                    |> AsyncResult.orElseWith (fun error ->
-                        match retries with
-                        | [] -> error |> AsyncResult.error
-                        | head :: tail ->
-                            asyncResult {
-                                do! head |> Async.Sleep
-                                return! tail |> executeInTransaction workflow
-                            })
+
+                try
+                    do! transaction.CommitAsync() |> Async.AwaitTask
+                    do! connection.CloseAsync() |> Async.AwaitTask
+                with e ->
+                    do! transaction.RollbackAsync() |> Async.AwaitTask
+                    do! connection.CloseAsync() |> Async.AwaitTask
+
+                    return!
+                        e
+                        |> SqlIoError.TransactionCommitError
+                        |> mapSqlIoError
+                        |> WorkflowExecutionError.IoError
+                        |> Error
+
+                return result
             }
+            |> AsyncResult.orElseWith (fun error ->
+                match retries with
+                | [] -> error |> AsyncResult.error
+                | head :: tail ->
+                    asyncResult {
+                        do! head |> Async.Sleep
+                        return! tail |> executeInTransaction workflow
+                    })
 
         executeInTransaction workflow options.Retries
+
+    let inline andThen action result =
+        result
+        |> AsyncResult.bind (fun (aggregateId, events) ->
+            events
+            |> action aggregateId
+            |> AsyncResult.mapError WorkflowExecutionError.IoError)

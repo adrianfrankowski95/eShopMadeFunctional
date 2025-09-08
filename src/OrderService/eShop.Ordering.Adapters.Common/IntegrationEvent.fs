@@ -121,7 +121,7 @@ module Consumed =
         | OrderStockRejected ev -> ev.OrderId
         | OrderPaymentFailed ev -> ev.OrderId
         | OrderPaymentSucceeded ev -> ev.OrderId
-        |> AggregateId.ofGuid<OrderAggregate.State>
+        |> AggregateId.ofGuid<Order.State>
 
 type Published =
     | OrderStatusChangedToStarted of OrderStatusChangedToStarted
@@ -134,30 +134,30 @@ type Published =
 
 [<RequireQualifiedAccess>]
 module Published =
-    let ofAggregateEvent (AggregateId orderId) (domainEvent: OrderAggregate.Event) =
+    let ofAggregateEvent (AggregateId orderId) (domainEvent: Order.Event) =
         match domainEvent with
-        | OrderAggregate.Event.OrderStarted ev ->
+        | Order.Event.OrderStarted ev ->
             ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString }
             : OrderStatusChangedToStarted)
             |> Published.OrderStatusChangedToStarted
 
-        | OrderAggregate.Event.PaymentMethodVerified ev ->
+        | Order.Event.PaymentMethodVerified ev ->
             ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString }
             : OrderStatusChangedToSubmitted)
             |> Published.OrderStatusChangedToSubmitted
 
-        | OrderAggregate.Event.OrderCancelled ev ->
+        | Order.Event.OrderCancelled ev ->
             ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString }
             : OrderStatusChangedToCancelled)
             |> Published.OrderStatusChangedToCancelled
 
-        | OrderAggregate.Event.OrderStatusChangedToAwaitingValidation ev ->
+        | Order.Event.OrderStatusChangedToAwaitingValidation ev ->
             ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString
@@ -170,14 +170,14 @@ module Published =
             : OrderStatusChangedToAwaitingValidation)
             |> Published.OrderStatusChangedToAwaitingValidation
 
-        | OrderAggregate.Event.OrderStockConfirmed ev ->
+        | Order.Event.OrderStockConfirmed ev ->
             ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString }
             : OrderStatusChangedToStockConfirmed)
             |> Published.OrderStatusChangedToStockConfirmed
 
-        | OrderAggregate.Event.OrderPaid ev ->
+        | Order.Event.OrderPaid ev ->
             ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString
@@ -190,7 +190,7 @@ module Published =
             : OrderStatusChangedToPaid)
             |> Published.OrderStatusChangedToPaid
 
-        | OrderAggregate.Event.OrderShipped ev ->
+        | Order.Event.OrderShipped ev ->
             ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
                BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString }

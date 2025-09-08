@@ -167,7 +167,7 @@ module RabbitMQ =
         (config: Configuration.RabbitMQOptions)
         (logger: ILogger<'eventPayload>)
         (getUtcNow: GetUtcNow)
-        (publishEvents: PublishEvents<'state, 'eventPayload, 'ioError>)
+        (persistEvents: PersistEvents<'state, 'eventPayload, 'ioError>)
         =
         result {
             let inline handleResult (ea: BasicDeliverEventArgs) =
@@ -237,7 +237,7 @@ module RabbitMQ =
                           Data = eventPayload
                           OccurredAt = timestamp }
                         |> List.singleton
-                        |> publishEvents aggregateId
+                        |> persistEvents aggregateId
                         |> AsyncResult.mapError Choice2Of2
                 }
                 |> handleResult ea

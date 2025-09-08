@@ -9,8 +9,7 @@
 
     <ItemGroup>
         <Compile Include="OrderAggregateManagementAdapter.fs" />
-        <Compile Include="OrderIntegrationEventsProcessorAdapter.fs" />
-        <Compile Include="OrderAggregateEventsProcessorAdapter.fs" />
+        <Compile Include="OrderIntegrationEventsAdapter.fs" />
         <Compile Include="PaymentManagementAdapter.fs" />
     </ItemGroup>
 

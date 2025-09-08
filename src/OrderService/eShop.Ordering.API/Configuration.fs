@@ -56,8 +56,8 @@ let private configureTime (services: IServiceCollection) =
 let private configureGenerators (services: IServiceCollection) =
     services
         .AddTransient<GenerateId<eventId>>(Func<IServiceProvider, GenerateId<eventId>>(fun _ -> EventId.generate))
-        .AddTransient<GenerateAggregateId<OrderAggregate.State>>(
-            Func<IServiceProvider, GenerateAggregateId<OrderAggregate.State>>(fun _ -> AggregateId.generate)
+        .AddTransient<GenerateAggregateId<Order.State>>(
+            Func<IServiceProvider, GenerateAggregateId<Order.State>>(fun _ -> AggregateId.generate)
         )
 
 let private configureOrderAggregateEventsProcessor (services: IServiceCollection) =
@@ -75,14 +75,13 @@ let private configureRabbitMQ (services: IServiceCollection) =
         IntegrationEvent.Consumed.eventNames,
         IntegrationEvent.Consumed.getOrderAggregateId,
         IntegrationEvent.Consumed.deserialize,
-        _.GetRequiredService<CompositionRoot.OrderIntegrationEventsProcessor>()
+        CompositionRoot.buildPersistIntegrationEventsFromSp
     )
 
 let private configureAdapters (services: IServiceCollection) =
     services
         .AddTransient<ISqlOrderAggregateManagementAdapter, PostgresOrderAggregateManagementAdapter>()
-        .AddTransient<ISqlOrderAggregateEventsProcessorAdapter, PostgresOrderAggregateEventsProcessorAdapter>()
-        .AddTransient<ISqlOrderIntegrationEventsProcessorAdapter, PostgresOrderIntegrationEventsProcessorAdapter>()
+        .AddTransient<ISqlOrderIntegrationEventsAdapter, PostgresOrderIntegrationEventsAdapter>()
         .AddTransient<ISqlPaymentManagementAdapter, PostgresPaymentManagementAdapter>()
         .AddTransient<IHttpPaymentManagementAdapter, HttpPaymentManagementAdapter>(
             _.GetRequiredService<IConfiguration>().GetValue<bool>("ShouldAcceptPayment")

@@ -11,49 +11,33 @@ open eShop.Postgres
 open eShop.DomainDrivenDesign.Postgres
 open eShop.Ordering.Adapters.Postgres
 
-type ISqlOrderEventsProcessorPort<'eventPayload, 'ioError> =
-    abstract member PersistOrderEvents: DbTransaction -> PersistEvents<OrderAggregate.State, 'eventPayload, 'ioError>
+type ISqlOrderIntegrationEventsPort<'ioError> =
+    abstract member PersistOrderIntegrationEvents:
+        DbTransaction -> PersistEvents<Order.State, IntegrationEvent.Consumed, 'ioError>
 
-    abstract member ReadUnprocessedOrderEvents:
-        SqlSession -> ReadUnprocessedEvents<OrderAggregate.State, 'eventPayload, 'ioError>
+    abstract member ReadUnprocessedOrderIntegrationEvents:
+        SqlSession -> ReadUnprocessedEvents<Order.State, IntegrationEvent.Consumed, 'ioError>
 
-    abstract member PersistSuccessfulEventHandlers: SqlSession -> PersistSuccessfulEventHandlers<'ioError>
+    abstract member PersistSuccessfulOrderIntegrationEventHandlers:
+        SqlSession -> PersistSuccessfulEventHandlers<'ioError>
 
-    abstract member MarkEventAsProcessed: SqlSession -> MarkEventAsProcessed<'ioError>
+    abstract member MarkOrderIntegrationEventAsProcessed: SqlSession -> MarkEventAsProcessed<'ioError>
 
-type ISqlOrderAggregateEventsProcessorAdapter = ISqlOrderEventsProcessorPort<OrderAggregate.Event, SqlIoError>
+type ISqlOrderIntegrationEventsAdapter = ISqlOrderIntegrationEventsPort<SqlIoError>
 
-type PostgresOrderAggregateEventsProcessorAdapter
-    (jsonOptions: JsonSerializerOptions, dbSchema: DbSchema, getNow: GetUtcNow) =
-    interface ISqlOrderAggregateEventsProcessorAdapter with
-        member this.PersistOrderEvents(dbTransaction) =
-            OrderAggregateEventsProcessorAdapter.persistOrderAggregateEvents jsonOptions dbSchema dbTransaction
+type PostgresOrderIntegrationEventsAdapter(jsonOptions: JsonSerializerOptions, dbSchema: DbSchema, getNow: GetUtcNow) =
+    interface ISqlOrderIntegrationEventsAdapter with
+        member this.PersistOrderIntegrationEvents(dbTransaction) =
+            OrderIntegrationEventsAdapter.persistOrderIntegrationEvents jsonOptions dbSchema dbTransaction
 
-        member this.ReadUnprocessedOrderEvents(sqlSession) =
-            OrderAggregateEventsProcessorAdapter.readUnprocessedOrderAggregateEvents jsonOptions dbSchema sqlSession
-
-        member this.PersistSuccessfulEventHandlers(sqlSession) =
+        member this.PersistSuccessfulOrderIntegrationEventHandlers(sqlSession) =
             Postgres.persistSuccessfulEventHandlers dbSchema sqlSession
 
-        member this.MarkEventAsProcessed(sqlSession) =
+        member this.MarkOrderIntegrationEventAsProcessed(sqlSession) =
             Postgres.markEventAsProcessed dbSchema sqlSession getNow
 
-type ISqlOrderIntegrationEventsProcessorAdapter = ISqlOrderEventsProcessorPort<IntegrationEvent.Consumed, SqlIoError>
-
-type PostgresOrderIntegrationEventsProcessorAdapter
-    (jsonOptions: JsonSerializerOptions, dbSchema: DbSchema, getNow: GetUtcNow) =
-    interface ISqlOrderIntegrationEventsProcessorAdapter with
-        member this.PersistOrderEvents(dbTransaction) =
-            OrderIntegrationEventsProcessorAdapter.persistOrderIntegrationEvents jsonOptions dbSchema dbTransaction
-
-        member this.ReadUnprocessedOrderEvents(sqlSession) =
-            OrderIntegrationEventsProcessorAdapter.readUnprocessedOrderIntegrationEvents jsonOptions dbSchema sqlSession
-
-        member this.PersistSuccessfulEventHandlers(sqlSession) =
-            Postgres.persistSuccessfulEventHandlers dbSchema sqlSession
-
-        member this.MarkEventAsProcessed(sqlSession) =
-            Postgres.markEventAsProcessed dbSchema sqlSession getNow
+        member this.ReadUnprocessedOrderIntegrationEvents(sqlSession) =
+            OrderIntegrationEventsAdapter.readUnprocessedOrderIntegrationEvents jsonOptions dbSchema sqlSession
 
 
 type ISqlOrderAggregateManagementPort<'ioError> =
@@ -61,16 +45,38 @@ type ISqlOrderAggregateManagementPort<'ioError> =
 
     abstract member PersistOrderAggregate: DbTransaction -> OrderAggregateManagementPort.PersistOrderAggregate<'ioError>
 
+    abstract member PersistOrderAggregateEvents:
+        DbTransaction -> OrderAggregateManagementPort.PersistOrderAggregateEvents<'ioError>
+
+    abstract member ReadUnprocessedOrderAggregateEvents:
+        SqlSession -> ReadUnprocessedEvents<Order.State, Order.Event, 'ioError>
+
+    abstract member PersistSuccessfulOrderAggregateEventHandlers: SqlSession -> PersistSuccessfulEventHandlers<'ioError>
+
+    abstract member MarkOrderAggregateEventAsProcessed: SqlSession -> MarkEventAsProcessed<'ioError>
 
 type ISqlOrderAggregateManagementAdapter = ISqlOrderAggregateManagementPort<SqlIoError>
 
-type PostgresOrderAggregateManagementAdapter(dbSchema: DbSchema) =
+type PostgresOrderAggregateManagementAdapter(jsonOptions: JsonSerializerOptions, dbSchema: DbSchema, getNow: GetUtcNow)
+    =
     interface ISqlOrderAggregateManagementAdapter with
         member this.ReadOrderAggregate(sqlSession) =
             OrderAggregateManagementAdapter.readOrderAggregate dbSchema sqlSession
 
         member this.PersistOrderAggregate(dbTransaction) =
             OrderAggregateManagementAdapter.persistOrderAggregate dbSchema dbTransaction
+
+        member this.PersistOrderAggregateEvents(dbTransaction) =
+            OrderAggregateManagementAdapter.persistOrderAggregateEvents jsonOptions dbSchema dbTransaction
+
+        member this.ReadUnprocessedOrderAggregateEvents(sqlSession) =
+            OrderAggregateManagementAdapter.readUnprocessedOrderAggregateEvents jsonOptions dbSchema sqlSession
+
+        member this.PersistSuccessfulOrderAggregateEventHandlers(sqlSession) =
+            Postgres.persistSuccessfulEventHandlers dbSchema sqlSession
+
+        member this.MarkOrderAggregateEventAsProcessed(sqlSession) =
+            Postgres.markEventAsProcessed dbSchema sqlSession getNow
 
 
 type ISqlPaymentManagementPort<'ioError> =

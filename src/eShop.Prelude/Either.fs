@@ -16,3 +16,17 @@ module Either =
         match either with
         | Right x -> x |> mapper |> Right
         | Left x -> x |> Left
+
+    let inline either
+        ([<InlineIfLambda>] leftMapper: 'a -> 'c)
+        ([<InlineIfLambda>] rightMapper: 'b -> 'd)
+        (either: Either<'a, 'b>)
+        =
+        match either with
+        | Left left -> left |> leftMapper |> Left
+        | Right right -> right |> rightMapper |> Right
+
+    let inline collapse (either: Either<'a, 'a>) =
+        match either with
+        | Left left -> left
+        | Right right -> right
