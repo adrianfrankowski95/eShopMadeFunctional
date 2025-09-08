@@ -18,7 +18,6 @@ open eShop.Ordering.Adapters
 open eShop.Ordering.Adapters.Common
 open eShop.Ordering.Adapters.Http
 open eShop.Ordering.Domain.Model
-open eShop.Ordering.Domain.Ports
 open eShop.Ordering.Domain.Workflows
 open eShop.Postgres
 open eShop.RabbitMQ
