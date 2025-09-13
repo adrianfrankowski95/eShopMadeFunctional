@@ -62,12 +62,12 @@ let private configureGenerators (services: IServiceCollection) =
 
 let private configureOrderAggregateEventsProcessor (services: IServiceCollection) =
     services.AddSingleton<CompositionRoot.OrderAggregateEventsProcessor>(
-        CompositionRoot.buildOrderAggregateEventsProcessorFromSp
+        CompositionRoot.OrderAggregateEventsProcessor.buildFromSp
     )
 
 let private configureOrderIntegrationEventsProcessor (services: IServiceCollection) =
     services.AddSingleton<CompositionRoot.OrderIntegrationEventsProcessor>(
-        CompositionRoot.buildOrderIntegrationEventsProcessorFromSp
+        CompositionRoot.OrderIntegrationEventsProcessor.buildFromSp
     )
 
 let private configureRabbitMQ (services: IServiceCollection) =

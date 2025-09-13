@@ -20,7 +20,7 @@ module Result =
 
     let inline requireSingleOrEmpty x =
         match x |> Seq.length with
-        | 1 -> x |> Seq.head |> ResultOption.retn
+        | 1 -> x |> Seq.head |> ResultOption.singleton
         | 0 -> None |> Ok
         | length -> $"Expected single item, but received %d{length}" |> Error
 

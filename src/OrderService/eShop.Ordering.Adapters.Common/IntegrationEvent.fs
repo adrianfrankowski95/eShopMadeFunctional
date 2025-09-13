@@ -104,14 +104,18 @@ module Consumed =
 
     let eventNames = nameTypeMap |> Map.keys |> Set.ofSeq
 
-    let deserialize (jsonOptions: JsonSerializerOptions) (eventName: RabbitMQ.EventName) (json: string) =
+    let deserialize (jsonOptions: JsonSerializerOptions) (eventName: RabbitMQ.EventName) (payload: string) =
         let deserialize targetType =
-            JsonSerializer.Deserialize(json, targetType, jsonOptions)
+            JsonSerializer.Deserialize(payload, targetType, jsonOptions)
 
         let createUnion (targetUnionCase, data) =
             FSharpValue.MakeUnion(targetUnionCase, [| data |]) :?> Consumed
 
-        fun () -> nameTypeMap |> Map.find eventName |> Tuple.mapSnd deserialize |> createUnion
+        fun () ->
+            nameTypeMap
+            |> Map.tryFind eventName
+            |> Option.defaultWith (fun () -> failwith $"Unsupported event name: %s{eventName |> RabbitMQ.EventName.value}")
+            |> Tuple.mapSnd deserialize |> createUnion
         |> Result.catch
 
     let getOrderAggregateId (integrationEvent: Consumed) =
@@ -208,7 +212,7 @@ module Published =
             |> serialize
         |> Result.catch
 
-    let createEventName (integrationEvent: Published) =
+    let getEventName (integrationEvent: Published) =
         FSharpValue.GetUnionFields(integrationEvent, typeof<Published>)
         |> fst
         |> _.Name

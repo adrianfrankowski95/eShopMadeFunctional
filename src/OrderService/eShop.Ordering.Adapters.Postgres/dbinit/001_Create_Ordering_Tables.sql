@@ -44,7 +44,7 @@ CREATE TABLE "$Schema$"."orders"
 CREATE TABLE "$Schema$"."order_items"
 (
     "product_id"         INTEGER NOT NULL,
-    "order_id"           INTEGER NOT NULL REFERENCES "$Schema$"."orders"("id"),
+    "order_id"           UUID NOT NULL REFERENCES "$Schema$"."orders"("id"),
     "product_name"       TEXT NOT NULL,
     "unit_price"         NUMERIC NOT NULL,
     "units"              INTEGER NOT NULL,

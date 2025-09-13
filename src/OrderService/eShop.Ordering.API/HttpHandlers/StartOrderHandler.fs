@@ -6,7 +6,7 @@ open Giraffe
 open Microsoft.AspNetCore.Http
 open Microsoft.Extensions.Logging
 open eShop.ConstrainedTypes
-open eShop.DomainDrivenDesign
+open eShop.Prelude
 open eShop.Ordering.API
 open eShop.Ordering.API.GiraffeExtensions
 open eShop.Ordering.Domain.Model
@@ -97,7 +97,7 @@ module Request =
         |> Result.mapError (String.concat "; ")
 
 let post
-    (buildStartOrderWorkflow: HttpContext -> StartOrderWorkflow.Command -> WorkflowResult<_, _, _>)
+    (buildStartOrderWorkflow: HttpContext -> StartOrderWorkflow.Command -> AsyncResult<unit, _>)
     (request: Request)
     : HttpHandler =
     fun next ctx ->

@@ -2,7 +2,10 @@
 
 open Giraffe
 open Microsoft.AspNetCore.Http
+open eShop.DomainDrivenDesign
+open eShop.Ordering.API.GiraffeExtensions
 open eShop.Ordering.API.HttpHandlers
+open eShop.Ordering.Domain.Model
 
 let private requiresLoggedIn: HttpHandler =
     requiresAuthentication (RequestErrors.UNAUTHORIZED "" "" "You must be logged in.")
@@ -15,10 +18,13 @@ let private ordersApi: HttpHandler =
                   [ GET >=> json []
                     POST
                     >=> bindJson<StartOrderHandler.Request> (
-                        StartOrderHandler.post CompositionRoot.buildStartOrderWorkflowFromCtx
+                        StartOrderHandler.post CompositionRoot.OrderWorkflows.buildStartOrderFromCtx
                     ) ])
 
-          routef "/%s" (fun orderId -> GET >=> text $"Get order by ID: %s{orderId}")
+          routef
+              "/%O"
+              (validateParam (AggregateId.ofGuid<Order.State> >> Ok) (fun orderId ->
+                  GET >=> text $"Get order by ID: %O{orderId.ToString()}"))
 
           route "/cardtypes" >=> GET >=> text "Get card types"
 

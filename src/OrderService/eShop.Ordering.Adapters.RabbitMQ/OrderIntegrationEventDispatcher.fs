@@ -12,7 +12,7 @@ module OrderIntegrationEventDispatcher =
         (jsonOptions: JsonSerializerOptions)
         (rabbitMQConnection: IConnection)
         : RabbitMQEventDispatcher<IntegrationEvent.Published> =
-        let createEventName = IntegrationEvent.Published.createEventName
+        let createEventName = IntegrationEvent.Published.getEventName
         let serializeEvent = jsonOptions |> IntegrationEvent.Published.serialize
 
         RabbitMQ.createEventDispatcher rabbitMQConnection createEventName serializeEvent

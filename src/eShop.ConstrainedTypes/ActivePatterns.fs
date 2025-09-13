@@ -11,3 +11,5 @@ module ActivePatterns =
     let (|NonEmptyList|) = NonEmptyList.toList
     
     let (|NonEmptyMap|) = NonEmptyMap.toMap
+    
+    let (|NonWhiteSpaceString|) = String.NonWhiteSpace.value

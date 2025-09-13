@@ -246,12 +246,12 @@ module RabbitMQ =
 
     let createEventDispatcher
         (connection: IConnection)
-        (createEventName: 'eventPayload -> Result<EventName, string>)
+        (getEventName: 'eventPayload -> Result<EventName, string>)
         (serializePayload: 'eventPayload -> Result<byte array, exn>)
         : RabbitMQEventDispatcher<'eventPayload> =
         fun (event: Event<'eventPayload>) ->
             asyncResult {
-                let! eventName = event.Data |> createEventName |> Result.mapError InvalidEventData
+                let! eventName = event.Data |> getEventName |> Result.mapError InvalidEventData
 
                 let! body =
                     event.Data

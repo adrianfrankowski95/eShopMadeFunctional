@@ -29,7 +29,7 @@ module TransactionalWorkflowExecutor =
         { options with
             IsolationLevel = isolationLevel }
 
-    let inline execute
+    let execute
         (workflow: DbTransaction -> WorkflowResult<'state, 'event, 'domainError, 'ioError>)
         (mapSqlIoError: SqlIoError -> 'ioError)
         (options: Options)
