@@ -3,9 +3,10 @@
 open eShop.ConstrainedTypes
 
 [<Measure>]
-type buyerId
+type userId
 
-type BuyerId = Id<buyerId>
+type UserId = Id<userId>
+
 
 type BuyerName = String.NonWhiteSpace
 
@@ -15,4 +16,4 @@ module BuyerName =
 
     let value = String.NonWhiteSpace.value
 
-type Buyer = { Id: BuyerId; Name: BuyerName }
+type Buyer = { Id: UserId; Name: BuyerName }

@@ -10,11 +10,6 @@ open eShop.ServiceDefaults
 
 type private Logger = Logger
 
-[<Measure>]
-type userId
-
-type UserId = Id<userId>
-
 
 type UserName = String.NonWhiteSpace
 
@@ -58,5 +53,5 @@ module CurrentUser =
         )
 
     let asBuyer (user: CurrentUser) : Buyer =
-        { Id = user.Id |> Id.value |> BuyerId.ofGuid
+        { Id = user.Id
           Name = user.Name }

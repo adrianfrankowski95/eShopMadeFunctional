@@ -10,7 +10,7 @@
     <ItemGroup>
         <Compile Include="OrderAggregateManagementAdapter.fs" />
         <Compile Include="OrderIntegrationEventsAdapter.fs" />
-        <Compile Include="OrderQueriesAdapter.fs" />
+        <Compile Include="OrderQueries.fs" />
         <Compile Include="PaymentManagementAdapter.fs" />
     </ItemGroup>
 

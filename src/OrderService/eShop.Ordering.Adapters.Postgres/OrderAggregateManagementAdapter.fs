@@ -194,7 +194,7 @@ module internal Dto =
             |> Result.requireSome "Missing BuyerName"
             |> Result.bind BuyerName.create
             |> Result.map (fun buyerName ->
-                ({ Id = dto.BuyerId |> BuyerId.ofGuid
+                ({ Id = dto.BuyerId |> UserId.ofGuid
                    Name = buyerName }
                 : Buyer))
 
@@ -202,7 +202,7 @@ module internal Dto =
             maybeOrder
             |> Option.map (fun (_, orders) ->
                 let orderDto = orders |> Seq.head
-                let buyerId = orderDto.BuyerId |> BuyerId.ofGuid
+                let buyerId = orderDto.BuyerId |> UserId.ofGuid
 
                 orderDto.Status
                 |> OrderStatus.create
@@ -458,13 +458,13 @@ module internal Dto =
         let ofDomain (event: Order.Event) : Event =
             match event with
             | Order.Event.OrderStarted ev ->
-                ({ BuyerId = ev.Buyer.Id |> BuyerId.value
+                ({ BuyerId = ev.Buyer.Id |> UserId.value
                    BuyerName = ev.Buyer.Name |> BuyerName.value }
                 : OrderStartedEvent)
                 |> Event.OrderStarted
 
             | Order.Event.PaymentMethodVerified ev ->
-                { BuyerId = ev.Buyer.Id |> BuyerId.value
+                { BuyerId = ev.Buyer.Id |> UserId.value
                   BuyerName = ev.Buyer.Name |> BuyerName.value
                   CardTypeId = ev.VerifiedPaymentMethod.CardType.Id |> CardTypeId.value
                   CardTypeName = ev.VerifiedPaymentMethod.CardType.Name |> CardTypeName.value
@@ -474,13 +474,13 @@ module internal Dto =
                 |> Event.PaymentMethodVerified
 
             | Order.Event.OrderCancelled ev ->
-                ({ BuyerId = ev.Buyer.Id |> BuyerId.value
+                ({ BuyerId = ev.Buyer.Id |> UserId.value
                    BuyerName = ev.Buyer.Name |> BuyerName.value }
                 : OrderCancelledEvent)
                 |> Event.OrderCancelled
 
             | Order.Event.OrderStatusChangedToAwaitingValidation ev ->
-                ({ BuyerId = ev.Buyer.Id |> BuyerId.value
+                ({ BuyerId = ev.Buyer.Id |> UserId.value
                    BuyerName = ev.Buyer.Name |> BuyerName.value
                    StockToValidate =
                      ev.StockToValidate
@@ -492,7 +492,7 @@ module internal Dto =
                 |> Event.OrderStatusChangedToAwaitingValidation
 
             | Order.Event.OrderStockConfirmed ev ->
-                ({ BuyerId = ev.Buyer.Id |> BuyerId.value
+                ({ BuyerId = ev.Buyer.Id |> UserId.value
                    BuyerName = ev.Buyer.Name |> BuyerName.value
                    ConfirmedOrderItems =
                      ev.ConfirmedOrderItems
@@ -508,7 +508,7 @@ module internal Dto =
                 |> Event.OrderStockConfirmed
 
             | Order.Event.OrderPaid ev ->
-                ({ BuyerId = ev.Buyer.Id |> BuyerId.value
+                ({ BuyerId = ev.Buyer.Id |> UserId.value
                    BuyerName = ev.Buyer.Name |> BuyerName.value
                    PaidOrderItems =
                      ev.PaidOrderItems
@@ -524,7 +524,7 @@ module internal Dto =
                 |> Event.OrderPaid
 
             | Order.Event.OrderShipped ev ->
-                ({ BuyerId = ev.Buyer.Id |> BuyerId.value
+                ({ BuyerId = ev.Buyer.Id |> UserId.value
                    BuyerName = ev.Buyer.Name |> BuyerName.value
                    ShippedOrderItems =
                      ev.ShippedOrderItems
@@ -547,14 +547,14 @@ module internal Dto =
                 |> Result.mapError List.singleton
                 |> Result.map (fun buyerName ->
                     ({ Buyer =
-                        { Id = ev.BuyerId |> BuyerId.ofGuid
+                        { Id = ev.BuyerId |> UserId.ofGuid
                           Name = buyerName } }
                     : Order.Event.OrderStarted)
                     |> Order.Event.OrderStarted)
 
             | PaymentMethodVerified ev ->
                 validation {
-                    let buyerId = ev.BuyerId |> BuyerId.ofGuid
+                    let buyerId = ev.BuyerId |> UserId.ofGuid
                     let cardTypeId = ev.CardTypeId |> CardTypeId.ofInt
 
                     let! buyerName = ev.BuyerName |> BuyerName.create
@@ -575,7 +575,7 @@ module internal Dto =
 
             | OrderCancelled ev ->
                 validation {
-                    let buyerId = ev.BuyerId |> BuyerId.ofGuid
+                    let buyerId = ev.BuyerId |> UserId.ofGuid
 
                     let! buyerName = ev.BuyerName |> BuyerName.create
 
@@ -586,7 +586,7 @@ module internal Dto =
 
             | OrderStatusChangedToAwaitingValidation ev ->
                 validation {
-                    let buyerId = ev.BuyerId |> BuyerId.ofGuid
+                    let buyerId = ev.BuyerId |> UserId.ofGuid
 
                     let! buyerName = ev.BuyerName |> BuyerName.create
 
@@ -610,7 +610,7 @@ module internal Dto =
 
             | OrderStockConfirmed ev ->
                 validation {
-                    let buyerId = ev.BuyerId |> BuyerId.ofGuid
+                    let buyerId = ev.BuyerId |> UserId.ofGuid
 
                     let! buyerName = ev.BuyerName |> BuyerName.create
 
@@ -647,7 +647,7 @@ module internal Dto =
 
             | OrderPaid ev ->
                 validation {
-                    let buyerId = ev.BuyerId |> BuyerId.ofGuid
+                    let buyerId = ev.BuyerId |> UserId.ofGuid
 
                     let! buyerName = ev.BuyerName |> BuyerName.create
 
@@ -684,7 +684,7 @@ module internal Dto =
 
             | OrderShipped ev ->
                 validation {
-                    let buyerId = ev.BuyerId |> BuyerId.ofGuid
+                    let buyerId = ev.BuyerId |> UserId.ofGuid
 
                     let! buyerName = ev.BuyerName |> BuyerName.create
 
@@ -825,7 +825,7 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                 order
                 |> Order.getBuyerId
                 |> Option.map (fun buyerId ->
-                    {| BuyerId = buyerId |> BuyerId.value
+                    {| BuyerId = buyerId |> UserId.value
                        BuyerName = order |> Order.getBuyerName |> Option.map BuyerName.value |> Option.toObj |}
                     |> Dapper.execute sqlSession (Sql.upsertBuyer dbSchema)
                     |> AsyncResult.ignore)
@@ -840,7 +840,7 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                     |> Result.requireSome ("Missing BuyerId for existing Payment Method" |> InvalidData)
                     |> AsyncResult.ofResult
                     |> AsyncResult.bind (fun buyerId ->
-                        {| BuyerId = buyerId |> BuyerId.value
+                        {| BuyerId = buyerId |> UserId.value
                            CardTypeId = paymentMethod.CardType.Id |> CardTypeId.value
                            CardNumber = paymentMethod.CardNumber |> CardNumber.value
                            CardHolderName = paymentMethod.CardHolderName |> CardHolderName.value
@@ -856,7 +856,7 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                     let maybeAddress = order |> Order.getAddress
 
                     {| Id = aggregateId
-                       BuyerId = order |> Order.getBuyerId |> Option.map BuyerId.value
+                       BuyerId = order |> Order.getBuyerId |> Option.map UserId.value
                        PaymentMethodId = maybePaymentMethodId
                        Status = status |> Dto.OrderStatus.toString
                        Description = order |> Order.getDescription |> Option.map Description.value

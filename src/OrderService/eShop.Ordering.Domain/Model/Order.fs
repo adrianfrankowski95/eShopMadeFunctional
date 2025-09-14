@@ -11,7 +11,7 @@ open FsToolkit.ErrorHandling
 [<RequireQualifiedAccess>]
 module Command =
     type CreateOrderDraft =
-        { BuyerId: BuyerId
+        { BuyerId: UserId
           OrderItems: Map<ProductId, UnvalidatedOrderItem> }
 
     type CreateOrder =
@@ -77,7 +77,7 @@ type Event = Event.T
 [<RequireQualifiedAccess>]
 module State =
     type Draft =
-        { BuyerId: BuyerId
+        { BuyerId: UserId
           UnvalidatedOrderItems: Map<ProductId, UnvalidatedOrderItem> }
 
     type Submitted =
@@ -137,6 +137,8 @@ module State =
         | Cancelled of Cancelled
 
 type State = State.T
+
+type Id = AggregateId<State>
 
 type InvalidStateError =
     | OnlyPaidOrderCanBeShipped

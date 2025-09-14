@@ -9,6 +9,7 @@
 
     <ItemGroup>
         <Compile Include="IntegrationEvent.fs" />
+        <Compile Include="OrderQueries.fs" />
     </ItemGroup>
 
     <ItemGroup>
