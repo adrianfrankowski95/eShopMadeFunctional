@@ -1,7 +1,6 @@
 ﻿namespace eShop.DomainDrivenDesign
 
 open System
-open System.Threading.Tasks
 open Microsoft.FSharp.Reflection
 open eShop.Prelude
 open FsToolkit.ErrorHandling
@@ -120,10 +119,11 @@ module EventsProcessor =
 
         let scheduleRetry postCommand cmd =
             async {
-                do! options.Retries |> List.item (cmd.Attempt - 1) |> Task.Delay |> Async.AwaitTask
+                do! options.Retries |> List.item (cmd.Attempt - 1) |> Async.Sleep
 
                 return { cmd with Attempt = cmd.Attempt + 1 } |> postCommand
             }
+            |> Async.StartImmediate
 
         let maxAttempts = (options.Retries |> List.length) + 1
 
@@ -164,6 +164,7 @@ module EventsProcessor =
                             { cmd with
                                 Handlers = failedHandlers |> Map.ofList }
                             |> scheduleRetry
+                            |> Async.singleton
                         | true ->
                             (cmd.Attempt, cmd.AggregateId, cmd.Event, failedHandlers |> List.map fst |> Set.ofList)
                             |> MaxEventProcessingRetriesReached

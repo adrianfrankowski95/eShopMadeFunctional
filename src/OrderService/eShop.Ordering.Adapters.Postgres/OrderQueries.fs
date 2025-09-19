@@ -63,7 +63,7 @@ module private Sql =
     let getCardTypes (DbSchema schema) =
         $"""SELECT id as "Id", name as "Name" FROM "%s{schema}".card_types"""
 
-let getByIdQuery dbSchema sqlSession : OrderQueries.GetById<SqlIoError> =
+let getById dbSchema sqlSession : OrderQueries.GetById<SqlIoError> =
     fun (AggregateId aggregateId) ->
         asyncResult {
             let! orders =
@@ -111,7 +111,7 @@ let getByIdQuery dbSchema sqlSession : OrderQueries.GetById<SqlIoError> =
                 )
         }
 
-let getUserSummariesQuery dbSchema sqlSession : OrderQueries.GetUserSummaries<SqlIoError> =
+let getUserSummaries dbSchema sqlSession : OrderQueries.GetUserSummaries<SqlIoError> =
     fun userId ->
         {| UserId = userId |> UserId.value |}
         |> Dapper.query<Dto.OrderSummary> sqlSession (Sql.getUserSummaries dbSchema)
@@ -135,5 +135,5 @@ let getUserSummariesQuery dbSchema sqlSession : OrderQueries.GetUserSummaries<Sq
                 : OrderQueries.OrderSummary)
         )
 
-let getCardTypesQuery dbSchema sqlSession : OrderQueries.GetCardTypes<SqlIoError> =
+let getCardTypes dbSchema sqlSession : OrderQueries.GetCardTypes<SqlIoError> =
     fun () -> Dapper.query<OrderQueries.CardType> sqlSession (Sql.getCardTypes dbSchema) null
