@@ -6,9 +6,9 @@ open FsToolkit.ErrorHandling
 open FSharp.UMX
 
 [<Measure>]
-type productId
+type product
 
-type ProductId = int<productId>
+type ProductId = int<product>
 
 [<RequireQualifiedAccess>]
 module ProductId =

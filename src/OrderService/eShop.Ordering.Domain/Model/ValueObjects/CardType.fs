@@ -5,9 +5,9 @@ open eShop.ConstrainedTypes
 open FSharp.UMX
 
 [<Measure>]
-type cardTypeId
+type cardType
 
-type CardTypeId = int<cardTypeId>
+type CardTypeId = int<cardType>
 
 [<RequireQualifiedAccess>]
 module CardTypeId =

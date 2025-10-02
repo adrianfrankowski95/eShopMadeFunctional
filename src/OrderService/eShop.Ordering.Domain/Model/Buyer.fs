@@ -3,9 +3,9 @@
 open eShop.ConstrainedTypes
 
 [<Measure>]
-type userId
+type user
 
-type UserId = Id<userId>
+type UserId = Id<user>
 
 
 type BuyerName = String.NonWhiteSpace
