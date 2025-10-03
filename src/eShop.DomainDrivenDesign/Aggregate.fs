@@ -3,6 +3,7 @@
 open System
 open eShop.ConstrainedTypes
 open eShop.Prelude
+open eShop.Prelude.Operators
 open FsToolkit.ErrorHandling
 
 [<Measure>]
@@ -11,6 +12,7 @@ type aggregate
 type AggregateId<'state> = private AggregateId of Id<aggregate>
 
 type GenerateAggregateId<'state> = unit -> AggregateId<'state>
+
 
 [<RequireQualifiedAccess>]
 module AggregateId =
@@ -25,11 +27,11 @@ module AggregateId =
 module ActivePatterns =
     let (|AggregateId|) = AggregateId.value
 
-type Evolve<'state, 'command, 'event, 'stateTransitionError> =
-    'command -> 'state -> Result<'state * 'event list, 'stateTransitionError>
-
-type AggregateAction<'state, 'event, 'stateTransitionError> =
-    'state -> Result<'state * 'event list, 'stateTransitionError>
+// type Evolve<'state, 'command, 'event, 'stateTransitionError> =
+//     'command -> 'state -> Result<'state * 'event list, 'stateTransitionError>
+//
+// type AggregateAction<'state, 'event, 'stateTransitionError> =
+//     'state -> Result<'state * 'event list, 'stateTransitionError>
 
 [<RequireQualifiedAccess>]
 module Aggregate =
@@ -38,23 +40,33 @@ module Aggregate =
 
         stateType.DeclaringType.Name + stateType.Name
 
+
 type Port<'input, 'output, 'ioError> = 'input -> AsyncResult<'output, 'ioError>
 
-type AggregateOperation<'st, 'ev, 'err, 'retn> =
-    private | AggregateOperation of ('st -> AsyncResult<'st * 'ev list * 'retn, 'err>)
+
+type AggregateAction<'st, 'ev, 'err, 'retn> = private AggregateAction of ('st -> AsyncResult<'st * 'ev list * 'retn, 'err>)
 
 [<RequireQualifiedAccess>]
-module AggregateOperation =
-    let internal run (AggregateOperation op) st = op st
+module AggregateAction =
+    let internal run (AggregateAction op) st = op st
 
-    let retn x =
+    let inline retn x =
         fun st0 -> AsyncResult.ok (st0, [], x)
-        |> AggregateOperation
+        |> AggregateAction
 
-    let bind
-        (f: 'a -> AggregateOperation<'st, 'ev, 'err, 'b>)
-        (a: AggregateOperation<'st, 'ev, 'err, 'a>)
-        =
+    let inline ignore a =
+        fun st0 -> run a st0 |> AsyncResult.map (fun (st, ev, _) -> st, ev, ())
+        |> AggregateAction
+
+    let inline map ([<InlineIfLambda>] f) a =
+        fun st0 -> run a st0 |> AsyncResult.map (fun (st, ev, a) -> st, ev, f a)
+        |> AggregateAction
+
+    let inline mapError ([<InlineIfLambda>] f) a =
+        fun st0 -> run a st0 |> AsyncResult.mapError f
+        |> AggregateAction
+
+    let inline bind ([<InlineIfLambda>] f) a =
         fun st0 ->
             asyncResult {
                 let! st1, ev1, a = run a st0
@@ -62,13 +74,73 @@ module AggregateOperation =
 
                 return st2, ev1 @ ev2, b
             }
-        |> AggregateOperation
+        |> AggregateAction
 
-    let combine
-        (a: AggregateOperation<'state, 'event, 'error, 'a>)
-        (b: AggregateOperation<'state, 'event, 'error, 'b>)
-        =
-        bind (fun _ -> b) a
+    let inline combine a b = bind (fun _ -> b) a
+
+    let inline apply f a =
+        fun st0 ->
+            asyncResult {
+                let! st1, ev1, a = run a st0
+                let! st2, ev2, f = run f st1
+
+                return st2, ev1 @ ev2, f a
+            }
+        |> AggregateAction
+
+    let inline exec ([<InlineIfLambda>] f) cmd a =
+        fun st0 ->
+            asyncResult {
+                let! st1, ev1, _ = run a st0
+                let! st2, ev2 = f cmd st1
+
+                return st2, ev1 @ ev2, ()
+            }
+        |> AggregateAction
+
+    let inline raise apply ev a =
+        fun st0 ->
+            asyncResult {
+                let! st1, ev1, _ = run a st0
+                let! st2 = apply st1 ev
+
+                return st2, ev1 @ [ ev ], ()
+            }
+        |> AggregateAction
+
+    let inline getState a =
+        fun st0 -> run a st0 |> AsyncResult.map (fun (st, ev, _) -> st, ev, st)
+        |> AggregateAction
+
+    let inline private require req ([<InlineIfLambda>] f) err a =
+        a
+        |> getState
+        |> bind (
+            (fun st -> req err (f st)) |> AggregateAction))
+
+    let inline requireSome ([<InlineIfLambda>] f) =
+        require (Result.requireSome >>> Async.singleton) f
+
+    let inline requireNone ([<InlineIfLambda>] f) =
+        require (Result.requireNone >>> Async.singleton) f
+
+    let inline requireTrue ([<InlineIfLambda>] f) =
+        require (Result.requireTrue >>> Async.singleton) f
+
+    let inline requireFalse ([<InlineIfLambda>] f) =
+        require (Result.requireFalse >>> Async.singleton) f
+
+type AggregateAction() =
+    member _.Return(x) = AggregateAction.retn x
+    member _.Bind(x, f) = AggregateAction.bind f x
+    member _.ReturnFrom(x) = x
+    member _.Zero() = AggregateAction.retn ()
+    member _.Combine(x, y) = AggregateAction.combine x y
+    member _.Delay(f) = f ()
+
+[<AutoOpen>]
+module CE =
+    let aggregateOp = AggregateAction()
 
 // // 1
 // module Domain.Workflow
