@@ -132,9 +132,11 @@ type Workflow<'st, 'ev, 'err, 'ioErr, 'retn> =
 
 [<RequireQualifiedAccess>]
 module Workflow =
-    let run (Workflow a) st = AggregateAction.run a st
+    let internal run (Workflow a) st = AggregateAction.run a st
 
     let retn x = AggregateAction.retn x |> Workflow
+    
+    let inline ofAggregateAction a = a |> Workflow
     
     let inline bind ([<InlineIfLambda>] f) a =
         fun st0 ->
@@ -144,12 +146,12 @@ module Workflow =
                 
                 return st2, ev1 @ ev2, b
             }
+        |> AggregateAction
+        |> ofAggregateAction
     
     let inline map f a = bind (f >> retn) a
     
     let inline ignore a = map (fun _ -> ()) a
-    
-    let inline ofAggregateAction a = a |> Workflow
     
     let usePort (f: Port<_,_,_>) x a =
         fun st0 ->
