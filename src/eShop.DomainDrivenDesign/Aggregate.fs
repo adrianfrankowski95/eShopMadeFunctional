@@ -41,30 +41,21 @@ module Aggregate =
         stateType.DeclaringType.Name + stateType.Name
 
 
-type Port<'input, 'output, 'ioError> = 'input -> AsyncResult<'output, 'ioError>
-
-
-type AggregateAction<'st, 'ev, 'err, 'retn> = private AggregateAction of ('st -> AsyncResult<'st * 'ev list * 'retn, 'err>)
+type AggregateAction<'st, 'ev, 'err, 'retn> =
+    private | AggregateAction of ('st -> AsyncResult<'st * 'ev list * 'retn, 'err>)
 
 [<RequireQualifiedAccess>]
 module AggregateAction =
-    let internal run (AggregateAction op) st = op st
+    let internal run (AggregateAction a) st = a st
 
     let inline retn x =
         fun st0 -> AsyncResult.ok (st0, [], x)
         |> AggregateAction
 
-    let inline ignore a =
-        fun st0 -> run a st0 |> AsyncResult.map (fun (st, ev, _) -> st, ev, ())
+    let inline error x =
+        fun _ -> AsyncResult.error x
         |> AggregateAction
-
-    let inline map ([<InlineIfLambda>] f) a =
-        fun st0 -> run a st0 |> AsyncResult.map (fun (st, ev, a) -> st, ev, f a)
-        |> AggregateAction
-
-    let inline mapError ([<InlineIfLambda>] f) a =
-        fun st0 -> run a st0 |> AsyncResult.mapError f
-        |> AggregateAction
+    
 
     let inline bind ([<InlineIfLambda>] f) a =
         fun st0 ->
@@ -78,15 +69,15 @@ module AggregateAction =
 
     let inline combine a b = bind (fun _ -> b) a
 
-    let inline apply f a =
-        fun st0 ->
-            asyncResult {
-                let! st1, ev1, a = run a st0
-                let! st2, ev2, f = run f st1
+    let inline map ([<InlineIfLambda>] f) a = bind (f >> retn) a
 
-                return st2, ev1 @ ev2, f a
-            }
+    let inline ignore a = map (fun _ -> ()) a
+    
+    let inline mapError ([<InlineIfLambda>] f) a =
+        fun st0 -> run a st0 |> AsyncResult.mapError f
         |> AggregateAction
+
+    let inline apply f a = bind (fun f -> map f a) f
 
     let inline exec ([<InlineIfLambda>] f) cmd a =
         fun st0 ->
@@ -112,11 +103,7 @@ module AggregateAction =
         fun st0 -> run a st0 |> AsyncResult.map (fun (st, ev, _) -> st, ev, st)
         |> AggregateAction
 
-    let inline private require req ([<InlineIfLambda>] f) err a =
-        a
-        |> getState
-        |> bind (
-            (fun st -> req err (f st)) |> AggregateAction))
+    let inline private require req ([<InlineIfLambda>] f) err a = getState a |> map (f >> req err)
 
     let inline requireSome ([<InlineIfLambda>] f) =
         require (Result.requireSome >>> Async.singleton) f
@@ -130,7 +117,7 @@ module AggregateAction =
     let inline requireFalse ([<InlineIfLambda>] f) =
         require (Result.requireFalse >>> Async.singleton) f
 
-type AggregateAction() =
+type AggregateActionBuilder() =
     member _.Return(x) = AggregateAction.retn x
     member _.Bind(x, f) = AggregateAction.bind f x
     member _.ReturnFrom(x) = x
@@ -138,9 +125,52 @@ type AggregateAction() =
     member _.Combine(x, y) = AggregateAction.combine x y
     member _.Delay(f) = f ()
 
+type Port<'input, 'output, 'ioError> = 'input -> AsyncResult<'output, 'ioError>
+
+type Workflow<'st, 'ev, 'err, 'ioErr, 'retn> =
+    private | Workflow of AggregateAction<'st, 'ev, Either<'err, 'ioErr>, 'retn>
+
+[<RequireQualifiedAccess>]
+module Workflow =
+    let run (Workflow a) st = AggregateAction.run a st
+
+    let retn x = AggregateAction.retn x |> Workflow
+    
+    let inline bind ([<InlineIfLambda>] f) a =
+        fun st0 ->
+            asyncResult {
+                let! st1, ev1, a = run a st0
+                let! st2, ev2, b = run (f a) st1
+                
+                return st2, ev1 @ ev2, b
+            }
+    
+    let inline map f a = bind (f >> retn) a
+    
+    let inline ignore a = map (fun _ -> ()) a
+    
+    let inline ofAggregateAction a = a |> Workflow
+    
+    let usePort (f: Port<_,_,_>) x a =
+        fun st0 ->
+            asyncResult {
+                let! st1, ev1, _ = run a st0
+                let! y = f x |> AsyncResult.mapError Left
+                
+                return st1, ev1, y
+            }
+        |> AggregateAction
+        |> ofAggregateAction
+    
+    let inline mapIoError ([<InlineIfLambda>] f) a =
+        a |> AggregateAction.mapError (Either.mapLeft f)
+        
+    let inline mapDomainError ([<InlineIfLambda>] f) a =
+        a |> AggregateAction.mapError (Either.mapRight f)
+
 [<AutoOpen>]
 module CE =
-    let aggregateOp = AggregateAction()
+    let aggregateAction = AggregateActionBuilder()
 
 // // 1
 // module Domain.Workflow
