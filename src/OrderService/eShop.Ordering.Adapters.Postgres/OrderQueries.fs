@@ -65,11 +65,11 @@ module private Sql =
 
 let getById dbSchema sqlSession : OrderQueries.GetById<SqlIoError> =
     fun (AggregateId aggregateId) ->
-        asyncResult {
+        taskResult {
             let! orders =
                 {| OrderId = aggregateId |}
                 |> Dapper.query<Dto.Order> sqlSession (Sql.getOrderById dbSchema)
-                |> AsyncResult.map (Seq.groupBy _.OrderNumber)
+                |> TaskResult.map (Seq.groupBy _.OrderNumber)
 
             return!
                 orders
@@ -115,7 +115,7 @@ let getUserSummaries dbSchema sqlSession : OrderQueries.GetUserSummaries<SqlIoEr
     fun userId ->
         {| UserId = userId |> UserId.value |}
         |> Dapper.query<Dto.OrderSummary> sqlSession (Sql.getUserSummaries dbSchema)
-        |> AsyncResult.map (
+        |> TaskResult.map (
             Seq.groupBy _.OrderNumber
             >> Seq.map (fun (orderId, dtos) ->
                 let dto = dtos |> Seq.head

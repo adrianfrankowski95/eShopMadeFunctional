@@ -20,7 +20,7 @@ type RabbitMQIoError =
     | EventDispatchError of exn
     | InvalidEventData of string
 
-type RabbitMQEventDispatcher<'eventPayload> = Event<'eventPayload> -> AsyncResult<unit, RabbitMQIoError>
+type RabbitMQEventDispatcher<'eventPayload> = Event<'eventPayload> -> TaskResult<unit, RabbitMQIoError>
 
 [<RequireQualifiedAccess>]
 module RabbitMQ =
@@ -117,16 +117,16 @@ module RabbitMQ =
         channel.BasicNack(ea.DeliveryTag, multiple = false, requeue = false)
 
     let internal initConsumer (connection: IConnection) (config: Configuration.RabbitMQOptions) =
-        asyncResult {
+        taskResult {
             let rec ensureIsOpen (connection: IConnection) (retries: TimeSpan list) =
                 match connection.IsOpen, retries with
-                | true, _ -> true |> Async.singleton
+                | true, _ -> true |> Task.singleton
                 | false, head :: tail ->
-                    async {
-                        do! Async.Sleep head
+                    task {
+                        do! Task.Delay head
                         return! ensureIsOpen connection tail
                     }
-                | false, [] -> false |> Async.singleton
+                | false, [] -> false |> Task.singleton
 
             let inline exnToMsg msg : Result<_, exn> -> Result<_, string> =
                 Result.mapError (_.Message >> sprintf "%s: %s" msg)
@@ -137,7 +137,7 @@ module RabbitMQ =
                 [ (1: float); 2; 5 ]
                 |> List.map TimeSpan.FromSeconds
                 |> ensureIsOpen connection
-                |> AsyncResult.requireTrue "Connection to RabbitMQ was closed"
+                |> TaskResult.requireTrue "Connection to RabbitMQ was closed"
 
             let! channel = createChannel connection |> exnToMsg "Failed to create RabbitMQ channel"
 
@@ -171,7 +171,7 @@ module RabbitMQ =
         =
         result {
             let inline handleResult (ea: BasicDeliverEventArgs) =
-                AsyncResult.tee (fun _ ->
+                TaskResult.tee (fun _ ->
                     ack ea consumer.Model
 
                     logger.LogInformation(
@@ -179,7 +179,7 @@ module RabbitMQ =
                         ea.BasicProperties.MessageId,
                         ea.BasicProperties.Type
                     ))
-                >> AsyncResult.teeError (fun err ->
+                >> TaskResult.teeError (fun err ->
                     logger.LogError(
                         "An error occurred for MessageId {MessageId} of type {MessageType}: {Error}",
                         ea.BasicProperties.MessageId,
@@ -188,8 +188,7 @@ module RabbitMQ =
                     )
 
                     nack ea consumer.Model)
-                >> AsyncResult.ignoreError
-                >> Async.StartImmediateAsTask
+                >> TaskResult.ignoreError
 
             do!
                 consumer.IsRunning
@@ -209,7 +208,7 @@ module RabbitMQ =
                 |> Result.ignore
 
             consumer.add_Received (fun _ ea ->
-                asyncResult {
+                taskResult {
                     let timestamp =
                         match ea.BasicProperties.IsTimestampPresent() with
                         | true -> ea.BasicProperties.Timestamp.UnixTime |> DateTimeOffset.FromUnixTimeSeconds
@@ -238,7 +237,7 @@ module RabbitMQ =
                           OccurredAt = timestamp }
                         |> List.singleton
                         |> persistEvents aggregateId
-                        |> AsyncResult.mapError Choice2Of2
+                        |> TaskResult.mapError Choice2Of2
                 }
                 |> handleResult ea
                 :> Task)
@@ -250,7 +249,7 @@ module RabbitMQ =
         (serializePayload: 'eventPayload -> Result<byte array, exn>)
         : RabbitMQEventDispatcher<'eventPayload> =
         fun (event: Event<'eventPayload>) ->
-            asyncResult {
+            taskResult {
                 let! eventName = event.Data |> getEventName |> Result.mapError InvalidEventData
 
                 let! body =

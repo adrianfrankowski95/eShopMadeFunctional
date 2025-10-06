@@ -801,11 +801,11 @@ type ReadOrderAggregate = OrderAggregateManagementPort.ReadOrderAggregate<SqlIoE
 
 let readOrderAggregate dbSchema sqlSession : ReadOrderAggregate =
     fun (AggregateId aggregateId) ->
-        asyncResult {
+        taskResult {
             let! orderDtos =
                 {| OrderId = aggregateId |}
                 |> Dapper.query<Dto.Order> sqlSession (Sql.getOrderById dbSchema)
-                |> AsyncResult.map (Seq.groupBy _.Id)
+                |> TaskResult.map (Seq.groupBy _.Id)
 
             return!
                 orderDtos
@@ -817,8 +817,8 @@ let readOrderAggregate dbSchema sqlSession : ReadOrderAggregate =
 type PersistOrderAggregate = OrderAggregateManagementPort.PersistOrderAggregate<SqlIoError>
 
 let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
-    fun (AggregateId aggregateId) order ->
-        asyncResult {
+    fun (AggregateId aggregateId, order) ->
+        taskResult {
             let sqlSession = dbTransaction |> SqlSession.Sustained
 
             do!
@@ -828,8 +828,8 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                     {| BuyerId = buyerId |> UserId.value
                        BuyerName = order |> Order.getBuyerName |> Option.map BuyerName.value |> Option.toObj |}
                     |> Dapper.execute sqlSession (Sql.upsertBuyer dbSchema)
-                    |> AsyncResult.ignore)
-                |> Option.defaultValue (AsyncResult.ok ())
+                    |> TaskResult.ignore)
+                |> Option.defaultValue (TaskResult.ok ())
 
             let! maybePaymentMethodId =
                 order
@@ -838,16 +838,16 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                     order
                     |> Order.getBuyerId
                     |> Result.requireSome ("Missing BuyerId for existing Payment Method" |> InvalidData)
-                    |> AsyncResult.ofResult
-                    |> AsyncResult.bind (fun buyerId ->
+                    |> TaskResult.ofResult
+                    |> TaskResult.bind (fun buyerId ->
                         {| BuyerId = buyerId |> UserId.value
                            CardTypeId = paymentMethod.CardType.Id |> CardTypeId.value
                            CardNumber = paymentMethod.CardNumber |> CardNumber.value
                            CardHolderName = paymentMethod.CardHolderName |> CardHolderName.value
                            CardExpiration = paymentMethod.CardExpiration |}
                         |> Dapper.executeScalar<Guid> sqlSession (Sql.getOrAddPaymentMethod dbSchema)
-                        |> AsyncResult.map Some))
-                |> Option.defaultValue (AsyncResult.ok None)
+                        |> TaskResult.map Some))
+                |> Option.defaultValue (TaskResult.ok None)
 
             do!
                 order
@@ -867,14 +867,14 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                        Country = maybeAddress |> Option.map (_.Country >> Country.value)
                        ZipCode = maybeAddress |> Option.map (_.ZipCode >> ZipCode.value) |}
                     |> Dapper.execute sqlSession (Sql.upsertOrder dbSchema)
-                    |> AsyncResult.ignore)
-                |> Option.defaultValue (AsyncResult.ok ())
+                    |> TaskResult.ignore)
+                |> Option.defaultValue (TaskResult.ok ())
 
             do!
                 order
                 |> Order.getOrderItems
                 |> Map.toList
-                |> List.traverseAsyncResultM (fun (id, item) ->
+                |> List.traverseTaskResultM (fun (id, item) ->
                     {| ProductId = id |> ProductId.value
                        OrderId = aggregateId
                        ProductName = item |> OrderItem.getProductName |> ProductName.value
@@ -883,7 +883,7 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                        Discount = item |> OrderItem.getDiscount |> Discount.value
                        PictureUrl = item |> OrderItem.getPictureUrl |}
                     |> Dapper.execute sqlSession (Sql.upsertOrderItem dbSchema))
-                |> AsyncResult.ignore
+                |> TaskResult.ignore
         }
 
 type PersistOrderAggregateEvents = OrderAggregateManagementPort.PersistOrderAggregateEvents<SqlIoError>

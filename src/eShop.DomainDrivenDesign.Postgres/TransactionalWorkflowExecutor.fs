@@ -3,6 +3,7 @@
 open System
 open System.Data
 open System.Data.Common
+open System.Threading.Tasks
 open eShop.DomainDrivenDesign
 open eShop.Postgres
 open eShop.Prelude
@@ -38,23 +39,23 @@ module TransactionalWorkflowExecutor =
             (workflow: DbTransaction -> WorkflowResult<'state, 'event, 'domainError, 'ioError>)
             (retries: Delay list)
             =
-            asyncResult {
-                let connection = options.GetDbConnection()
+            taskResult {
+                use connection = options.GetDbConnection()
                 do! connection.OpenAsync()
 
-                let! transaction = connection.BeginTransactionAsync(options.IsolationLevel).AsTask()
+                let! transaction = connection.BeginTransactionAsync(options.IsolationLevel)
 
                 let! result =
                     transaction
                     |> workflow
-                    |> AsyncResult.teeErrorAsync (fun _ -> transaction.RollbackAsync() |> Async.AwaitTask)
+                    |> TaskResult.teeErrorAsync (fun _ -> transaction.RollbackAsync())
 
                 try
-                    do! transaction.CommitAsync() |> Async.AwaitTask
-                    do! connection.CloseAsync() |> Async.AwaitTask
+                    do! transaction.CommitAsync()
+                    do! connection.CloseAsync()
                 with e ->
-                    do! transaction.RollbackAsync() |> Async.AwaitTask
-                    do! connection.CloseAsync() |> Async.AwaitTask
+                    do! transaction.RollbackAsync()
+                    do! connection.CloseAsync()
 
                     return!
                         e
@@ -65,12 +66,12 @@ module TransactionalWorkflowExecutor =
 
                 return result
             }
-            |> AsyncResult.orElseWith (fun error ->
+            |> TaskResult.orElseWith (fun error ->
                 match retries with
-                | [] -> error |> AsyncResult.error
+                | [] -> error |> TaskResult.error
                 | head :: tail ->
-                    asyncResult {
-                        do! head |> Async.Sleep
+                    taskResult {
+                        do! head |> Task.Delay
                         return! tail |> executeInTransaction workflow
                     })
 
@@ -78,7 +79,7 @@ module TransactionalWorkflowExecutor =
 
     let inline andThen action result =
         result
-        |> AsyncResult.bind (fun (aggregateId, events) ->
+        |> TaskResult.bind (fun (aggregateId, events) ->
             events
             |> action aggregateId
-            |> AsyncResult.mapError WorkflowExecutionError.IoError)
+            |> TaskResult.mapError WorkflowExecutionError.IoError)

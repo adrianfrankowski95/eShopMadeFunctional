@@ -21,7 +21,7 @@ type GetSupportedCardTypes = PaymentManagementPort.GetSupportedCardTypes<SqlIoEr
 
 let getSupportedCardTypes dbSchema sqlSession : GetSupportedCardTypes =
     fun () ->
-        asyncResult {
+        taskResult {
             let! cardTypeDtos = Dapper.query<Dto.CardType> sqlSession (Sql.getSupportedCardTypes dbSchema) null
 
             return!

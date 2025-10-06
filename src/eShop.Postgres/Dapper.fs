@@ -12,22 +12,22 @@ let private (|SqlSession|) =
     | SqlSession.Sustained dbTransaction -> (dbTransaction.Connection, dbTransaction)
     | SqlSession.Standalone getDbConnection -> (getDbConnection (), null)
 
-let inline private toAsyncResult f =
+let inline private catch f =
     try
-        f () |> Async.AwaitTask |> Async.map Ok
+        f () |> Task.map Ok
     with e ->
-        e |> SqlException |> AsyncResult.error
+        e |> SqlException |> TaskResult.error
 
 let query<'t> (SqlSession(dbConnection, transaction)) sql param =
     (fun () -> dbConnection.QueryAsync<'t>(sql, param, transaction))
-    |> toAsyncResult
+    |> catch
 
 let execute (SqlSession(dbConnection, transaction)) sql param =
-    (fun () -> dbConnection.ExecuteAsync(sql, param, transaction)) |> toAsyncResult
+    (fun () -> dbConnection.ExecuteAsync(sql, param, transaction)) |> catch
 
 let executeScalar<'t> (SqlSession(dbConnection, transaction)) sql param =
     (fun () -> dbConnection.ExecuteScalarAsync<'t>(sql, param, transaction))
-    |> toAsyncResult
+    |> catch
 
 [<RequireQualifiedAccess>]
 module TypeHandlers =

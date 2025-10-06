@@ -11,5 +11,5 @@ open eShop.Prelude
 let verifyPaymentMethod shouldAcceptPayment : PaymentManagementPort.VerifyPaymentMethod<HttpIoError> =
     fun unverifiedPayment ->
         match shouldAcceptPayment with
-        | true -> unverifiedPayment |> UnverifiedPaymentMethod.verify |> AsyncResult.ok
-        | false -> PaymentManagementPort.InvalidPaymentMethodError |> Left |> AsyncResult.error
+        | true -> unverifiedPayment |> UnverifiedPaymentMethod.verify |> TaskResult.ok
+        | false -> PaymentManagementPort.InvalidPaymentMethodError |> Left |> TaskResult.error

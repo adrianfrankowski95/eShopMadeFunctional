@@ -13,8 +13,11 @@
         <Compile Include="Map.fs" />
         <Compile Include="Option.fs" />
         <Compile Include="AsyncResult.fs" />
+        <Compile Include="TaskResult.fs" />
+        <Compile Include="Reader.fs" />
         <Compile Include="Either.fs" />
         <Compile Include="Tuple.fs" />
+        <Compile Include="Task.fs" />
         <Compile Include="Operators.fs" />
     </ItemGroup>
 

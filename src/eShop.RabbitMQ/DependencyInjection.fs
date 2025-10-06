@@ -13,6 +13,7 @@ open Microsoft.Extensions.Options
 open RabbitMQ.Client
 open RabbitMQ.Client.Events
 open eShop.DomainDrivenDesign
+open eShop.Prelude
 
 type Extensions =
     [<Extension>]
@@ -39,7 +40,7 @@ type Extensions =
 
                 config
                 |> RabbitMQ.initConsumer connection
-                |> Async.RunSynchronously
+                |> Task.getResultSynchronously
                 |> Result.valueOr failwith)
         |> ignore
 

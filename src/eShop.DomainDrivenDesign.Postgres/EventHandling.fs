@@ -79,7 +79,7 @@ module Postgres =
         (dbTransaction: DbTransaction)
         : PersistEvents<'state, 'eventPayload> =
         fun (AggregateId aggregateId) events ->
-            asyncResult {
+            taskResult {
                 let! parameters =
                     events
                     |> List.traverseResultM (fun ev ->
@@ -97,7 +97,7 @@ module Postgres =
                 do!
                     parameters
                     |> Dapper.execute (SqlSession.Sustained dbTransaction) (Sql.persistEvent dbSchema)
-                    |> AsyncResult.ignore
+                    |> TaskResult.ignore
             }
 
 
@@ -113,12 +113,12 @@ module Postgres =
             {| AggregateType = Aggregate.typeName<'state>
                EventType = typeof<'eventPayload>.FullName |}
             |> Dapper.query<Dto.Event> sqlSession (Sql.readUnprocessedEvents dbSchema)
-            |> AsyncResult.bind (
+            |> TaskResult.bind (
                 Seq.traverseResultM (
                     Dto.Event.toDomain<'state, 'eventPayloadDto, 'eventPayload> parsePayload jsonOptions
                 )
                 >> Result.map Seq.toList
-                >> AsyncResult.ofResult
+                >> TaskResult.ofResult
             )
 
     type PersistSuccessfulEventHandlers = PersistSuccessfulEventHandlers<SqlIoError>
@@ -128,7 +128,7 @@ module Postgres =
             {| EventId = eventId |> EventId.value
                SuccessfulHandlers = successfulHandlers |> Set.toArray |}
             |> Dapper.execute sqlSession (Sql.persistSuccessfulEventHandlers dbSchema)
-            |> AsyncResult.ignore
+            |> TaskResult.ignore
 
     type MarkEventAsProcessed = MarkEventAsProcessed<SqlIoError>
 
@@ -137,4 +137,4 @@ module Postgres =
             {| EventId = eventId |> EventId.value
                UtcNow = getNow () |}
             |> Dapper.execute sqlSession (Sql.markEventAsProcessed dbSchema)
-            |> AsyncResult.ignore
+            |> TaskResult.ignore

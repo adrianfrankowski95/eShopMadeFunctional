@@ -1,15 +1,18 @@
 ﻿namespace eShop.DomainDrivenDesign
 
 open System
+open System.Threading.Tasks
 open Microsoft.FSharp.Reflection
 open eShop.Prelude
 open FsToolkit.ErrorHandling
 open eShop.ConstrainedTypes
 
 [<Measure>]
-type eventId
+type event
 
-type EventId = Id<eventId>
+type EventId = Id<event>
+
+type GenerateEventId = GenerateId<event>
 
 type Event<'payload> =
     { Id: EventId
@@ -31,7 +34,7 @@ module Event =
         | false -> payloadType.Name
 
 type EventHandler<'state, 'eventPayload, 'ioError> =
-    AggregateId<'state> -> Event<'eventPayload> -> AsyncResult<unit, 'ioError>
+    AggregateId<'state> -> Event<'eventPayload> -> TaskResult<unit, 'ioError>
 
 type EventHandlerName = string
 
@@ -41,17 +44,17 @@ type EventHandlerRegistry<'state, 'eventPayload, 'ioError> =
     Map<EventHandlerName, EventHandler<'state, 'eventPayload, 'ioError>>
 
 type PersistEvents<'state, 'eventPayload, 'ioError> =
-    AggregateId<'state> -> Event<'eventPayload> list -> AsyncResult<unit, 'ioError>
+    AggregateId<'state> -> Event<'eventPayload> list -> TaskResult<unit, 'ioError>
 
 type ReadUnprocessedEvents<'state, 'eventPayload, 'ioError> =
-    unit -> AsyncResult<(AggregateId<'state> * Event<'eventPayload> * SuccessfulEventHandlers) list, 'ioError>
+    unit -> TaskResult<(AggregateId<'state> * Event<'eventPayload> * SuccessfulEventHandlers) list, 'ioError>
 
 type PublishEvents<'state, 'eventPayload, 'ioError> =
-    AggregateId<'state> -> Event<'eventPayload> list -> AsyncResult<unit, 'ioError>
+    AggregateId<'state> -> Event<'eventPayload> list -> TaskResult<unit, 'ioError>
 
-type PersistSuccessfulEventHandlers<'ioError> = EventId -> SuccessfulEventHandlers -> AsyncResult<unit, 'ioError>
+type PersistSuccessfulEventHandlers<'ioError> = EventId -> SuccessfulEventHandlers -> TaskResult<unit, 'ioError>
 
-type MarkEventAsProcessed<'ioError> = EventId -> AsyncResult<unit, 'ioError>
+type MarkEventAsProcessed<'ioError> = EventId -> TaskResult<unit, 'ioError>
 
 [<RequireQualifiedAccess>]
 module EventsProcessor =
@@ -118,65 +121,63 @@ module EventsProcessor =
         ) =
 
         let scheduleRetry postCommand cmd =
-            async {
-                do! options.Retries |> List.item (cmd.Attempt - 1) |> Async.Sleep
+            task {
+                do! options.Retries |> List.item (cmd.Attempt - 1) |> Task.Delay
 
                 return { cmd with Attempt = cmd.Attempt + 1 } |> postCommand
             }
-            |> Async.StartImmediate
 
         let maxAttempts = (options.Retries |> List.length) + 1
 
         let processEvent scheduleRetry cmd =
-            async {
+            task {
                 let! successfulHandlers, failedHandlers =
                     cmd.Handlers
-                    |> Seq.map (fun (KeyValue(handlerName, handler)) ->
+                    |> Task.createColdSeq (fun (KeyValue(handlerName, handler)) ->
                         cmd.Event
                         |> handler cmd.AggregateId
-                        |> AsyncResult.map (fun _ -> handlerName)
-                        |> AsyncResult.teeError (fun error ->
+                        |> TaskResult.map (fun _ -> handlerName)
+                        |> TaskResult.teeError (fun error ->
                             EventHandlerFailed(cmd.Attempt, cmd.AggregateId, cmd.Event, handlerName, error)
                             |> options.ErrorHandler)
-                        |> AsyncResult.setError (handlerName, handler))
-                    |> Async.Sequential
-                    |> Async.map (Result.extractList >> Tuple.mapFst Set.ofList)
+                        |> TaskResult.setError (handlerName, handler))
+                    |> Task.sequential
+                    |> Task.map (Result.extractList >> Tuple.mapFst Set.ofList)
 
                 do!
                     successfulHandlers
                     |> persistSuccessfulHandlers cmd.Event.Id
-                    |> AsyncResult.teeError (fun error ->
+                    |> TaskResult.teeError (fun error ->
                         PersistingSuccessfulEventHandlersFailed(cmd.AggregateId, cmd.Event, successfulHandlers, error)
                         |> options.ErrorHandler)
-                    |> AsyncResult.ignoreError
+                    |> TaskResult.ignoreError
 
                 do!
                     match failedHandlers with
                     | [] ->
                         cmd.Event.Id
                         |> markEventAsProcessed
-                        |> AsyncResult.teeError (fun err ->
+                        |> TaskResult.teeError (fun err ->
                             (cmd.Event, err) |> MarkingEventAsProcessedFailed |> options.ErrorHandler)
-                        |> AsyncResult.ignoreError
+                        |> TaskResult.ignoreError
                     | failedHandlers ->
                         match cmd.Attempt = maxAttempts with
                         | false ->
                             { cmd with
                                 Handlers = failedHandlers |> Map.ofList }
                             |> scheduleRetry
-                            |> Async.singleton
                         | true ->
                             (cmd.Attempt, cmd.AggregateId, cmd.Event, failedHandlers |> List.map fst |> Set.ofList)
                             |> MaxEventProcessingRetriesReached
                             |> options.ErrorHandler
-                            |> Async.singleton
+                            |> Task.singleton
             }
 
         let readUnprocessedEvents =
             readUnprocessedEvents
-            >> AsyncResult.teeError (ReadingUnprocessedEventsFailed >> options.ErrorHandler)
-            >> AsyncResult.defaultValue []
-            >> Async.map (
+            >> TaskResult.teeError (ReadingUnprocessedEventsFailed >> options.ErrorHandler)
+            >> TaskResult.defaultValue []
+            >> Task.map (
                 List.map (fun (aggregateId, event, successfulHandlers) ->
                     { Attempt = 1
                       Event = event
@@ -190,7 +191,7 @@ module EventsProcessor =
                 let processEvent = processEvent scheduleRetry
 
                 let rec loop () =
-                    async {
+                    task {
                         let! cmd = inbox.Receive()
 
                         do! cmd |> processEvent
@@ -198,17 +199,18 @@ module EventsProcessor =
                         return! loop ()
                     }
 
-                async {
+                task {
                     do!
                         readUnprocessedEvents ()
-                        |> Async.map (List.sortBy _.Event.OccurredAt >> List.iter inbox.Post)
+                        |> Task.map (List.sortBy _.Event.OccurredAt >> List.iter inbox.Post)
 
                     do! loop ()
-                })
+                }
+                |> Async.AwaitTask)
 
         member this.Publish: PublishEvents<'state, 'eventPayload, 'eventHandlingIoError> =
             fun aggregateId events ->
-                asyncResult {
+                taskResult {
                     events
                     |> List.sortBy _.OccurredAt
                     |> List.iter (fun event ->

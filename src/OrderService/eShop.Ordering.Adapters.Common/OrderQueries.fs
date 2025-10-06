@@ -3,7 +3,7 @@ module eShop.Ordering.Adapters.Common.OrderQueries
 
 open System
 open eShop.Ordering.Domain.Model
-open eShop.Prelude
+open FsToolkit.ErrorHandling
 
 [<CLIMutable>]
 type OrderItem =
@@ -36,8 +36,8 @@ type OrderSummary =
 [<CLIMutable>]
 type CardType = { Id: int; Name: string }
 
-type GetById<'ioError> = Order.Id -> AsyncResult<Order option, 'ioError>
+type GetById<'ioError> = Order.Id -> TaskResult<Order option, 'ioError>
 
-type GetUserSummaries<'ioError> = UserId -> AsyncResult<OrderSummary seq, 'ioError>
+type GetUserSummaries<'ioError> = UserId -> TaskResult<OrderSummary seq, 'ioError>
 
-type GetCardTypes<'ioError> = unit -> AsyncResult<CardType seq, 'ioError>
+type GetCardTypes<'ioError> = unit -> TaskResult<CardType seq, 'ioError>
