@@ -3,7 +3,6 @@
 open System
 open eShop.ConstrainedTypes
 open eShop.Prelude
-open eShop.Prelude.Operators
 open FsToolkit.ErrorHandling
 
 [<Measure>]
@@ -41,6 +40,10 @@ type AggregateAction<'st, 'ev, 'err, 'retn> =
 
 [<RequireQualifiedAccess>]
 module AggregateAction =
+    let private internalMap f g x =
+        fun st -> x |> f (fun y -> st, [], y) |> g
+        |> AggregateAction
+
     let internal run (AggregateAction a) st = a st
 
     let inline retn x =
@@ -73,43 +76,36 @@ module AggregateAction =
 
     let inline apply f a = bind (fun f -> map f a) f
 
-    let inline exec ([<InlineIfLambda>] f) cmd a =
+    let inline ofResult x =
+        internalMap Result.map TaskResult.ofResult x
+
+    let inline ofTaskResult x = internalMap TaskResult.map id x
+
+    let inline exec ([<InlineIfLambda>] f) cmd =
+        fun st0 -> f cmd st0 |> Result.map (fun (st, ev) -> st, ev, ()) |> TaskResult.ofResult
+        |> AggregateAction
+
+    let inline raise apply ev =
         fun st0 ->
-            taskResult {
-                let! st1, ev1, _ = run a st0
-                let! st2, ev2 = f cmd st1
-
-                return st2, ev1 @ ev2, ()
-            }
+            apply ev st0
+            |> Result.map (fun (st, ev) -> st, [ ev ], ())
+            |> TaskResult.ofResult
         |> AggregateAction
 
-    let inline raise apply ev a =
-        fun st0 ->
-            taskResult {
-                let! st1, ev1, _ = run a st0
-                let! st2 = apply st1 ev
-
-                return st2, ev1 @ [ ev ], ()
-            }
+    let getState<'st, 'ev, 'err> : AggregateAction<'st, 'ev, 'err, 'st> =
+        fun st -> TaskResult.ok (st, [], st)
         |> AggregateAction
 
-    let inline getState a =
-        fun st0 -> run a st0 |> TaskResult.map (fun (st, ev, _) -> st, ev, st)
-        |> AggregateAction
+    let inline private require req ([<InlineIfLambda>] f) err =
+        getState |> bind (fun st -> f st |> req err |> ofResult)
 
-    let inline private require req ([<InlineIfLambda>] f) err a = getState a |> map (f >> req err)
+    let inline requireSome ([<InlineIfLambda>] f) = require Result.requireSome f
 
-    let inline requireSome ([<InlineIfLambda>] f) =
-        require (Result.requireSome >>> Async.singleton) f
+    let inline requireNone ([<InlineIfLambda>] f) = require Result.requireNone f
 
-    let inline requireNone ([<InlineIfLambda>] f) =
-        require (Result.requireNone >>> Async.singleton) f
+    let inline requireTrue ([<InlineIfLambda>] f) = require Result.requireTrue f
 
-    let inline requireTrue ([<InlineIfLambda>] f) =
-        require (Result.requireTrue >>> Async.singleton) f
-
-    let inline requireFalse ([<InlineIfLambda>] f) =
-        require (Result.requireFalse >>> Async.singleton) f
+    let inline requireFalse ([<InlineIfLambda>] f) = require Result.requireFalse f
 
 type AggregateActionBuilder() =
     member _.Return(x) = AggregateAction.retn x
@@ -119,6 +115,8 @@ type AggregateActionBuilder() =
     member _.Combine(x, y) = AggregateAction.combine x y
     member _.Delay(f) = f ()
     member _.Run(x) = x
+    member _.Source(x: Result<_, _>) = x |> AggregateAction.ofResult
+    member _.Source(x: TaskResult<_, _>) = x |> AggregateAction.ofTaskResult
 
 type Workflow<'st, 'ev, 'err, 'ioErr, 'retn> =
     private | Workflow of AggregateAction<'st, 'ev, Either<'err, 'ioErr>, 'retn>
@@ -196,7 +194,6 @@ type WorkflowBuilder() =
     member _.Source(x: Workflow<_, _, _, _, _>) = x
     member _.Source(x: AggregateAction<_, _, _, _>) = x |> Workflow.ofAggregateAction
     member _.Source(x: TaskResult<_, _>) = x |> Workflow.ofTaskResult
-    member _.Source(x: AsyncResult<_, _>) = x |> Workflow.ofAsyncResult
 
 
 [<AutoOpen>]
