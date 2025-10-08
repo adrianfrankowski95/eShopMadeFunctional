@@ -7,22 +7,25 @@ open System.Threading.Tasks
 open eShop.DomainDrivenDesign
 open eShop.Postgres
 open eShop.Prelude
+open eShop
 open FsToolkit.ErrorHandling
 
 [<RequireQualifiedAccess>]
 module TransactionalWorkflowExecutor =
     type private Delay = TimeSpan
 
-    type Options =
+    type Options<'ioErr> =
         private
             { GetDbConnection: GetDbConnection
               IsolationLevel: IsolationLevel
-              Retries: Delay list }
+              Retries: Delay list
+              MapIoError: SqlIoError -> 'ioErr }
 
     let init getDbConnection =
         { GetDbConnection = getDbConnection
           IsolationLevel = IsolationLevel.ReadCommitted
-          Retries = [ (1: float); 3; 5; 15 ] |> List.map TimeSpan.FromSeconds }
+          Retries = [ (1: float); 3; 5; 15 ] |> List.map TimeSpan.FromSeconds
+          MapIoError = id }
 
     let withRetries retries options = { options with Retries = retries }
 
@@ -30,56 +33,75 @@ module TransactionalWorkflowExecutor =
         { options with
             IsolationLevel = isolationLevel }
 
+    let withIoErrorMapping f options =
+        { GetDbConnection = options.GetDbConnection
+          IsolationLevel = options.IsolationLevel
+          MapIoError = f
+          Retries = options.Retries }
+
+    let rec private executeInTransaction
+        (options: Options<'ioErr>)
+        (workflow: DbTransaction -> WorkflowExecutionResult<'a, 'err, 'ioErr>)
+        : WorkflowExecutionResult<'a, 'err, 'ioErr> =
+        taskResult {
+            use connection = options.GetDbConnection()
+            do! connection.OpenAsync()
+
+            let! transaction = connection.BeginTransactionAsync(options.IsolationLevel)
+
+            let rollback =
+                fun _ ->
+                    task {
+                        do! transaction.RollbackAsync()
+                        do! connection.CloseAsync()
+                    }
+
+            let! result = transaction |> workflow |> TaskResult.teeErrorAsync rollback
+
+            do!
+                transaction.CommitAsync >> Task.ofUnit
+                |> Prelude.TaskResult.catch (SqlIoError.TransactionCommitError >> options.MapIoError >> Right)
+                |> TaskResult.teeErrorAsync rollback
+
+            return result
+        }
+        |> TaskResult.orElseWith (fun error ->
+            match options.Retries with
+            | [] -> error |> TaskResult.error
+            | head :: tail ->
+                taskResult {
+                    do! head |> Task.Delay
+                    return! executeInTransaction { options with Retries = tail } workflow
+                })
+
     let execute
-        (workflow: DbTransaction -> WorkflowResult<'state, 'event, 'domainError, 'ioError>)
-        (mapSqlIoError: SqlIoError -> 'ioError)
-        (options: Options)
+        (getNow: GetUtcNow)
+        (generateEventId: GenerateEventId)
+        (readAggregate: DbTransaction -> ReadAggregate<'st, 'ioErr>)
+        (persistAggregate: DbTransaction -> PersistAggregate<'st, 'ioErr>)
+        (persistEvents: DbTransaction -> PersistEvents<'st, 'ev, 'ioErr>)
+        (workflow: DbTransaction -> Workflow<'st, 'ev, 'err, 'ioErr, 'a>)
+        (options: Options<'ioErr>)
+        (aggregateId: AggregateId<'st>)
         =
-        let rec executeInTransaction
-            (workflow: DbTransaction -> WorkflowResult<'state, 'event, 'domainError, 'ioError>)
-            (retries: Delay list)
-            =
-            taskResult {
-                use connection = options.GetDbConnection()
-                do! connection.OpenAsync()
+        reader {
+            let! readAggregate = readAggregate
+            let! persistAggregate = persistAggregate
+            let! persistEvents = persistEvents
+            let! workflow = workflow
 
-                let! transaction = connection.BeginTransactionAsync(options.IsolationLevel)
-
-                let! result =
-                    transaction
-                    |> workflow
-                    |> TaskResult.teeErrorAsync (fun _ -> transaction.RollbackAsync())
-
-                try
-                    do! transaction.CommitAsync()
-                    do! connection.CloseAsync()
-                with e ->
-                    do! transaction.RollbackAsync()
-                    do! connection.CloseAsync()
-
-                    return!
-                        e
-                        |> SqlIoError.TransactionCommitError
-                        |> mapSqlIoError
-                        |> WorkflowExecutionError.IoError
-                        |> Error
-
-                return result
-            }
-            |> TaskResult.orElseWith (fun error ->
-                match retries with
-                | [] -> error |> TaskResult.error
-                | head :: tail ->
-                    taskResult {
-                        do! head |> Task.Delay
-                        return! tail |> executeInTransaction workflow
-                    })
-
-        executeInTransaction workflow options.Retries
+            return
+                WorkflowExecutor.execute
+                    aggregateId
+                    getNow
+                    generateEventId
+                    readAggregate
+                    persistAggregate
+                    persistEvents
+                    workflow
+        }
+        |> executeInTransaction options
 
     let inline andThen action result =
         result
-        |> TaskResult.bind (fun (aggregateId, events) ->
-            events
-            |> action aggregateId
-            |> TaskResult.mapError WorkflowExecutionError.IoError)
+        |> TaskResult.bind (fun (aggregateId, events) -> events |> action aggregateId |> TaskResult.mapError Right)

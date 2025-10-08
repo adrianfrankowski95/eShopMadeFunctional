@@ -7,7 +7,16 @@ open FsToolkit.ErrorHandling
 module TaskResult =
     let collapse x = x |> Task.map Result.collapse
 
-    let inline teeAsync ([<InlineIfLambda>] f: 'a -> Task) x =
+    let inline catch f (t: unit -> #Task) =
+        task {
+            try
+                let! result = t()
+                return result |> Ok
+            with e ->
+                return e |> f |> Error
+        }
+    
+    let inline teeAsync ([<InlineIfLambda>] f: 'a -> #Task) x =
         task {
             let! result = x
 
@@ -21,7 +30,7 @@ module TaskResult =
                 | Error err -> err |> TaskResult.error
         }
 
-    let inline teeErrorAsync ([<InlineIfLambda>] f: 'a -> Task) x =
+    let inline teeErrorAsync ([<InlineIfLambda>] f: 'a -> #Task) x =
         task {
             let! result = x
 
@@ -35,7 +44,7 @@ module TaskResult =
                     }
         }
 
-    let inline teeAnyAsync ([<InlineIfLambda>] f: unit -> Task) x =
+    let inline teeAnyAsync ([<InlineIfLambda>] f: unit -> #Task) x =
         task {
             let! result = x
 

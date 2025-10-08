@@ -12,6 +12,7 @@ type ReadAggregate<'st, 'ioError> = AggregateId<'st> -> TaskResult<'st, 'ioError
 
 type PersistAggregate<'st, 'ioError> = AggregateId<'st> -> 'st -> TaskResult<unit, 'ioError>
 
+type WorkflowExecutionResult<'a, 'err, 'ioErr> = TaskResult<'a, Either<'err, 'ioErr>>
 
 [<RequireQualifiedAccess>]
 module WorkflowExecutor =
@@ -23,8 +24,8 @@ module WorkflowExecutor =
         (persistAggregate: PersistAggregate<'st, 'ioErr>)
         (persistEvents: PersistEvents<'st, 'ev, 'ioErr>)
         (workflow: Workflow<'st, 'ev, 'err, 'ioErr, 'a>)
-        =
-        asyncResult {
+        : WorkflowExecutionResult<'a, 'err, 'ioErr> =
+        taskResult {
             let inline toIoError x = x |> TaskResult.mapError Right
 
             let now = getNow ()
@@ -46,10 +47,3 @@ module WorkflowExecutor =
 
             return x
         }
-
-    let executeForNew generateAggregateId getNow generateEventId readAggregate persistAggregate persistEvents workflow =
-        let id = generateAggregateId ()
-
-        workflow
-        |> execute id getNow generateEventId readAggregate persistAggregate persistEvents
-        |> AsyncResult.map (fun x -> id, x)

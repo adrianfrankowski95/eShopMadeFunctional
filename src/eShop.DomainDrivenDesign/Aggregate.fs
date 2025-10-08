@@ -123,29 +123,20 @@ type Workflow<'st, 'ev, 'err, 'ioErr, 'retn> =
 
 [<RequireQualifiedAccess>]
 module Workflow =
+    let inline private internalMapIoError f x =
+        x |> TaskResult.mapError (Either.mapLeft f)
+
+    let inline private internalMapDomainError f x =
+        x |> TaskResult.mapError (Either.mapRight f)
+
     let internal run (Workflow a) st = AggregateAction.run a st
 
     let retn x = AggregateAction.retn x |> Workflow
 
     let inline ofAggregateAction a = a |> Workflow
 
-    let ofTaskResult x =
-        fun st0 ->
-            taskResult {
-                let! x = x |> TaskResult.mapError Left
-
-                return (st0, [], x)
-            }
-        |> AggregateAction
-        |> Workflow
-
-    let ofAsyncResult x =
-        fun st0 ->
-            taskResult {
-                let! x = x |> AsyncResult.mapError Left
-
-                return (st0, [], x)
-            }
+    let usePort x =
+        fun st0 -> x |> TaskResult.map (fun x -> st0, [], x) |> TaskResult.mapError Left
         |> AggregateAction
         |> Workflow
 
@@ -154,7 +145,7 @@ module Workflow =
             taskResult {
                 let! st1, ev1, a = run a st0
                 let! st2, ev2, b = run (f a) st1
-
+            
                 return st2, ev1 @ ev2, b
             }
         |> AggregateAction
@@ -166,22 +157,15 @@ module Workflow =
 
     let inline ignore a = map (fun _ -> ()) a
 
-    let usePort x a =
-        fun st0 ->
-            taskResult {
-                let! st1, ev1, _ = run a st0
-                let! y = x |> TaskResult.mapError Left
-
-                return st1, ev1, y
-            }
+    let inline mapIoError ([<InlineIfLambda>] f) a =
+        fun st0 -> run a st0 |> internalMapIoError f
         |> AggregateAction
         |> Workflow
 
-    let inline mapIoError ([<InlineIfLambda>] f) a =
-        a |> AggregateAction.mapError (Either.mapLeft f)
-
     let inline mapDomainError ([<InlineIfLambda>] f) a =
-        a |> AggregateAction.mapError (Either.mapRight f)
+        fun st0 -> run a st0 |> internalMapDomainError f
+        |> AggregateAction
+        |> Workflow
 
 type WorkflowBuilder() =
     member _.Return(x) = Workflow.retn x
@@ -193,8 +177,6 @@ type WorkflowBuilder() =
     member _.Run(x) = x
     member _.Source(x: Workflow<_, _, _, _, _>) = x
     member _.Source(x: AggregateAction<_, _, _, _>) = x |> Workflow.ofAggregateAction
-    member _.Source(x: TaskResult<_, _>) = x |> Workflow.ofTaskResult
-
 
 [<AutoOpen>]
 module CE =
