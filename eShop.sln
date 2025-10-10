@@ -111,6 +111,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.Ordering.Adapters.Htt
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.Ordering.Adapters.Logging", "src\OrderService\eShop.Ordering.Adapters.Logging\eShop.Ordering.Adapters.Logging.fsproj", "{22E5D184-6E91-474E-9A09-EB6331619AE2}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "eShop.Prelude.Tests", "tests\Prelude.Tests\eShop.Prelude.Tests.fsproj", "{5AE86F7C-D34F-4B8D-A7A0-43176C1769F6}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -277,6 +279,10 @@ Global
 		{22E5D184-6E91-474E-9A09-EB6331619AE2}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{22E5D184-6E91-474E-9A09-EB6331619AE2}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{22E5D184-6E91-474E-9A09-EB6331619AE2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5AE86F7C-D34F-4B8D-A7A0-43176C1769F6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5AE86F7C-D34F-4B8D-A7A0-43176C1769F6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5AE86F7C-D34F-4B8D-A7A0-43176C1769F6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5AE86F7C-D34F-4B8D-A7A0-43176C1769F6}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -328,6 +334,7 @@ Global
 		{00C4E315-C3EC-4EF4-AAF1-A2337FAA57EB} = {980F20CB-CBCB-48E9-A7E5-DEB057C8D1BD}
 		{DFB10615-5935-4113-B91E-1767C31921B3} = {980F20CB-CBCB-48E9-A7E5-DEB057C8D1BD}
 		{22E5D184-6E91-474E-9A09-EB6331619AE2} = {980F20CB-CBCB-48E9-A7E5-DEB057C8D1BD}
+		{5AE86F7C-D34F-4B8D-A7A0-43176C1769F6} = {A857AD10-40FF-4303-BEC2-FF1C58D5735E}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {25728519-5F0F-4973-8A64-0A81EB4EA8D9}

@@ -18,7 +18,7 @@ let private ordersApi: HttpHandler =
                   [ GET >=> json []
                     POST
                     >=> bindJson<StartOrderHandler.Request> (
-                        StartOrderHandler.post CompositionRoot.OrderWorkflows.buildStartOrderFromCtx
+                        StartOrderHandler.post CompositionRoot.OrderWorkflow.buildStartOrderFromCtx
                     ) ])
 
           routef

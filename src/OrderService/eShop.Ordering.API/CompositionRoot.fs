@@ -150,7 +150,7 @@ type OrderWorkflowIoError =
     | HttpIoError of HttpIoError
 
 [<RequireQualifiedAccess>]
-module OrderWorkflows =
+module OrderWorkflow =
     let private buildStartOrder (services: Services) =
         let httpPaymentAdapter = services.Get<IHttpPaymentManagementAdapter>()
         let sqlPaymentAdapter = services.Get<ISqlPaymentManagementAdapter>()
@@ -211,12 +211,12 @@ module OrderIntegrationEventsProcessor =
             match integrationEvent.Data with
             | IntegrationEvent.Consumed.GracePeriodConfirmed _ ->
                 orderAggregateId
-                |> OrderWorkflows.buildAwaitOrderStockItemsValidation services
+                |> OrderWorkflow.buildAwaitOrderStockItemsValidation services
                 |> toWorkflowError
 
             | IntegrationEvent.Consumed.OrderStockConfirmed _ ->
                 orderAggregateId
-                |> OrderWorkflows.buildConfirmOrderItemsStock services
+                |> OrderWorkflow.buildConfirmOrderItemsStock services
                 |> toWorkflowError
 
             | IntegrationEvent.Consumed.OrderStockRejected orderStockRejected ->
@@ -235,15 +235,15 @@ module OrderIntegrationEventsProcessor =
 
                     return!
                         command
-                        |> OrderWorkflows.buildRejectOrderItemsStock services orderAggregateId
+                        |> OrderWorkflow.buildRejectOrderItemsStock services orderAggregateId
                         |> toWorkflowError
                 }
 
             | IntegrationEvent.Consumed.OrderPaymentFailed _ ->
-                orderAggregateId |> OrderWorkflows.buildCancelOrder services |> toWorkflowError
+                orderAggregateId |> OrderWorkflow.buildCancelOrder services |> toWorkflowError
 
             | IntegrationEvent.Consumed.OrderPaymentSucceeded _ ->
-                orderAggregateId |> OrderWorkflows.buildPayOrder services |> toWorkflowError
+                orderAggregateId |> OrderWorkflow.buildPayOrder services |> toWorkflowError
 
     let private build services : OrderIntegrationEventsProcessor =
         let sqlSession = services |> getStandaloneSqlSession
