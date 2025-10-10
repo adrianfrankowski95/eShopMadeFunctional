@@ -3,8 +3,9 @@
 open eShop.DomainDrivenDesign
 open eShop.Ordering.Domain.Model
 
-type ConfirmOrderItemsStockWorkflow = AggregateAction<Order.State, Order.Event, Order.InvalidStateError>
+type ConfirmOrderItemsStockWorkflow<'ioErr> = OrderWorkflow<Order.InvalidStateError, 'ioErr, unit>
 
 [<RequireQualifiedAccess>]
 module ConfirmOrderItemsStockWorkflow =
-    let build: ConfirmOrderItemsStockWorkflow = Order.setStockConfirmedStatus
+    let build<'ioErr> : ConfirmOrderItemsStockWorkflow<'ioErr> =
+        Order.setStockConfirmedStatus |> Workflow.ofAggregateAction

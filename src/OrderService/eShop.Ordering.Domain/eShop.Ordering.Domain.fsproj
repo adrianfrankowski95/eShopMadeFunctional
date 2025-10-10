@@ -20,6 +20,7 @@
         <Compile Include="Model\Order.fs" />
         <Compile Include="Ports\OrderAggregateManagementPort.fs" />
         <Compile Include="Ports\PaymentManagementPort.fs" />
+        <Compile Include="Workflows\OrderWorkflow.fs" />
         <Compile Include="Workflows\PayOrderWorkflow.fs" />
         <Compile Include="Workflows\CancelOrderWorkflow.fs" />
         <Compile Include="Workflows\ShipOrderWorkflow.fs" />

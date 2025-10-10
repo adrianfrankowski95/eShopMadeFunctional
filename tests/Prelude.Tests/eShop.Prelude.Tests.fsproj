@@ -8,22 +8,22 @@
 
     <ItemGroup>
         <Compile Include="Sample.fs"/>
-        <Compile Include="Main.fs"/>
-        <Compile Include="ResultTests.fs"/>
-        <Compile Include="TaskResultTests.fs"/>
-        <Compile Include="EitherTests.fs"/>
-        <Compile Include="OperatorTests.fs"/>
-        <Compile Include="OptionTests.fs"/>
-        <Compile Include="MapTests.fs"/>
-        <Compile Include="TupleTests.fs"/>
+        <Compile Include="Result.fs" />
+        <Compile Include="TaskResult.fs" />
+        <Compile Include="Either.fs" />
+        <Compile Include="Operators.fs" />
+        <Compile Include="Option.fs" />
+        <Compile Include="Map.fs" />
+        <Compile Include="Tuple.fs" />
         <Compile Include="Program.fs"/>
     </ItemGroup>
-    
+
     <ItemGroup>
-        <PackageReference Include="Expecto" Version="10.*"/>
-        <PackageReference Include="YoloDev.Expecto.TestSdk" Version="0.15.*"/>
-        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*"/>
-        <PackageReference Update="FSharp.Core" Version="7.*"/>
+        <PackageReference Include="Expecto"/>
+        <PackageReference Include="Expecto.FsCheck"/>
+        <PackageReference Include="FsCheck"/>
+        <PackageReference Include="YoloDev.Expecto.TestSdk"/>
+        <PackageReference Include="Microsoft.NET.Test.Sdk"/>
     </ItemGroup>
 
     <ItemGroup>

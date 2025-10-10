@@ -1,11 +1,11 @@
-﻿module eShop.Prelude.Tests.MapTests
+﻿[<RequireQualifiedAccess>]
+module eShop.Prelude.Tests.Map
 
 open Expecto
 open FsCheck
 open eShop.Prelude
 
-[<Tests>]
-let mapTests =
+let tests =
     testList "Map Tests" [
         testProperty "tryFind returns None for non-existent key" <| fun k v ->
             let m = Map.empty |> Map.add (k + 1) v

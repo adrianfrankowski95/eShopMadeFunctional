@@ -3,9 +3,9 @@
 open eShop.DomainDrivenDesign
 open eShop.Ordering.Domain.Model
 
-type AwaitOrderStockItemsValidationWorkflow = AggregateAction<Order.State, Order.Event, Order.InvalidStateError>
+type AwaitOrderStockItemsValidationWorkflow<'ioErr> = OrderWorkflow<Order.InvalidStateError, 'ioErr, unit>
 
 [<RequireQualifiedAccess>]
 module AwaitOrderStockItemsValidationWorkflow =
-    let build: AwaitOrderStockItemsValidationWorkflow =
-        Order.setAwaitingStockValidationStatus
+    let build<'ioErr> : AwaitOrderStockItemsValidationWorkflow<'ioErr> =
+        Order.setAwaitingStockValidationStatus |> Workflow.ofAggregateAction

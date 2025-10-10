@@ -9,42 +9,43 @@ open eShop.Ordering.Domain.Ports
 open FsToolkit.ErrorHandling
 open eShop.Prelude
 
+type Command =
+    { Buyer: Buyer
+      Address: Address
+      OrderItems: NonEmptyMap<ProductId, UnvalidatedOrderItem>
+      CardTypeId: CardTypeId
+      CardNumber: CardNumber
+      CardSecurityNumber: CardSecurityNumber
+      CardHolderName: CardHolderName
+      CardExpiration: DateOnly }
+
+type DomainError =
+    | UnsupportedCardType of CardTypeId
+    | PaymentMethodExpired
+    | InvalidPaymentMethod of UnverifiedPaymentMethod
+    | InvalidOrderItems of Map<ProductId, DiscountHigherThanTotalPriceError>
+    | InvalidOrderState of Order.InvalidStateError
+
+type StartOrderWorkflow<'ioErr> = Command -> OrderWorkflow<DomainError, 'ioErr, unit>
+
 [<RequireQualifiedAccess>]
 module StartOrderWorkflow =
-    type Command =
-        { Buyer: Buyer
-          Address: Address
-          OrderItems: NonEmptyMap<ProductId, UnvalidatedOrderItem>
-          CardTypeId: CardTypeId
-          CardNumber: CardNumber
-          CardSecurityNumber: CardSecurityNumber
-          CardHolderName: CardHolderName
-          CardExpiration: DateOnly }
-
-    type DomainError =
-        | UnsupportedCardType of CardTypeId
-        | PaymentMethodExpired
-        | InvalidPaymentMethod of UnverifiedPaymentMethod
-        | InvalidOrderItems of Map<ProductId, DiscountHigherThanTotalPriceError>
-        | InvalidOrderState of Order.InvalidStateError
-
-    type T<'ioError> = Workflow<Command, Order.State, Order.Event, DomainError, 'ioError>
-
     let build
-        (getSupportedCardTypes: PaymentManagementPort.GetSupportedCardTypes<'ioError>)
-        (verifyPaymentMethod: PaymentManagementPort.VerifyPaymentMethod<'ioError>)
-        : T<'ioError> =
-        fun now state command ->
-            asyncResult {
-                let inline mapToIoError x = x |> AsyncResult.mapError Right
+        (getCurrentTime: GetUtcNow)
+        (getSupportedCardTypes: PaymentManagementPort.GetSupportedCardTypes<'ioErr>)
+        (verifyPaymentMethod: PaymentManagementPort.VerifyPaymentMethod<'ioErr>)
+        : StartOrderWorkflow<'ioErr> =
+        fun command ->
+            workflow {
+                let now = getCurrentTime ()
 
-                let! supportedCardTypes = getSupportedCardTypes () |> mapToIoError
+                let! supportedCardTypes = Workflow.usePort (getSupportedCardTypes ())
 
                 let! cardType =
                     command.CardTypeId
                     |> CardType.create supportedCardTypes
-                    |> Result.mapError (fun (UnsupportedCardTypeError cardTypeId) ->
-                        cardTypeId |> UnsupportedCardType |> Left)
+                    |> Result.mapError (fun (UnsupportedCardTypeError cardTypeId) -> cardTypeId |> UnsupportedCardType)
+                    |> AggregateAction.ofResult
 
                 let! unverifiedPaymentMethod =
                     UnverifiedPaymentMethod.create
@@ -54,15 +55,17 @@ module StartOrderWorkflow =
                         command.CardHolderName
                         command.CardExpiration
                         now
-                    |> Result.mapError (fun (_: PaymentMethodExpiredError) -> PaymentMethodExpired |> Left)
+                    |> Result.mapError (fun (_: PaymentMethodExpiredError) -> PaymentMethodExpired)
+                    |> AggregateAction.ofResult
 
                 let! verifiedPaymentMethod =
                     unverifiedPaymentMethod
                     |> verifyPaymentMethod
-                    |> AsyncResult.mapError (function
+                    |> TaskResult.mapError (function
                         | Right ioError -> ioError |> Right
                         | Left(_: PaymentManagementPort.InvalidPaymentMethodError) ->
                             unverifiedPaymentMethod |> InvalidPaymentMethod |> Left)
+                    |> AggregateAction.ofTaskResult
 
                 let! validatedOrderItems =
                     command.OrderItems
@@ -71,7 +74,8 @@ module StartOrderWorkflow =
                         |> UnvalidatedOrderItem.validate
                         |> Result.map (fun orderItem -> productId, orderItem)
                         |> Result.mapError (fun err -> productId, err))
-                    |> Result.mapError (Map.ofList >> InvalidOrderItems >> Left)
+                    |> Result.mapError (Map.ofList >> InvalidOrderItems)
+                    |> AggregateAction.ofResult
 
                 let createOrderCommand: Order.Command.CreateOrder =
                     { Buyer = command.Buyer
@@ -80,10 +84,5 @@ module StartOrderWorkflow =
                       OrderItems = validatedOrderItems
                       OrderedAt = now }
 
-                return!
-                    state
-                    |> Order.create createOrderCommand
-                    |> Result.mapError (InvalidOrderState >> Left)
+                do! createOrderCommand |> Order.create |> AggregateAction.mapError InvalidOrderState
             }
-
-type StartOrderWorkflow<'ioError> = StartOrderWorkflow.T<'ioError>

@@ -3,8 +3,9 @@
 open eShop.DomainDrivenDesign
 open eShop.Ordering.Domain.Model
 
-type CancelOrderWorkflow = AggregateAction<Order.State, Order.Event, Order.InvalidStateError>
+type CancelOrderWorkflow<'ioErr> = OrderWorkflow<Order.InvalidStateError, 'ioErr, unit>
 
 [<RequireQualifiedAccess>]
 module CancelOrderWorkflow =
-    let build = Order.cancel
+    let build<'ioErr> : CancelOrderWorkflow<'ioErr> =
+        Order.cancel |> Workflow.ofAggregateAction

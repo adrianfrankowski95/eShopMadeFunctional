@@ -34,6 +34,7 @@ module Aggregate =
 
         stateType.DeclaringType.Name + stateType.Name
 
+type Evolve<'st, 'cmd, 'ev, 'err> = 'cmd -> 'st -> Result<'st * 'ev list, 'err>
 
 type AggregateAction<'st, 'ev, 'err, 'retn> =
     private | AggregateAction of ('st -> TaskResult<'st * 'ev list * 'retn, 'err>)
@@ -46,15 +47,15 @@ module AggregateAction =
 
     let internal run (AggregateAction a) st = a st
 
-    let inline retn x =
+    let retn x =
         fun st0 -> TaskResult.ok (st0, [], x)
         |> AggregateAction
 
-    let inline error x =
+    let error x =
         fun _ -> TaskResult.error x
         |> AggregateAction
 
-    let inline bind ([<InlineIfLambda>] f) a =
+    let bind f a =
         fun st0 ->
             taskResult {
                 let! st1, ev1, a = run a st0
@@ -64,28 +65,28 @@ module AggregateAction =
             }
         |> AggregateAction
 
-    let inline combine a b = bind (fun _ -> b) a
+    let combine a b = bind (fun _ -> b) a
 
-    let inline map ([<InlineIfLambda>] f) a = bind (f >> retn) a
+    let map f a = bind (f >> retn) a
 
-    let inline ignore a = map (fun _ -> ()) a
+    let ignore a = map (fun _ -> ()) a
 
-    let inline mapError ([<InlineIfLambda>] f) a =
+    let mapError f a =
         fun st0 -> run a st0 |> TaskResult.mapError f
         |> AggregateAction
 
-    let inline apply f a = bind (fun f -> map f a) f
+    let apply f a = bind (fun f -> map f a) f
 
-    let inline ofResult x =
+    let ofResult x =
         internalMap Result.map TaskResult.ofResult x
 
-    let inline ofTaskResult x = internalMap TaskResult.map id x
+    let ofTaskResult x = internalMap TaskResult.map id x
 
-    let inline exec ([<InlineIfLambda>] f) cmd =
+    let exec (f: Evolve<_, _, _, _>) cmd =
         fun st0 -> f cmd st0 |> Result.map (fun (st, ev) -> st, ev, ()) |> TaskResult.ofResult
         |> AggregateAction
 
-    let inline raise apply ev =
+    let raise apply ev =
         fun st0 ->
             apply ev st0
             |> Result.map (fun (st, ev) -> st, [ ev ], ())
@@ -96,16 +97,16 @@ module AggregateAction =
         fun st -> TaskResult.ok (st, [], st)
         |> AggregateAction
 
-    let inline private require req ([<InlineIfLambda>] f) err =
+    let private require req f err =
         getState |> bind (fun st -> f st |> req err |> ofResult)
 
-    let inline requireSome ([<InlineIfLambda>] f) = require Result.requireSome f
+    let requireSome f = require Result.requireSome f
 
-    let inline requireNone ([<InlineIfLambda>] f) = require Result.requireNone f
+    let requireNone f = require Result.requireNone f
 
-    let inline requireTrue ([<InlineIfLambda>] f) = require Result.requireTrue f
+    let requireTrue f = require Result.requireTrue f
 
-    let inline requireFalse ([<InlineIfLambda>] f) = require Result.requireFalse f
+    let requireFalse f = require Result.requireFalse f
 
 type AggregateActionBuilder() =
     member _.Return(x) = AggregateAction.retn x
@@ -123,46 +124,45 @@ type Workflow<'st, 'ev, 'err, 'ioErr, 'retn> =
 
 [<RequireQualifiedAccess>]
 module Workflow =
-    let inline private internalMapIoError f x =
-        x |> TaskResult.mapError (Either.mapLeft f)
-
-    let inline private internalMapDomainError f x =
+    let private internalMapIoError f x =
         x |> TaskResult.mapError (Either.mapRight f)
+
+    let private internalMapDomainError f x =
+        x |> TaskResult.mapError (Either.mapLeft f)
 
     let internal run (Workflow a) st = AggregateAction.run a st
 
     let retn x = AggregateAction.retn x |> Workflow
 
-    let inline ofAggregateAction a = a |> Workflow
+    let ofAggregateAction a =
+        a |> AggregateAction.mapError Left |> Workflow
 
     let usePort x =
-        fun st0 -> x |> TaskResult.map (fun x -> st0, [], x) |> TaskResult.mapError Left
+        fun st0 -> x |> TaskResult.map (fun x -> st0, [], x) |> TaskResult.mapError Right
         |> AggregateAction
         |> Workflow
 
-    let inline bind ([<InlineIfLambda>] f) a =
+    let bind f a =
         fun st0 ->
             taskResult {
                 let! st1, ev1, a = run a st0
                 let! st2, ev2, b = run (f a) st1
-            
+
                 return st2, ev1 @ ev2, b
             }
         |> AggregateAction
         |> Workflow
 
-    let inline combine a b = bind (fun _ -> b) a
+    let combine a b = bind (fun _ -> b) a
 
-    let inline map ([<InlineIfLambda>] f) a = bind (f >> retn) a
+    let map f a = bind (f >> retn) a
 
-    let inline ignore a = map (fun _ -> ()) a
+    let ignore a = map (fun _ -> ()) a
 
-    let inline mapIoError ([<InlineIfLambda>] f) a =
-        fun st0 -> run a st0 |> internalMapIoError f
-        |> AggregateAction
-        |> Workflow
+    let mapIoError f a =
+        (fun st0 -> run a st0 |> internalMapIoError f) |> AggregateAction |> Workflow
 
-    let inline mapDomainError ([<InlineIfLambda>] f) a =
+    let mapDomainError f a =
         fun st0 -> run a st0 |> internalMapDomainError f
         |> AggregateAction
         |> Workflow

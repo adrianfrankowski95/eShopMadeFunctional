@@ -1,11 +1,12 @@
-﻿module eShop.Prelude.Tests.EitherTests
+﻿[<RequireQualifiedAccess>]
+module eShop.Prelude.Tests.Either
 
 open Expecto
 open FsCheck
 open eShop.Prelude
 
 [<Tests>]
-let eitherTests =
+let tests =
     testList "Either Tests" [
         testProperty "mapLeft does not affect Right value" <| fun x ->
             let either = Either.Right x
@@ -24,11 +25,4 @@ let eitherTests =
             | Either.Left l, Either.Left l' -> l.ToString() = l'
             | Either.Right r, Either.Right r' -> r.ToString() = r'
             | _ -> false
-
-        testProperty "fold always returns a value" <| fun x ->
-            let either = if x % 2 = 0 then Either.Right x else Either.Left (string x)
-            let result = Either.fold string string either
-            match either with
-            | Either.Left l -> result = l
-            | Either.Right r -> result = string r
     ]

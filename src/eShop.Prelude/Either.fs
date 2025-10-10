@@ -7,24 +7,23 @@ type Either<'left, 'right> =
 
 [<RequireQualifiedAccess>]
 module Either =
-    let inline mapLeft ([<InlineIfLambda>] mapper) either =
+    let inline bimap ([<InlineIfLambda>] f) ([<InlineIfLambda>] g) (either: Either<'a, 'b>) =
         match either with
-        | Left x -> x |> mapper |> Left
-        | Right x -> x |> Left
+        | Left left -> left |> f |> Left
+        | Right right -> right |> g |> Right
 
-    let inline mapRight ([<InlineIfLambda>] mapper: 'b -> 'c) (either: Either<'a, 'b>) : Either<'a, 'c> =
-        match either with
-        | Right x -> x |> mapper |> Right
-        | Left x -> x |> Left
+    let inline mapLeft ([<InlineIfLambda>] f) either = bimap f id either
+
+    let inline mapRight ([<InlineIfLambda>] f) either = bimap id f either
 
     let inline either
-        ([<InlineIfLambda>] leftMapper: 'a -> 'c)
-        ([<InlineIfLambda>] rightMapper: 'b -> 'd)
+        ([<InlineIfLambda>] f)
+        ([<InlineIfLambda>] g)
         (either: Either<'a, 'b>)
         =
         match either with
-        | Left left -> left |> leftMapper |> Left
-        | Right right -> right |> rightMapper |> Right
+        | Left left -> left |> f
+        | Right right -> right |> g
 
     let inline collapse (either: Either<'a, 'a>) =
         match either with

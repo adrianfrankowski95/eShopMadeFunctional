@@ -118,15 +118,18 @@ module RabbitMQ =
 
     let internal initConsumer (connection: IConnection) (config: Configuration.RabbitMQOptions) =
         taskResult {
-            let rec ensureIsOpen (connection: IConnection) (retries: TimeSpan list) =
-                match connection.IsOpen, retries with
-                | true, _ -> true |> Task.singleton
-                | false, head :: tail ->
-                    task {
-                        do! Task.Delay head
-                        return! ensureIsOpen connection tail
-                    }
-                | false, [] -> false |> Task.singleton
+            let ensureIsOpen (connection: IConnection) (retries: TimeSpan list) =
+                let mutable isOpen = connection.IsOpen
+
+                task {
+                    for i in 0 .. retries.Length - 1 do
+                        if not isOpen then
+                            do! retries[i] |> Task.Delay
+                            isOpen <- connection.IsOpen
+
+                    return isOpen
+                }
+
 
             let inline exnToMsg msg : Result<_, exn> -> Result<_, string> =
                 Result.mapError (_.Message >> sprintf "%s: %s" msg)

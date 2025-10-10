@@ -1,23 +1,21 @@
-﻿module eShop.Prelude.Tests.ResultTests
+﻿[<RequireQualifiedAccess>]
+module eShop.Prelude.Tests.Result
 
 open Expecto
-open FsCheck
-open eShop.Prelude
 
-[<Tests>]
-let resultTests =
+let tests =
     testList "Result Monad Tests" [
         testProperty "Left identity: return a >>= f = f a" <| fun x ->
             let f a = if a > 0 then Ok (a * 2) else Error "negative"
             let left = Result.bind f (Ok x)
             let right = f x
-            left = right
+            Expect.equal left right "Should be equal"
 
         testProperty "Right identity: m >>= return = m" <| fun x ->
             let m = if x > 0 then Ok x else Error "negative"
             let left = Result.bind Ok m
             let right = m
-            left = right
+            Expect.equal left right "Should be equal"
 
         testProperty "Associativity: (m >>= f) >>= g = m >>= (\\x -> f x >>= g)" <| fun x ->
             let f a = if a > 0 then Ok (a * 2) else Error "negative"
@@ -25,5 +23,5 @@ let resultTests =
             let m = Ok x
             let left = Result.bind g (Result.bind f m)
             let right = Result.bind (fun x -> Result.bind g (f x)) m
-            left = right
+            Expect.equal left right "Should be equal"
     ]

@@ -2,11 +2,10 @@
 
 open eShop.DomainDrivenDesign
 open eShop.Ordering.Domain.Model
-open FsToolkit.ErrorHandling
-open eShop.Prelude
 
-type ShipOrderWorkflow = AggregateAction<Order.State, Order.Event, Order.InvalidStateError>
+type ShipOrderWorkflow<'ioErr> = OrderWorkflow<Order.InvalidStateError, 'ioErr, unit>
 
 [<RequireQualifiedAccess>]
 module ShipOrderWorkflow =
-    let build: ShipOrderWorkflow = Order.setShippedStatus
+    let build<'ioErr> : ShipOrderWorkflow<'ioErr> =
+        Order.setShippedStatus |> Workflow.ofAggregateAction

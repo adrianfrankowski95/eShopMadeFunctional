@@ -3,8 +3,9 @@
 open eShop.DomainDrivenDesign
 open eShop.Ordering.Domain.Model
 
-type PayOrderWorkflow = AggregateAction<Order.State, Order.Event, Order.InvalidStateError>
+type PayOrderWorkflow<'ioErr> = OrderWorkflow<Order.InvalidStateError, 'ioErr, unit>
 
 [<RequireQualifiedAccess>]
 module PayOrderWorkflow =
-    let build: PayOrderWorkflow = Order.setPaidStatus
+    let build<'ioErr> : PayOrderWorkflow<'ioErr> =
+        Order.setPaidStatus |> Workflow.ofAggregateAction

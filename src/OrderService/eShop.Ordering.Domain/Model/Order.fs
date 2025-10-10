@@ -429,21 +429,21 @@ let getPaymentMethod =
     | State.Shipped shipped -> shipped.PaymentMethod |> Some
     | State.Cancelled _ -> None
 
-let init = State.Init
+let create = Command.CreateOrder >> AggregateAction.exec evolve
 
-let create = Command.CreateOrder >> evolve
-
-let createDraft = Command.CreateOrderDraft >> evolve
+let createDraft = Command.CreateOrderDraft >> AggregateAction.exec evolve
 
 let setAwaitingStockValidationStatus =
-    Command.SetAwaitingStockValidationOrderStatus |> evolve
+    Command.SetAwaitingStockValidationOrderStatus |> AggregateAction.exec evolve
 
-let setStockConfirmedStatus = Command.SetStockConfirmedOrderStatus |> evolve
+let setStockConfirmedStatus =
+    Command.SetStockConfirmedOrderStatus |> AggregateAction.exec evolve
 
-let setStockRejectedStatus = Command.SetStockRejectedOrderStatus >> evolve
+let setStockRejectedStatus =
+    Command.SetStockRejectedOrderStatus >> AggregateAction.exec evolve
 
-let setPaidStatus = Command.SetPaidOrderStatus |> evolve
+let setPaidStatus = Command.SetPaidOrderStatus |> AggregateAction.exec evolve
 
-let setShippedStatus = Command.SetShippedOrderStatus |> evolve
+let setShippedStatus = Command.SetShippedOrderStatus |> AggregateAction.exec evolve
 
-let cancel = Command.CancelOrder |> evolve
+let cancel = Command.CancelOrder |> AggregateAction.exec evolve
