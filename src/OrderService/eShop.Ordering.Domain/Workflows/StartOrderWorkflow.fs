@@ -1,5 +1,4 @@
-﻿[<RequireQualifiedAccess>]
-module eShop.Ordering.Domain.Workflows.StartOrderWorkflow
+﻿namespace eShop.Ordering.Domain.Workflows
 
 open System
 open eShop.Ordering.Domain.Model.ValueObjects
@@ -9,32 +8,32 @@ open eShop.Ordering.Domain.Model
 open eShop.Ordering.Domain.Ports
 open FsToolkit.ErrorHandling
 
-type Command =
-    { Buyer: Buyer
-      Address: Address
-      OrderItems: NonEmptyMap<ProductId, UnvalidatedOrderItem>
-      CardTypeId: CardTypeId
-      CardNumber: CardNumber
-      CardSecurityNumber: CardSecurityNumber
-      CardHolderName: CardHolderName
-      CardExpiration: DateOnly }
-
-type DomainError =
-    | UnsupportedCardType of CardTypeId
-    | PaymentMethodExpired
-    | InvalidPaymentMethod of UnverifiedPaymentMethod
-    | InvalidOrderItems of Map<ProductId, DiscountHigherThanTotalPriceError>
-    | InvalidOrderState of Order.InvalidStateError
-
-type StartOrderWorkflow<'ioErr> = Command -> OrderWorkflow<DomainError, 'ioErr, unit>
-
 [<RequireQualifiedAccess>]
 module StartOrderWorkflow =
+    type Command =
+        { Buyer: Buyer
+          Address: Address
+          OrderItems: NonEmptyMap<ProductId, UnvalidatedOrderItem>
+          CardTypeId: CardTypeId
+          CardNumber: CardNumber
+          CardSecurityNumber: CardSecurityNumber
+          CardHolderName: CardHolderName
+          CardExpiration: DateOnly }
+
+    type DomainError =
+        | UnsupportedCardType of CardTypeId
+        | PaymentMethodExpired
+        | InvalidPaymentMethod of UnverifiedPaymentMethod
+        | InvalidOrderItems of Map<ProductId, DiscountHigherThanTotalPriceError>
+        | InvalidOrderState of Order.InvalidStateError
+
+    type T<'ioErr> = Command -> OrderWorkflow<DomainError, 'ioErr>
+
     let build
         (getCurrentTime: GetUtcNow)
         (getSupportedCardTypes: PaymentManagementPort.GetSupportedCardTypes<'ioErr>)
         (verifyPaymentMethod: PaymentManagementPort.VerifyPaymentMethod<'ioErr>)
-        : StartOrderWorkflow<'ioErr> =
+        : T<'ioErr> =
         fun command ->
             workflow {
                 let now = getCurrentTime ()
@@ -84,3 +83,5 @@ module StartOrderWorkflow =
 
                 do! createOrderCommand |> Order.create |> AggregateAction.mapError InvalidOrderState
             }
+
+type StartOrderWorkflow<'ioErr> = StartOrderWorkflow.T<'ioErr>

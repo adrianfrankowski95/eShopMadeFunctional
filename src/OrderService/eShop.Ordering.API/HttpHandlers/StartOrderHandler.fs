@@ -6,7 +6,6 @@ open Giraffe
 open Microsoft.AspNetCore.Http
 open Microsoft.Extensions.Logging
 open eShop.ConstrainedTypes
-open eShop.Prelude
 open eShop.Ordering.API
 open eShop.Ordering.API.GiraffeExtensions
 open eShop.Ordering.Domain.Model
@@ -41,7 +40,7 @@ type Request =
 
 [<RequireQualifiedAccess>]
 module Request =
-    let toWorkflowCommand (request: Request) (currentUser: CurrentUser) : Result<StartOrderWorkflow, _> =
+    let toWorkflowCommand (request: Request) (currentUser: CurrentUser) : Result<StartOrderWorkflow.Command, _> =
         validation {
             let! city = request.City |> City.create
             and! state = request.State |> State.create
@@ -97,11 +96,11 @@ module Request =
         |> Result.mapError (String.concat "; ")
 
 let post
-    (buildStartOrderWorkflow: HttpContext -> StartOrderWorkflow.Command -> AsyncResult<unit, _>)
+    (buildStartOrderWorkflow: HttpContext -> StartOrderWorkflow.Command -> TaskResult<_, _>)
     (request: Request)
     : HttpHandler =
     fun next ctx ->
-        asyncResult {
+        taskResult {
             let logError err =
                 ctx
                     .GetLogger<Logger>()
@@ -118,8 +117,8 @@ let post
             return!
                 workflowCommand
                 |> buildStartOrderWorkflow ctx
-                |> AsyncResult.map Successful.OK
-                |> AsyncResult.teeError logError
-                |> AsyncResult.mapError (_.ToString() >> ServerErrors.INTERNAL_ERROR)
+                |> TaskResult.map Successful.OK
+                |> TaskResult.teeError logError
+                |> TaskResult.mapError (_.ToString() >> ServerErrors.INTERNAL_ERROR)
         }
-        |> HttpFuncResult.ofAsyncResult next ctx
+        |> HttpFuncResult.ofTaskResult next ctx

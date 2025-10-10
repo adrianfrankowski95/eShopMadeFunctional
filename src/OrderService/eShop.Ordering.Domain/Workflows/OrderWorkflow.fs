@@ -3,4 +3,4 @@
 open eShop.DomainDrivenDesign
 open eShop.Ordering.Domain.Model
 
-type OrderWorkflow<'err, 'ioErr, 'retn> = Workflow<Order.State, Order.Event, 'err, 'ioErr, 'retn>
+type OrderWorkflow<'err, 'ioErr> = Workflow<Order.State, Order.Event, 'err, 'ioErr, unit>

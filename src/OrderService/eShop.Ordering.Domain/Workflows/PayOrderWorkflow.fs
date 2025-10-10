@@ -3,7 +3,7 @@
 open eShop.DomainDrivenDesign
 open eShop.Ordering.Domain.Model
 
-type PayOrderWorkflow<'ioErr> = OrderWorkflow<Order.InvalidStateError, 'ioErr, unit>
+type PayOrderWorkflow<'ioErr> = OrderWorkflow<Order.InvalidStateError, 'ioErr>
 
 [<RequireQualifiedAccess>]
 module PayOrderWorkflow =

@@ -4,7 +4,7 @@ open eShop.DomainDrivenDesign
 open eShop.Ordering.Domain.Model
 
 type RejectOrderItemsStockWorkflow<'ioErr> =
-    Order.Command.SetStockRejectedOrderStatus -> OrderWorkflow<Order.InvalidStateError, 'ioErr, unit>
+    Order.Command.SetStockRejectedOrderStatus -> OrderWorkflow<Order.InvalidStateError, 'ioErr>
 
 [<RequireQualifiedAccess>]
 module RejectOrderItemsStockWorkflow =

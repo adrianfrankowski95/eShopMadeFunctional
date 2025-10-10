@@ -3,7 +3,7 @@
 open eShop.DomainDrivenDesign
 open eShop.Ordering.Domain.Model
 
-type AwaitOrderStockItemsValidationWorkflow<'ioErr> = OrderWorkflow<Order.InvalidStateError, 'ioErr, unit>
+type AwaitOrderStockItemsValidationWorkflow<'ioErr> = OrderWorkflow<Order.InvalidStateError, 'ioErr>
 
 [<RequireQualifiedAccess>]
 module AwaitOrderStockItemsValidationWorkflow =

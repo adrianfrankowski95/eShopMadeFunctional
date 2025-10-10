@@ -4,15 +4,12 @@ open System
 open Microsoft.Extensions.Logging
 open eShop.Prelude
 open Giraffe
+open FsToolkit.ErrorHandling
 
 [<RequireQualifiedAccess>]
 module HttpFuncResult =
-    let inline ofAsyncResult next ctx x : HttpFuncResult =
-        task {
-            let! httpHandler = x |> AsyncResult.collapse
-
-            return! httpHandler next ctx
-        }
+    let inline ofTaskResult next ctx x : HttpFuncResult =
+        x |> TaskResult.collapse |> Task.bind (fun httpHandler -> httpHandler next ctx)
 
 let errorHandler (ex: Exception) (logger: ILogger) =
     logger.LogError(EventId(), ex, "An unhandled exception has occurred while executing the request.")

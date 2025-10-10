@@ -9,7 +9,6 @@ open Microsoft.AspNetCore.Builder
 open Microsoft.Extensions.Configuration
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.Hosting
-open eShop.ConstrainedTypes
 open eShop.DomainDrivenDesign
 open eShop.Ordering.API.PortsAdapters
 open eShop.Ordering.Adapters.Common
@@ -55,7 +54,7 @@ let private configureTime (services: IServiceCollection) =
 
 let private configureGenerators (services: IServiceCollection) =
     services
-        .AddTransient<GenerateId<eventId>>(Func<IServiceProvider, GenerateId<eventId>>(fun _ -> EventId.generate))
+        .AddTransient<GenerateEventId>(Func<IServiceProvider, GenerateEventId>(fun _ -> EventId.generate))
         .AddTransient<GenerateAggregateId<Order.State>>(
             Func<IServiceProvider, GenerateAggregateId<Order.State>>(fun _ -> AggregateId.generate)
         )

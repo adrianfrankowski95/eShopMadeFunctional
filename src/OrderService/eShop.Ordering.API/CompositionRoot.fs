@@ -173,23 +173,23 @@ module OrderWorkflow =
         ctx |> Services.fromCtx |> buildStartOrder
 
     let internal buildAwaitOrderStockItemsValidation (services: Services) =
-        fun _ -> AwaitOrderStockItemsValidationWorkflow.build
+        Reader.retn AwaitOrderStockItemsValidationWorkflow.build
         |> OrderWorkflowExecutor.execute services OrderWorkflowIoError.SqlIoError
 
     let internal buildConfirmOrderItemsStock (services: Services) =
-        fun _ -> ConfirmOrderItemsStockWorkflow.build
+        Reader.retn ConfirmOrderItemsStockWorkflow.build
         |> OrderWorkflowExecutor.execute services OrderWorkflowIoError.SqlIoError
 
     let internal buildRejectOrderItemsStock (services: Services) command =
-        fun _ -> RejectOrderItemsStockWorkflow.build command
+        Reader.retn (RejectOrderItemsStockWorkflow.build command)
         |> OrderWorkflowExecutor.execute services OrderWorkflowIoError.SqlIoError
 
     let internal buildCancelOrder (services: Services) =
-        fun _ -> CancelOrderWorkflow.build
+        Reader.retn CancelOrderWorkflow.build
         |> OrderWorkflowExecutor.execute services OrderWorkflowIoError.SqlIoError
 
     let internal buildPayOrder (services: Services) =
-        fun _ -> PayOrderWorkflow.build
+        Reader.retn PayOrderWorkflow.build
         |> OrderWorkflowExecutor.execute services OrderWorkflowIoError.SqlIoError
 
 type EventDrivenOrderWorkflowDispatcherError =
