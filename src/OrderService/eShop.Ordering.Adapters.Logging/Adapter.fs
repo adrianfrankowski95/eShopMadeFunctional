@@ -59,4 +59,4 @@ module Logger =
                 aggregateId |> AggregateId.value,
                 event
             )
-            |> AsyncResult.ok
+            |> TaskResult.ok

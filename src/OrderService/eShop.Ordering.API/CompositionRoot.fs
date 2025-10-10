@@ -10,12 +10,12 @@ open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.Logging
 open Microsoft.Extensions.Options
 open RabbitMQ.Client
-open eShop.ConstrainedTypes
 open eShop.DomainDrivenDesign
 open eShop.DomainDrivenDesign.Postgres
 open eShop.Ordering.API.PortsAdapters
 open eShop.Ordering.Adapters
 open eShop.Ordering.Adapters.Common
+open eShop.Ordering.Adapters.Common.IntegrationEvent
 open eShop.Ordering.Adapters.Http
 open eShop.Ordering.Domain.Model
 open eShop.Ordering.Domain.Workflows
@@ -102,7 +102,7 @@ module OrderAggregateEventsProcessor =
         let dispatchOrderIntegrationEvent =
             fun orderAggregateId orderAggregateEvent ->
                 orderAggregateEvent
-                |> Event.mapPayload (IntegrationEvent.Published.ofAggregateEvent orderAggregateId)
+                |> Event.mapPayload (Published.ofAggregateEvent orderAggregateId)
                 |> RabbitMQ.OrderIntegrationEventDispatcher.create jsonOptions rabbitMQConnection
 
         EventsProcessor.init
@@ -118,7 +118,7 @@ module OrderAggregateEventsProcessor =
 
 [<RequireQualifiedAccess>]
 module OrderWorkflowExecutor =
-    let execute (services: Services) mapIoError workflow =
+    let internal execute (services: Services) mapIoError workflow =
         let getUtcNow = services.Get<GetUtcNow>()
         let generateEventId = services.Get<GenerateEventId>()
 
@@ -139,7 +139,7 @@ module OrderWorkflowExecutor =
         |> TransactionalWorkflowExecutor.withIoErrorMapping mapIoError
         |> TransactionalWorkflowExecutor.execute getUtcNow generateEventId readOrder persistOrder persistEvents workflow
 
-    let executeNew (services: Services) mapIoError workflow =
+    let internal executeNew (services: Services) mapIoError workflow =
         let id = services.Get<GenerateAggregateId<Order.State>> () ()
 
         id |> execute services mapIoError workflow |> TaskResult.map (fun x -> id, x)
@@ -151,21 +151,21 @@ type OrderWorkflowIoError =
 
 [<RequireQualifiedAccess>]
 module OrderWorkflow =
-    let private buildStartOrder (services: Services) =
+    let private buildStartOrder (services: Services) command =
+        let getUtcNow = services.Get<GetUtcNow>()
         let httpPaymentAdapter = services.Get<IHttpPaymentManagementAdapter>()
         let sqlPaymentAdapter = services.Get<ISqlPaymentManagementAdapter>()
 
         let verifyPaymentMethod =
             httpPaymentAdapter.VerifyPaymentMethod
-            >> TaskResult.mapError (Either.mapRight OrderWorkflowIoError.HttpIoError)
+            >> TaskResult.mapError OrderWorkflowIoError.HttpIoError
 
         reader {
             let! getSupportedCardTypes =
-                SqlSession.Sustained
-                >> sqlPaymentAdapter.GetSupportedCardTypes
+                SqlSession.Sustained >> sqlPaymentAdapter.GetSupportedCardTypes
                 >>> TaskResult.mapError OrderWorkflowIoError.SqlIoError
 
-            StartOrderWorkflow.build getSupportedCardTypes verifyPaymentMethod
+            return StartOrderWorkflow.build getUtcNow getSupportedCardTypes verifyPaymentMethod command
         }
         |> OrderWorkflowExecutor.executeNew services OrderWorkflowIoError.SqlIoError
 
@@ -173,26 +173,27 @@ module OrderWorkflow =
         ctx |> Services.fromCtx |> buildStartOrder
 
     let internal buildAwaitOrderStockItemsValidation (services: Services) =
-        AwaitOrderStockItemsValidationWorkflow.build
-        |> executeActionForExistingAggregate services
+        fun _ -> AwaitOrderStockItemsValidationWorkflow.build
+        |> OrderWorkflowExecutor.execute services OrderWorkflowIoError.SqlIoError
 
     let internal buildConfirmOrderItemsStock (services: Services) =
-        ConfirmOrderItemsStockWorkflow.build
-        |> executeActionForExistingAggregate services
+        fun _ -> ConfirmOrderItemsStockWorkflow.build
+        |> OrderWorkflowExecutor.execute services OrderWorkflowIoError.SqlIoError
 
-    let internal buildRejectOrderItemsStock (services: Services) =
-        fun _ -> RejectOrderItemsStockWorkflow.build
-        |> executeForExistingAggregate services
+    let internal buildRejectOrderItemsStock (services: Services) command =
+        fun _ -> RejectOrderItemsStockWorkflow.build command
+        |> OrderWorkflowExecutor.execute services OrderWorkflowIoError.SqlIoError
 
     let internal buildCancelOrder (services: Services) =
-        CancelOrderWorkflow.build |> executeActionForExistingAggregate services
+        fun _ -> CancelOrderWorkflow.build
+        |> OrderWorkflowExecutor.execute services OrderWorkflowIoError.SqlIoError
 
     let internal buildPayOrder (services: Services) =
-        PayOrderWorkflow.build |> executeActionForExistingAggregate services
-
+        fun _ -> PayOrderWorkflow.build
+        |> OrderWorkflowExecutor.execute services OrderWorkflowIoError.SqlIoError
 
 type EventDrivenOrderWorkflowDispatcherError =
-    | WorkflowExecutorError of WorkflowExecutionError<Order.State, Order.InvalidStateError, OrderWorkflowIoError>
+    | WorkflowExecutionError of Either<Order.InvalidStateError, OrderWorkflowIoError>
     | InvalidEventData of string
 
 type EventDrivenOrderWorkflowDispatcher =
@@ -206,7 +207,7 @@ module OrderIntegrationEventsProcessor =
     let private dispatchEventDrivenWorkflow services : EventDrivenOrderWorkflowDispatcher =
         fun orderAggregateId integrationEvent ->
             let inline toWorkflowError x =
-                x |> AsyncResult.mapError WorkflowExecutorError
+                x |> TaskResult.mapError WorkflowExecutionError
 
             match integrationEvent.Data with
             | IntegrationEvent.Consumed.GracePeriodConfirmed _ ->
@@ -220,22 +221,15 @@ module OrderIntegrationEventsProcessor =
                 |> toWorkflowError
 
             | IntegrationEvent.Consumed.OrderStockRejected orderStockRejected ->
-                asyncResult {
+                taskResult {
                     let! command =
-                        orderStockRejected.OrderStockItems
-                        |> List.filter (_.HasStock >> not)
-                        |> List.map (_.ProductId >> ProductId.ofInt)
-                        |> NonEmptyList.ofList
-                        |> Result.map (fun items ->
-                            ({ RejectedOrderItems = items }: Order.Command.SetStockRejectedOrderStatus))
-                        |> Result.setError (
-                            $"Invalid event %s{integrationEvent.Id |> EventId.toString} of type %s{nameof IntegrationEvent.Consumed.OrderStockRejected}: no rejected stock found"
-                            |> InvalidEventData
-                        )
+                        orderStockRejected
+                        |> OrderStockRejected.toDomain
+                        |> Result.mapError InvalidEventData
 
                     return!
-                        command
-                        |> OrderWorkflow.buildRejectOrderItemsStock services orderAggregateId
+                        orderAggregateId
+                        |> OrderWorkflow.buildRejectOrderItemsStock services command
                         |> toWorkflowError
                 }
 

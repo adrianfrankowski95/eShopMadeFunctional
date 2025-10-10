@@ -1,4 +1,5 @@
-﻿namespace eShop.Ordering.Domain.Workflows
+﻿[<RequireQualifiedAccess>]
+module eShop.Ordering.Domain.Workflows.StartOrderWorkflow
 
 open System
 open eShop.Ordering.Domain.Model.ValueObjects
@@ -7,7 +8,6 @@ open eShop.DomainDrivenDesign
 open eShop.Ordering.Domain.Model
 open eShop.Ordering.Domain.Ports
 open FsToolkit.ErrorHandling
-open eShop.Prelude
 
 type Command =
     { Buyer: Buyer
@@ -39,7 +39,7 @@ module StartOrderWorkflow =
             workflow {
                 let now = getCurrentTime ()
 
-                let! supportedCardTypes = Workflow.usePort (getSupportedCardTypes ())
+                let! supportedCardTypes = (getSupportedCardTypes ()) |> Workflow.usePort
 
                 let! cardType =
                     command.CardTypeId
@@ -58,14 +58,12 @@ module StartOrderWorkflow =
                     |> Result.mapError (fun (_: PaymentMethodExpiredError) -> PaymentMethodExpired)
                     |> AggregateAction.ofResult
 
+                let! verificationResult = unverifiedPaymentMethod |> verifyPaymentMethod |> Workflow.usePort
+
                 let! verifiedPaymentMethod =
-                    unverifiedPaymentMethod
-                    |> verifyPaymentMethod
-                    |> TaskResult.mapError (function
-                        | Right ioError -> ioError |> Right
-                        | Left(_: PaymentManagementPort.InvalidPaymentMethodError) ->
-                            unverifiedPaymentMethod |> InvalidPaymentMethod |> Left)
-                    |> AggregateAction.ofTaskResult
+                    verificationResult
+                    |> PaymentManagementPort.VerificationResult.requireSuccess InvalidPaymentMethod
+                    |> AggregateAction.ofResult
 
                 let! validatedOrderItems =
                     command.OrderItems

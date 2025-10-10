@@ -1,5 +1,4 @@
-﻿[<RequireQualifiedAccess>]
-module eShop.Ordering.Adapters.Common.IntegrationEvent
+﻿module eShop.Ordering.Adapters.Common.IntegrationEvent
 
 open System
 open System.Text.Json
@@ -24,6 +23,16 @@ type ConfirmedOrderStockItem = { ProductId: int; HasStock: bool }
 type OrderStockRejected =
     { OrderId: Guid
       OrderStockItems: ConfirmedOrderStockItem list }
+
+[<RequireQualifiedAccess>]
+module OrderStockRejected =
+    let toDomain (event: OrderStockRejected) =
+        event.OrderStockItems
+        |> List.filter (_.HasStock >> not)
+        |> List.map (_.ProductId >> ProductId.ofInt)
+        |> NonEmptyList.ofList
+        |> Result.map (fun items -> ({ RejectedOrderItems = items }: Order.Command.SetStockRejectedOrderStatus))
+        |> Result.setError "Invalid IntegrationEvent: No rejected stock found"
 
 [<CLIMutable>]
 type OrderPaymentFailed = { OrderId: Guid }
@@ -114,8 +123,10 @@ module Consumed =
         fun () ->
             nameTypeMap
             |> Map.tryFind eventName
-            |> Option.defaultWith (fun () -> failwith $"Unsupported event name: %s{eventName |> RabbitMQ.EventName.value}")
-            |> Tuple.mapSnd deserialize |> createUnion
+            |> Option.defaultWith (fun () ->
+                failwith $"Unsupported event name: %s{eventName |> RabbitMQ.EventName.value}")
+            |> Tuple.mapSnd deserialize
+            |> createUnion
         |> Result.catch
 
     let getOrderAggregateId (integrationEvent: Consumed) =
@@ -143,28 +154,28 @@ module Published =
         | Order.Event.OrderStarted ev ->
             ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
-               BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString }
+               BuyerIdentityGuid = ev.Buyer.Id |> UserId.toString }
             : OrderStatusChangedToStarted)
             |> Published.OrderStatusChangedToStarted
 
         | Order.Event.PaymentMethodVerified ev ->
             ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
-               BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString }
+               BuyerIdentityGuid = ev.Buyer.Id |> UserId.toString }
             : OrderStatusChangedToSubmitted)
             |> Published.OrderStatusChangedToSubmitted
 
         | Order.Event.OrderCancelled ev ->
             ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
-               BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString }
+               BuyerIdentityGuid = ev.Buyer.Id |> UserId.toString }
             : OrderStatusChangedToCancelled)
             |> Published.OrderStatusChangedToCancelled
 
         | Order.Event.OrderStatusChangedToAwaitingValidation ev ->
             ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
-               BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString
+               BuyerIdentityGuid = ev.Buyer.Id |> UserId.toString
                OrderStockItems =
                  ev.StockToValidate
                  |> NonEmptyMap.toList
@@ -177,14 +188,14 @@ module Published =
         | Order.Event.OrderStockConfirmed ev ->
             ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
-               BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString }
+               BuyerIdentityGuid = ev.Buyer.Id |> UserId.toString }
             : OrderStatusChangedToStockConfirmed)
             |> Published.OrderStatusChangedToStockConfirmed
 
         | Order.Event.OrderPaid ev ->
             ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
-               BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString
+               BuyerIdentityGuid = ev.Buyer.Id |> UserId.toString
                OrderStockItems =
                  ev.PaidOrderItems
                  |> NonEmptyMap.toList
@@ -197,7 +208,7 @@ module Published =
         | Order.Event.OrderShipped ev ->
             ({ OrderId = orderId
                BuyerName = ev.Buyer.Name |> BuyerName.value
-               BuyerIdentityGuid = ev.Buyer.Id |> BuyerId.toString }
+               BuyerIdentityGuid = ev.Buyer.Id |> UserId.toString }
             : OrderStatusChangedToShipped)
             |> Published.OrderStatusChangedToShipped
 

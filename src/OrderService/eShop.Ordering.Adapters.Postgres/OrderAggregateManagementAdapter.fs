@@ -817,7 +817,7 @@ let readOrderAggregate dbSchema sqlSession : ReadOrderAggregate =
 type PersistOrderAggregate = OrderAggregateManagementPort.PersistOrderAggregate<SqlIoError>
 
 let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
-    fun (AggregateId aggregateId, order) ->
+    fun (AggregateId aggregateId) order ->
         taskResult {
             let sqlSession = dbTransaction |> SqlSession.Sustained
 

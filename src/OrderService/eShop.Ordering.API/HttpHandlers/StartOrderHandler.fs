@@ -41,7 +41,7 @@ type Request =
 
 [<RequireQualifiedAccess>]
 module Request =
-    let toWorkflowCommand (request: Request) (currentUser: CurrentUser) : Result<StartOrderWorkflow.Command, _> =
+    let toWorkflowCommand (request: Request) (currentUser: CurrentUser) : Result<StartOrderWorkflow, _> =
         validation {
             let! city = request.City |> City.create
             and! state = request.State |> State.create
