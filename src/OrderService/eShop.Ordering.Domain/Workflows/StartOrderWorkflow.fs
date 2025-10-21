@@ -38,7 +38,7 @@ module StartOrderWorkflow =
             workflow {
                 let now = getCurrentTime ()
 
-                let! supportedCardTypes = (getSupportedCardTypes ()) |> Workflow.usePort
+                let! supportedCardTypes = getSupportedCardTypes () |> Workflow.usePort
 
                 let! cardType =
                     command.CardTypeId

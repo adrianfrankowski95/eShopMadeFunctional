@@ -15,5 +15,5 @@ let persistOrderIntegrationEvents jsonOptions dbSchema dbTransaction : PersistOr
 type ReadUnprocessedOrderIntegrationEvents =
     ReadUnprocessedEvents<Order.State, IntegrationEvent.Consumed, SqlIoError>
 
-let readUnprocessedOrderIntegrationEvents jsonOptions dbSchema sqlSession : ReadUnprocessedOrderIntegrationEvents =
-    Postgres.readUnprocessedEvents Ok jsonOptions dbSchema sqlSession
+let readUnprocessedOrderIntegrationEvents jsonOptions dbSchema dbConnection : ReadUnprocessedOrderIntegrationEvents =
+    Postgres.readUnprocessedEvents Ok jsonOptions dbSchema dbConnection

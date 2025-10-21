@@ -19,10 +19,10 @@ module private Sql =
 
 type GetSupportedCardTypes = PaymentManagementPort.GetSupportedCardTypes<SqlIoError>
 
-let getSupportedCardTypes dbSchema sqlSession : GetSupportedCardTypes =
+let getSupportedCardTypes dbSchema dbConnection : GetSupportedCardTypes =
     fun () ->
         taskResult {
-            let! cardTypeDtos = Dapper.query<Dto.CardType> sqlSession (Sql.getSupportedCardTypes dbSchema) null
+            let! cardTypeDtos = Dapper.query<Dto.CardType> dbConnection (Sql.getSupportedCardTypes dbSchema) null
 
             return!
                 cardTypeDtos

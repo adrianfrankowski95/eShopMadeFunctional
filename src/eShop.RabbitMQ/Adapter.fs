@@ -40,12 +40,14 @@ module RabbitMQ =
 
         let value (EventName eventName) = eventName
 
-    let private createChannel (connection: IConnection) = Result.catch connection.CreateModel
+    let internal createChannel (connection: IConnection) = Result.catch connection.CreateModel
 
-    let private ensureExchange (channel: IModel) =
-        Result.catch (fun () -> channel.ExchangeDeclare(exchange = Configuration.ExchangeName, ``type`` = "direct"))
+    let internal ensureExchange exchangeName (channel: IModel) =
+        Result.catch (fun () ->
+            channel.ExchangeDeclare(exchange = exchangeName, ``type`` = "direct")
+            channel)
 
-    let private ensureDeadLetterExchange (channel: IModel) =
+    let internal ensureDeadLetterExchange (channel: IModel) =
         Result.catch (fun () ->
             channel.ExchangeDeclare(
                 exchange = Configuration.DeadLetterExchangeName,
@@ -54,7 +56,7 @@ module RabbitMQ =
                 autoDelete = false
             ))
 
-    let private ensureDeadLetterQueue (channel: IModel) =
+    let internal ensureDeadLetterQueue (channel: IModel) =
         Result.catch (fun () ->
             channel.QueueDeclare(
                 queue = Configuration.DeadLetterQueueName,
@@ -65,14 +67,14 @@ module RabbitMQ =
             )
             |> ignore)
 
-    let private ensureQueue (QueueName queueName) (channel: IModel) =
-        Result.catch (fun () ->
-            let arguments: Map<string, obj> =
-                Map.empty
-                |> Map.add "x-dead-letter-exchange" Configuration.DeadLetterExchangeName
-                |> Map.add "x-dead-letter-routing-key" queueName
-                |> Map.mapValues box
+    let internal ensureQueue (QueueName queueName) (channel: IModel) =
+        let arguments: Map<string, obj> =
+            Map.empty
+            |> Map.add "x-dead-letter-exchange" Configuration.DeadLetterExchangeName
+            |> Map.add "x-dead-letter-routing-key" queueName
+            |> Map.mapValues box
 
+        Result.catch (fun () ->
             channel.QueueDeclare(
                 queue = queueName,
                 durable = true,
@@ -82,14 +84,14 @@ module RabbitMQ =
             )
             |> ignore)
 
-    let private bindDeadLetterQueue (QueueName queueName) (channel: IModel) =
+    let internal bindDeadLetterQueue (QueueName queueName) (channel: IModel) =
         Result.catch (fun () ->
             channel.QueueBind(Configuration.DeadLetterQueueName, Configuration.DeadLetterExchangeName, queueName))
 
-    let private bindQueue (QueueName queueName) routingKey (channel: IModel) =
+    let internal bindQueue (QueueName queueName) routingKey (channel: IModel) =
         Result.catch (fun () -> channel.QueueBind(queueName, Configuration.ExchangeName, routingKey))
 
-    let private publish (EventName eventName) body properties (channel: IModel) =
+    let internal publish (EventName eventName) body properties (channel: IModel) =
         Result.catch (fun () ->
             channel.BasicPublish(
                 exchange = Configuration.ExchangeName,
@@ -99,7 +101,7 @@ module RabbitMQ =
                 body = body
             ))
 
-    let private createConsumer (QueueName queueName) (channel: IModel) =
+    let internal createConsumer (QueueName queueName) (channel: IModel) =
         Result.catch (fun () ->
             channel.BasicQos(0u, 1us, false)
 
@@ -110,10 +112,10 @@ module RabbitMQ =
 
             consumer)
 
-    let private ack (ea: BasicDeliverEventArgs) (channel: IModel) =
+    let internal ack (ea: BasicDeliverEventArgs) (channel: IModel) =
         channel.BasicAck(ea.DeliveryTag, multiple = false)
 
-    let private nack (ea: BasicDeliverEventArgs) (channel: IModel) =
+    let internal nack (ea: BasicDeliverEventArgs) (channel: IModel) =
         channel.BasicNack(ea.DeliveryTag, multiple = false, requeue = false)
 
     let internal initConsumer (connection: IConnection) (config: Configuration.RabbitMQOptions) =
@@ -145,7 +147,6 @@ module RabbitMQ =
             let! channel = createChannel connection |> exnToMsg "Failed to create RabbitMQ channel"
 
             do!
-
                 [ ensureDeadLetterExchange >> exnToMsg "Failed to declare RabbitMQ exchange"
                   ensureDeadLetterQueue >> exnToMsg "Failed to declare RabbitMQ queue"
                   bindDeadLetterQueue queueName >> exnToMsg "Failed to bind RabbitMQ queue"
@@ -263,7 +264,10 @@ module RabbitMQ =
 
                 use! channel = createChannel connection |> Result.mapError ChannelCreationError
 
-                do! channel |> ensureExchange |> Result.mapError ExchangeDeclarationError
+                do!
+                    channel
+                    |> ensureExchange Configuration.ExchangeName
+                    |> Result.mapError ExchangeDeclarationError
 
                 let properties = channel.CreateBasicProperties()
                 properties.MessageId <- event.Id |> EventId.toString

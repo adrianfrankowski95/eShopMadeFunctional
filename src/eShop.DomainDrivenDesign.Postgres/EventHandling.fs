@@ -23,27 +23,49 @@ module Postgres =
                 e |> DeserializationError |> Error
 
     module private Sql =
-        let inline persistEvent (DbSchema schema) =
-            $"""INSERT INTO "%s{schema}".event_processing_log 
-            (event_id, aggregate_id, aggregate_type, event_type, event_data, occurred_at)
-            VALUES (@EventId, @AggregateId, @AggregateType, @EventType, @EventData::jsonb, @OccurredAt)"""
+        module DomainEventLog =
+            let inline persistEvent (DbSchema schema) =
+                $"""INSERT INTO "%s{schema}".domain_event_log 
+                (event_id, aggregate_id, aggregate_type, event_type, event_data, occurred_at)
+                VALUES (@EventId, @AggregateId, @AggregateType, @EventType, @EventData::jsonb, @OccurredAt)"""
 
-        let inline readUnprocessedEvents (DbSchema schema) =
-            $"""SELECT event_id as "EventId", aggregate_id as "AggregateId", aggregate_type as "AggregateType",
-            event_data as "EventData", event_type as "EventType", occurred_at as "OccurredAt", successful_handlers as "SuccessfulHandlers"
-            FROM "%s{schema}".event_processing_log
-            WHERE aggregate_type = @AggregateType AND event_type = @EventType AND processed_at IS NULL
-            ORDER BY occurred_at ASC"""
+            let inline readUnprocessedEvents (DbSchema schema) =
+                $"""SELECT event_id as "EventId", aggregate_id as "AggregateId", aggregate_type as "AggregateType",
+                event_data as "EventData", event_type as "EventType", occurred_at as "OccurredAt", successful_handlers as "SuccessfulHandlers"
+                FROM "%s{schema}".domain_event_log
+                WHERE aggregate_type = @AggregateType AND event_type = @EventType AND processed_at IS NULL
+                ORDER BY occurred_at ASC"""
 
-        let inline persistSuccessfulEventHandlers (DbSchema schema) =
-            $"""UPDATE "%s{schema}".event_processing_log
-            SET successful_handlers = successful_handlers || @SuccessfulHandlers
-            WHERE event_id = @EventId"""
+            let inline persistSuccessfulEventHandlers (DbSchema schema) =
+                $"""UPDATE "%s{schema}".domain_event_log
+                SET successful_handlers = successful_handlers || @SuccessfulHandlers
+                WHERE event_id = @EventId"""
 
-        let inline markEventAsProcessed (DbSchema schema) =
-            $"""UPDATE "%s{schema}".event_processing_log
-            SET processed_at = @UtcNow
-            WHERE event_id = @EventId"""
+            let inline markEventAsProcessed (DbSchema schema) =
+                $"""UPDATE "%s{schema}".domain_event_log
+                SET processed_at = @UtcNow
+                WHERE event_id = @EventId"""
+                
+        module InboxEventLog =
+            let inline persistEvent (DbSchema schema) =
+                $"""INSERT INTO "%s{schema}".inbox_event_log 
+                (event_id, event_type, event_data, occurred_at)
+                VALUES (@EventId, @EventType, @EventData::jsonb, @OccurredAt)"""
+
+            // FOR UPDATE SKIP LOCKED prevents multiple instances from processing the same events
+            let inline readUnprocessedEvents (DbSchema schema) =
+                $"""SELECT event_id as "EventId", event_data as "EventData",
+                event_type as "EventType", occurred_at as "OccurredAt"
+                FROM "%s{schema}".inbox_event_log
+                WHERE processed_at IS NULL
+                FOR UPDATE SKIP LOCKED
+                ORDER BY occurred_at ASC
+                LIMIT 100"""
+
+            let inline markEventAsProcessed (DbSchema schema) =
+                $"""UPDATE "%s{schema}".inbox_event_log
+                SET processed_at = @UtcNow
+                WHERE event_id = @EventId"""
 
     module private Dto =
         [<CLIMutable>]
@@ -76,7 +98,7 @@ module Postgres =
         (payloadToDto: 'eventPayload -> 'eventPayloadDto)
         (jsonOptions: JsonSerializerOptions)
         (dbSchema: DbSchema)
-        (dbTransaction: DbTransaction)
+        (dbConnection: DbConnection)
         : PersistEvents<'state, 'eventPayload> =
         fun (AggregateId aggregateId) events ->
             taskResult {
@@ -96,7 +118,7 @@ module Postgres =
 
                 do!
                     parameters
-                    |> Dapper.execute (SqlSession.Sustained dbTransaction) (Sql.persistEvent dbSchema)
+                    |> Dapper.execute dbConnection (Sql.DomainEventLog.persistEvent dbSchema)
                     |> TaskResult.ignore
             }
 
@@ -107,12 +129,12 @@ module Postgres =
         (parsePayload: 'eventPayloadDto -> Result<'eventPayload, string>)
         (jsonOptions: JsonSerializerOptions)
         (dbSchema: DbSchema)
-        (sqlSession: SqlSession)
+        (dbConnection: DbConnection)
         : ReadUnprocessedEvents<'state, 'eventPayload> =
         fun () ->
             {| AggregateType = Aggregate.typeName<'state>
                EventType = typeof<'eventPayload>.FullName |}
-            |> Dapper.query<Dto.Event> sqlSession (Sql.readUnprocessedEvents dbSchema)
+            |> Dapper.query<Dto.Event> dbConnection (Sql.DomainEventLog.readUnprocessedEvents dbSchema)
             |> TaskResult.bind (
                 Seq.traverseResultM (
                     Dto.Event.toDomain<'state, 'eventPayloadDto, 'eventPayload> parsePayload jsonOptions
@@ -123,18 +145,18 @@ module Postgres =
 
     type PersistSuccessfulEventHandlers = PersistSuccessfulEventHandlers<SqlIoError>
 
-    let persistSuccessfulEventHandlers (dbSchema: DbSchema) (sqlSession: SqlSession) : PersistSuccessfulEventHandlers =
+    let persistSuccessfulEventHandlers (dbSchema: DbSchema) (dbConnection: DbConnection) : PersistSuccessfulEventHandlers =
         fun eventId successfulHandlers ->
             {| EventId = eventId |> EventId.value
                SuccessfulHandlers = successfulHandlers |> Set.toArray |}
-            |> Dapper.execute sqlSession (Sql.persistSuccessfulEventHandlers dbSchema)
+            |> Dapper.execute dbConnection (Sql.DomainEventLog.persistSuccessfulEventHandlers dbSchema)
             |> TaskResult.ignore
 
     type MarkEventAsProcessed = MarkEventAsProcessed<SqlIoError>
 
-    let markEventAsProcessed (dbSchema: DbSchema) (sqlSession: SqlSession) (getNow: GetUtcNow) : MarkEventAsProcessed =
+    let markEventAsProcessed (dbSchema: DbSchema) (dbConnection: DbConnection) (getNow: GetUtcNow) : MarkEventAsProcessed =
         fun eventId ->
             {| EventId = eventId |> EventId.value
                UtcNow = getNow () |}
-            |> Dapper.execute sqlSession (Sql.markEventAsProcessed dbSchema)
+            |> Dapper.execute dbConnection (Sql.DomainEventLog.markEventAsProcessed dbSchema)
             |> TaskResult.ignore

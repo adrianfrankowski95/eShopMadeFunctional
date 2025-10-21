@@ -44,7 +44,7 @@ type Extensions =
                     .EnableParameterLogging(isDevelopment)
                     .ConfigureJsonOptions(jsonOptions)
                     .Build())
-            .AddTransient<GetDbConnection>(
+            .AddSingleton<GetDbConnection>(
                 Func<IServiceProvider, GetDbConnection>(fun sp ->
                     fun () -> sp.GetRequiredService<NpgsqlDataSource>().CreateConnection() :> DbConnection)
             )

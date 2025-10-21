@@ -47,3 +47,7 @@ module UnverifiedPaymentMethod =
           CardNumber = paymentMethod.CardNumber
           CardHolderName = paymentMethod.CardHolderName
           CardType = paymentMethod.CardType }
+
+type PaymentMethod =
+    | Unverified of UnverifiedPaymentMethod
+    | Verified of VerifiedPaymentMethod

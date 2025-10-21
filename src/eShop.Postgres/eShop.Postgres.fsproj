@@ -11,6 +11,7 @@
         <Compile Include="Adapter.fs" />
         <Compile Include="Dapper.fs" />
         <Compile Include="DependencyInjection.fs" />
+        <Compile Include="TransactionalExecutor.fs" />
     </ItemGroup>
     
     <ItemGroup>

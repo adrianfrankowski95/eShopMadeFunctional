@@ -13,7 +13,6 @@
     
     <ItemGroup>
         <Compile Include="EventHandling.fs" />
-        <Compile Include="TransactionalWorkflowExecutor.fs" />
     </ItemGroup>
     
     <ItemGroup>

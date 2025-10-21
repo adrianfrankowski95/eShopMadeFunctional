@@ -139,6 +139,7 @@ type OrderItem =
     | WithUnconfirmedStock of OrderItemWithUnconfirmedStock
     | WithConfirmedStock of OrderItemWithConfirmedStock
 
+[<RequireQualifiedAccess>]
 module OrderItem =
     let getProductName =
         function

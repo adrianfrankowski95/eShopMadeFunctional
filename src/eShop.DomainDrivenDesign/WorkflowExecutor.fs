@@ -47,3 +47,9 @@ module WorkflowExecutor =
 
             return x
         }
+
+    let executeNew generateOrderId getNow generateEventId readAggregate persistAggregate persistEvents workflow =
+        let id = generateOrderId ()
+
+        execute id getNow generateEventId readAggregate persistAggregate persistEvents workflow
+        |> TaskResult.map (fun x -> id, x)

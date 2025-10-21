@@ -799,12 +799,12 @@ module private Sql =
 
 type ReadOrderAggregate = OrderAggregateManagementPort.ReadOrderAggregate<SqlIoError>
 
-let readOrderAggregate dbSchema sqlSession : ReadOrderAggregate =
+let readOrderAggregate dbSchema dbConnection : ReadOrderAggregate =
     fun (AggregateId aggregateId) ->
         taskResult {
             let! orderDtos =
                 {| OrderId = aggregateId |}
-                |> Dapper.query<Dto.Order> sqlSession (Sql.getOrderById dbSchema)
+                |> Dapper.query<Dto.Order> dbConnection (Sql.getOrderById dbSchema)
                 |> TaskResult.map (Seq.groupBy _.Id)
 
             return!
@@ -816,18 +816,16 @@ let readOrderAggregate dbSchema sqlSession : ReadOrderAggregate =
 
 type PersistOrderAggregate = OrderAggregateManagementPort.PersistOrderAggregate<SqlIoError>
 
-let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
+let persistOrderAggregate dbSchema dbConnection : PersistOrderAggregate =
     fun (AggregateId aggregateId) order ->
         taskResult {
-            let sqlSession = dbTransaction |> SqlSession.Sustained
-
             do!
                 order
                 |> Order.getBuyerId
                 |> Option.map (fun buyerId ->
                     {| BuyerId = buyerId |> UserId.value
                        BuyerName = order |> Order.getBuyerName |> Option.map BuyerName.value |> Option.toObj |}
-                    |> Dapper.execute sqlSession (Sql.upsertBuyer dbSchema)
+                    |> Dapper.execute dbConnection (Sql.upsertBuyer dbSchema)
                     |> TaskResult.ignore)
                 |> Option.defaultValue (TaskResult.ok ())
 
@@ -845,7 +843,7 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                            CardNumber = paymentMethod.CardNumber |> CardNumber.value
                            CardHolderName = paymentMethod.CardHolderName |> CardHolderName.value
                            CardExpiration = paymentMethod.CardExpiration |}
-                        |> Dapper.executeScalar<Guid> sqlSession (Sql.getOrAddPaymentMethod dbSchema)
+                        |> Dapper.executeScalar<Guid> dbConnection (Sql.getOrAddPaymentMethod dbSchema)
                         |> TaskResult.map Some))
                 |> Option.defaultValue (TaskResult.ok None)
 
@@ -866,7 +864,7 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                        State = maybeAddress |> Option.map (_.State >> State.value)
                        Country = maybeAddress |> Option.map (_.Country >> Country.value)
                        ZipCode = maybeAddress |> Option.map (_.ZipCode >> ZipCode.value) |}
-                    |> Dapper.execute sqlSession (Sql.upsertOrder dbSchema)
+                    |> Dapper.execute dbConnection (Sql.upsertOrder dbSchema)
                     |> TaskResult.ignore)
                 |> Option.defaultValue (TaskResult.ok ())
 
@@ -882,7 +880,7 @@ let persistOrderAggregate dbSchema dbTransaction : PersistOrderAggregate =
                        Units = item |> OrderItem.getUnits |> Units.value
                        Discount = item |> OrderItem.getDiscount |> Discount.value
                        PictureUrl = item |> OrderItem.getPictureUrl |}
-                    |> Dapper.execute sqlSession (Sql.upsertOrderItem dbSchema))
+                    |> Dapper.execute dbConnection (Sql.upsertOrderItem dbSchema))
                 |> TaskResult.ignore
         }
 
@@ -893,5 +891,5 @@ let persistOrderAggregateEvents jsonOptions dbSchema dbTransaction : PersistOrde
 
 type ReadUnprocessedOrderAggregateEvents = ReadUnprocessedEvents<Order.State, Order.Event, SqlIoError>
 
-let readUnprocessedOrderAggregateEvents jsonOptions dbSchema sqlSession : ReadUnprocessedOrderAggregateEvents =
-    Postgres.readUnprocessedEvents Dto.Event.toDomain jsonOptions dbSchema sqlSession
+let readUnprocessedOrderAggregateEvents jsonOptions dbSchema dbConnection : ReadUnprocessedOrderAggregateEvents =
+    Postgres.readUnprocessedEvents Dto.Event.toDomain jsonOptions dbSchema dbConnection

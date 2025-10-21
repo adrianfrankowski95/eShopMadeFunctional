@@ -2,15 +2,11 @@
 module eShop.Postgres.Dapper
 
 open System
+open System.Data.Common
 open Dapper
 open FsToolkit.ErrorHandling
 open Npgsql
 open NpgsqlTypes
-
-let private (|SqlSession|) =
-    function
-    | SqlSession.Sustained dbTransaction -> (dbTransaction.Connection, dbTransaction)
-    | SqlSession.Standalone getDbConnection -> (getDbConnection (), null)
 
 let inline private catch f =
     try
@@ -18,15 +14,15 @@ let inline private catch f =
     with e ->
         e |> SqlException |> TaskResult.error
 
-let query<'t> (SqlSession(dbConnection, transaction)) sql param =
-    (fun () -> dbConnection.QueryAsync<'t>(sql, param, transaction))
+let query<'t> (dbConnection: DbConnection) sql param =
+    (fun () -> dbConnection.QueryAsync<'t>(sql, param))
     |> catch
 
-let execute (SqlSession(dbConnection, transaction)) sql param =
-    (fun () -> dbConnection.ExecuteAsync(sql, param, transaction)) |> catch
+let execute (dbConnection: DbConnection) sql param =
+    (fun () -> dbConnection.ExecuteAsync(sql, param)) |> catch
 
-let executeScalar<'t> (SqlSession(dbConnection, transaction)) sql param =
-    (fun () -> dbConnection.ExecuteScalarAsync<'t>(sql, param, transaction))
+let executeScalar<'t> (dbConnection: DbConnection) sql param =
+    (fun () -> dbConnection.ExecuteScalarAsync<'t>(sql, param))
     |> catch
 
 [<RequireQualifiedAccess>]

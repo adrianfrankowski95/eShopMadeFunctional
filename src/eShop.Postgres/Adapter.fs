@@ -20,11 +20,6 @@ type SqlIoError =
     | InvalidData of string
 
 [<RequireQualifiedAccess>]
-type SqlSession =
-    | Sustained of DbTransaction
-    | Standalone of GetDbConnection
-
-[<RequireQualifiedAccess>]
 module Postgres =
     let private handleScriptExecutionResult name (result: DatabaseUpgradeResult) =
         match result.Successful with

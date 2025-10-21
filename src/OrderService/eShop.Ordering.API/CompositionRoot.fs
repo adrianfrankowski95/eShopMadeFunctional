@@ -2,7 +2,7 @@
 module eShop.Ordering.API.CompositionRoot
 
 open System
-open System.Data
+open System.Transactions
 open System.Text.Json
 open Giraffe
 open Microsoft.AspNetCore.Http
@@ -11,7 +11,6 @@ open Microsoft.Extensions.Logging
 open Microsoft.Extensions.Options
 open RabbitMQ.Client
 open eShop.DomainDrivenDesign
-open eShop.DomainDrivenDesign.Postgres
 open eShop.Ordering.API.PortsAdapters
 open eShop.Ordering.Adapters
 open eShop.Ordering.Adapters.Common
@@ -35,7 +34,7 @@ type internal Services =
 module private Services =
     let fromSp (sp: IServiceProvider) =
         { new Services with
-            member this.Get<'t>() = sp.GetService<'t>() }
+            member this.Get<'t>() = sp.GetRequiredService<'t>() }
 
     let fromCtx (ctx: HttpContext) =
         { new Services with
@@ -44,31 +43,18 @@ module private Services =
 
 let private getDbConnection (services: Services) = services.Get<GetDbConnection>()
 
-let private getStandaloneSqlSession (services: Services) =
-    services |> getDbConnection |> SqlSession.Standalone
-
-let getStandaloneSqlSessionFromSp (sp: IServiceProvider) =
-    sp |> Services.fromSp |> getStandaloneSqlSession
-
-
 let private buildPersistIntegrationEvents (services: Services) : PersistEvents<_, _, _> =
     fun aggregateId events ->
-        taskResult {
-            let persistIntegrationEvents =
-                services.Get<ISqlOrderIntegrationEventsAdapter>().PersistOrderIntegrationEvents
+        let orderIntegrationEventsAdapter =
+            services.Get<ISqlOrderIntegrationEventsAdapter>()
 
-            let connection = (services |> getDbConnection) ()
-
-            do! connection.OpenAsync()
-
-            let! transaction = connection.BeginTransactionAsync(IsolationLevel.ReadCommitted).AsTask()
-
-            return!
-                persistIntegrationEvents transaction aggregateId events
-                |> TaskResult.teeAsync (fun _ -> transaction.CommitAsync() |> Task.ofUnit)
-                |> TaskResult.teeErrorAsync (fun _ -> transaction.RollbackAsync() |> Task.ofUnit)
-                |> TaskResult.teeAnyAsync (connection.CloseAsync >> Task.ofUnit)
-        }
+        services
+        |> getDbConnection
+        |> TransactionalExecutor.init
+        |> TransactionalExecutor.withIsolationLevel IsolationLevel.ReadCommitted
+        |> TransactionalExecutor.withRetries []
+        |> TransactionalExecutor.execute
+        <| fun conn -> orderIntegrationEventsAdapter.PersistOrderIntegrationEvents conn aggregateId events
 
 let buildPersistIntegrationEventsFromSp (sp: IServiceProvider) =
     sp |> Services.fromSp |> buildPersistIntegrationEvents
@@ -79,7 +65,7 @@ type OrderAggregateEventsProcessor = EventsProcessor<Order.State, Order.Event, S
 [<RequireQualifiedAccess>]
 module OrderAggregateEventsProcessor =
     let private build services : OrderAggregateEventsProcessor =
-        let sqlSession = services |> getStandaloneSqlSession
+        let dbConnection = services |> getDbConnection
         let logger = services.Get<ILogger<OrderAggregateEventsProcessor>>()
         let rabbitMQConnection = services.Get<IConnection>()
         let jsonOptions = services.Get<JsonSerializerOptions>()
@@ -87,13 +73,14 @@ module OrderAggregateEventsProcessor =
         let orderAggregateAdapter = services.Get<ISqlOrderAggregateManagementAdapter>()
 
         let readEvents =
-            sqlSession |> orderAggregateAdapter.ReadUnprocessedOrderAggregateEvents
+            dbConnection |> orderAggregateAdapter.ReadUnprocessedOrderAggregateEvents
 
         let persistHandlers =
-            sqlSession |> orderAggregateAdapter.PersistSuccessfulOrderAggregateEventHandlers
+            dbConnection
+            |> orderAggregateAdapter.PersistSuccessfulOrderAggregateEventHandlers
 
         let markEventsProcessed =
-            sqlSession |> orderAggregateAdapter.MarkOrderAggregateEventAsProcessed
+            dbConnection |> orderAggregateAdapter.MarkOrderAggregateEventAsProcessed
 
         let logError = Logger.logEventsProcessorError logger
 
@@ -118,26 +105,35 @@ module OrderAggregateEventsProcessor =
 
 [<RequireQualifiedAccess>]
 module OrderWorkflowExecutor =
-    let internal execute (services: Services) mapIoError workflow =
-        let getUtcNow = services.Get<GetUtcNow>()
-        let generateEventId = services.Get<GenerateEventId>()
+    let execute (services: Services) mapIoError workflow =
+        fun aggregateId ->
+            let toIoError x = x |> TaskResult.mapError mapIoError
+            
+            let getUtcNow = services.Get<GetUtcNow>()
+            let generateEventId = services.Get<GenerateEventId>()
+            let sqlOrderAdapter = services.Get<ISqlOrderAggregateManagementAdapter>()
 
-        let sqlOrderAdapter = services.Get<ISqlOrderAggregateManagementAdapter>()
+            services
+            |> getDbConnection
+            |> TransactionalExecutor.init
+            |> TransactionalExecutor.withIsolationLevel IsolationLevel.ReadCommitted
+            |> TransactionalExecutor.execute
+            <| reader {
+                let! readOrder = sqlOrderAdapter.ReadOrderAggregate >>> toIoError
+                let! persistOrder = sqlOrderAdapter.PersistOrderAggregate >>>> toIoError
+                let! persistEvents = sqlOrderAdapter.PersistOrderAggregateEvents >>>> toIoError
+                let! workflow = workflow
 
-        let toSqlIoError e = e |> TaskResult.mapError mapIoError
-
-        let readOrder =
-            SqlSession.Sustained >> sqlOrderAdapter.ReadOrderAggregate >>> toSqlIoError
-
-        let persistOrder = sqlOrderAdapter.PersistOrderAggregate >>>> toSqlIoError
-        let persistEvents = sqlOrderAdapter.PersistOrderAggregateEvents >>>> toSqlIoError
-
-        services
-        |> getDbConnection
-        |> TransactionalWorkflowExecutor.init
-        |> TransactionalWorkflowExecutor.withIsolationLevel IsolationLevel.ReadCommitted
-        |> TransactionalWorkflowExecutor.withIoErrorMapping mapIoError
-        |> TransactionalWorkflowExecutor.execute getUtcNow generateEventId readOrder persistOrder persistEvents workflow
+                return
+                    WorkflowExecutor.execute
+                        aggregateId
+                        getUtcNow
+                        generateEventId
+                        readOrder
+                        persistOrder
+                        persistEvents
+                        workflow
+            }
 
     let internal executeNew (services: Services) mapIoError workflow =
         let id = services.Get<GenerateAggregateId<Order.State>> () ()
@@ -162,7 +158,7 @@ module OrderWorkflow =
 
         reader {
             let! getSupportedCardTypes =
-                SqlSession.Sustained >> sqlPaymentAdapter.GetSupportedCardTypes
+                sqlPaymentAdapter.GetSupportedCardTypes
                 >>> TaskResult.mapError OrderWorkflowIoError.SqlIoError
 
             return StartOrderWorkflow.build getUtcNow getSupportedCardTypes verifyPaymentMethod command
@@ -240,7 +236,7 @@ module OrderIntegrationEventsProcessor =
                 orderAggregateId |> OrderWorkflow.buildPayOrder services |> toWorkflowError
 
     let private build services : OrderIntegrationEventsProcessor =
-        let sqlSession = services |> getStandaloneSqlSession
+        let dbConnection = services |> getDbConnection
         let config = services.Get<IOptions<Configuration.RabbitMQOptions>>()
         let logger = services.Get<ILogger<OrderIntegrationEventsProcessor>>()
 
@@ -248,15 +244,16 @@ module OrderIntegrationEventsProcessor =
             services.Get<ISqlOrderIntegrationEventsAdapter>()
 
         let readEvents =
-            sqlSession
+            dbConnection
             |> orderIntegrationEventsAdapter.ReadUnprocessedOrderIntegrationEvents
 
         let persistHandlers =
-            sqlSession
+            dbConnection
             |> orderIntegrationEventsAdapter.PersistSuccessfulOrderIntegrationEventHandlers
 
         let markEventsProcessed =
-            sqlSession |> orderIntegrationEventsAdapter.MarkOrderIntegrationEventAsProcessed
+            dbConnection
+            |> orderIntegrationEventsAdapter.MarkOrderIntegrationEventAsProcessed
 
         let retries =
             fun (attempt: int) -> TimeSpan.FromSeconds(Math.Pow(2, attempt))

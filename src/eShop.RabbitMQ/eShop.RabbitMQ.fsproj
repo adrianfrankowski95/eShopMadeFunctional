@@ -10,12 +10,15 @@
     <ItemGroup>
         <Compile Include="Configuration.fs" />
         <Compile Include="Adapter.fs" />
+        <Compile Include="Agent.fs" />
         <Compile Include="DependencyInjection.fs" />
     </ItemGroup>
 
     <ItemGroup>
       <PackageReference Include="Aspire.RabbitMQ.Client" />
       <PackageReference Include="FsToolkit.ErrorHandling" />
+      <PackageReference Include="HeterogeneousCollections" />
+      <PackageReference Include="TypeShape" />
     </ItemGroup>
 
     <ItemGroup>
