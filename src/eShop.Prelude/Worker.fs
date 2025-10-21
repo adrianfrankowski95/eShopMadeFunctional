@@ -10,6 +10,8 @@ type WorkerErrorHandler<'st, 'err> = 'st -> 'err -> Task<'st option>
 
 type Worker<'st, 'err>
     internal (initState: 'st, interval: TimeSpan, work: Work<'st, 'err>, onError: WorkerErrorHandler<'st, 'err>) =
+    
+    [<TailCall>]
     let rec loop (state: 'st) : Task<unit> =
         backgroundTask {
             let! result = work state

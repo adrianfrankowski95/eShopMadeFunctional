@@ -23,6 +23,7 @@ type Agent<'st, 'msg, 'err>
 
     let cts = new CancellationTokenSource()
 
+    [<TailCall>]
     let rec loop (state: 'st) : Task<unit> =
         backgroundTask {
             try
