@@ -20,7 +20,6 @@
     <PackageVersion Include="FSharp.UMX" Version="1.1.0" />
     <PackageVersion Include="FsToolkit.ErrorHandling" Version="5.0.0" />
     <PackageVersion Include="Giraffe" Version="7.0.2" />
-    <PackageVersion Include="HeterogeneousCollections" Version="1.0.14" />
     <PackageVersion Include="Microsoft.Data.SqlClient" Version="6.0.1" />
     <!-- Version together with Aspire -->
     <PackageVersion Include="Aspire.Hosting.AppHost" Version="$(AspireVersion)" />
@@ -97,7 +96,6 @@
     <PackageVersion Include="Expecto" Version="10.2.3" />
     <PackageVersion Include="Expecto.FsCheck" Version="10.2.3" />
     <PackageVersion Include="FsCheck" Version="2.16.6" />
-    <PackageVersion Include="TypeShape" Version="10.0.0" />
     <PackageVersion Include="YoloDev.Expecto.TestSdk" Version="0.15.5" />
     <!-- Scaffolding -->
     <PackageVersion Include="Microsoft.VisualStudio.Web.CodeGeneration.Design" Version="9.0.0" />

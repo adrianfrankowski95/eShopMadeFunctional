@@ -17,8 +17,6 @@
     <ItemGroup>
       <PackageReference Include="Aspire.RabbitMQ.Client" />
       <PackageReference Include="FsToolkit.ErrorHandling" />
-      <PackageReference Include="HeterogeneousCollections" />
-      <PackageReference Include="TypeShape" />
     </ItemGroup>
 
     <ItemGroup>

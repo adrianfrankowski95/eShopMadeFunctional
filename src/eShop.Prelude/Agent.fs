@@ -1,14 +1,13 @@
 ﻿namespace eShop.Prelude
 
-open System.Threading
-open System.Threading.Channels
-open System.Threading.Tasks
 open FsToolkit.ErrorHandling
 open System
 
-type AgentMessageHandler<'st, 'msg, 'err> = 'st -> 'msg -> TaskResult<'st option, 'err>
+type Reply<'msg> = 'msg -> unit
 
-type AgentErrorHandler<'st, 'msg, 'err> = 'st -> 'msg -> 'err -> Task<'st option>
+type AgentMessageHandler<'st, 'msg, 'err> = 'st -> 'msg -> Reply<'msg> -> AsyncResult<'st option, 'err>
+
+type AgentErrorHandler<'st, 'msg, 'err> = 'st -> 'msg -> 'err -> Async<'st option>
 
 type Agent<'st, 'msg, 'err>
     internal
@@ -16,49 +15,35 @@ type Agent<'st, 'msg, 'err>
         initState: 'st,
         messageHandler: AgentMessageHandler<'st, 'msg, 'err>,
         onError: AgentErrorHandler<'st, 'msg, 'err>,
-        onDispose: 'st -> Task<unit>
+        onDispose: 'st -> Async<unit>
     ) =
-    let channel =
-        Channel.CreateUnbounded<'msg>(UnboundedChannelOptions(SingleReader = true, SingleWriter = false))
-
-    let cts = new CancellationTokenSource()
 
     [<TailCall>]
-    let rec loop (state: 'st) : Task<unit> =
-        backgroundTask {
-            try
-                let! msg = channel.Reader.ReadAsync(cts.Token)
-                let! result = msg |> messageHandler state
+    let agent =
+        MailboxProcessor<'msg>.Start(fun inbox ->
+            let rec loop state =
+                async {
+                    let! msg = inbox.Receive()
+                    let! result = messageHandler state msg inbox.Post
 
-                let! maybeNewState =
-                    result
-                    |> Result.map Task.singleton
-                    |> Result.mapError (onError state msg)
-                    |> Result.collapse
+                    let! maybeNewState =
+                        result
+                        |> Result.map Async.singleton
+                        |> Result.mapError (onError state msg)
+                        |> Result.collapse
 
-                return!
-                    maybeNewState
-                    |> Option.map loop
-                    |> Option.defaultWith (cts.Cancel >> Task.singleton)
+                    return!
+                        maybeNewState
+                        |> Option.map loop
+                        |> Option.defaultWith (fun () -> onDispose state)
+                }
 
-            with _ ->
-                do! onDispose state
-                return ()
-        }
+            loop initState)
 
-    let loopTask = loop initState
-
-    member inline _.Post<'msg>(msg: 'msg) = channel.Writer.WriteAsync(msg)
+    member _.Post<'msg>(msg: 'msg) = msg |> agent.Post
 
     interface IDisposable with
-        member _.Dispose() =
-            channel.Writer.Complete()
-
-            if not cts.IsCancellationRequested then
-                cts.Cancel()
-                cts.Dispose()
-
-            loopTask.Dispose()
+        member _.Dispose() = agent.Dispose()
 
 [<RequireQualifiedAccess>]
 module Agent =
@@ -67,13 +52,13 @@ module Agent =
             { InitState: 'st
               MessageHandler: AgentMessageHandler<'st, 'msg, 'err>
               ErrorHandler: AgentErrorHandler<'st, 'msg, 'err>
-              Dispose: 'st -> Task<unit> }
+              Dispose: 'st -> Async<unit> }
 
-    let init initState =
-        { InitState = initState
-          MessageHandler = fun st _ -> st |> TaskResultOption.singleton
-          ErrorHandler = fun st _ _ -> st |> Some |> Task.FromResult
-          Dispose = fun _ -> Task.singleton () }
+    let init state =
+        { InitState = state
+          MessageHandler = fun st _ _ -> st |> AsyncResultOption.singleton
+          ErrorHandler = fun st _ _ -> st |> AsyncOption.some
+          Dispose = fun _ -> Async.singleton () }
 
     let withMessageHandler messageHandler options =
         { options with
