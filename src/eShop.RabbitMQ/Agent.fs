@@ -4,6 +4,7 @@ module eShop.RabbitMQ
 open System
 open System.Collections.Immutable
 open System.Text.Json
+open System.Threading
 open System.Threading.Tasks
 open Microsoft.Extensions.Logging
 open Microsoft.FSharp.Reflection
@@ -26,25 +27,11 @@ type IoError =
     | InvalidEventData of string
     | UnhandledEvent of EventName * EventBody
 
-type private EventType =
-    | Object of Type
-    | Union of UnionCaseInfo * Type
 
-module private Json =
-    let deserializeBody (jsonOptions: JsonSerializerOptions) (eventType: EventType) (body: byte array) =
-        Result.catch (fun () ->
-            match eventType with
-            | Object objType -> JsonSerializer.Deserialize(body, objType, jsonOptions)
-            | Union(targetUnionCase, objType) ->
-                let unionData = JsonSerializer.Deserialize(body, objType, jsonOptions)
-                FSharpValue.MakeUnion(targetUnionCase, [| unionData |]))
-        |> Result.mapError DeserializationError
 
 type private BoxedEventHandler = Event<obj> -> TaskResult<unit, obj>
 
 type private RetryCount = int
-
-type Priority = | High | Low
 
 type private Message =
     | Publish of EventName * Event<obj> * Priority
@@ -53,18 +40,17 @@ type private Message =
 module private Message =
     let getHighPriority (msg: Message) =
         match msg with
-        | Publish (_, _, priority) -> if priority = High then Some msg else None
-        | Retry _-> None
+        | Publish(_, _, priority) -> if priority = High then Some msg else None
+        | Retry _ -> None
 
-type EventHandler<'payload, 'err> = Event<'payload> -> TaskResult<unit, 'err>
+
 
 type State =
     private
         { GetOrCreateConnection: unit -> IConnection
           Channel: IModel option
           ConsumerChannel: IModel option
-          Consumer: AsyncEventingBasicConsumer option
-          EventHandlers: Map<EventName, EventType * BoxedEventHandler> }
+          Consumer: AsyncEventingBasicConsumer option }
 
 [<RequireQualifiedAccess>]
 module private State =
@@ -82,38 +68,11 @@ module private State =
             |> List.ofArray
         | false -> [ payloadType.Name, EventType.Object payloadType ]
 
-    let private createConnectionFactory connectionString =
-        let mutable connection: IConnection option = None
-
-        let factory =
-            ConnectionFactory(
-                Uri = Uri(connectionString),
-                AutomaticRecoveryEnabled = true,
-                NetworkRecoveryInterval = TimeSpan.FromSeconds(3.0),
-                RequestedHeartbeat = TimeSpan.FromSeconds(3.0),
-                DispatchConsumersAsync = true
-            )
-
-        fun () ->
-            let conn =
-                connection
-                |> Option.map (fun conn ->
-                    if conn.IsOpen then
-                        conn
-                    else
-                        conn.Dispose()
-                        factory.CreateConnection())
-                |> Option.defaultWith factory.CreateConnection
-
-            connection <- Some conn
-            conn
-
-    let init connectionString =
-        { GetOrCreateConnection = createConnectionFactory connectionString
+    let init createConnection =
+        { GetOrCreateConnection = createConnection
           Channel = None
           ConsumerChannel = None
-          Consumer = None
-          EventHandlers = Map.empty }
+          Consumer = None }
 
     let withChannel channel state = { state with Channel = Some channel }
 
@@ -123,22 +82,7 @@ module private State =
 
     let withConsumer consumer state = { state with Consumer = Some consumer }
 
-    let addHandler (handler: EventHandler<'payload, 'err>) state =
-        let eventTypes = getEventTypes<'payload>
-
-        let boxedHandler (ev: Event<obj>) : TaskResult<unit, obj> =
-            ev |> Event.mapPayload unbox<'payload> |> handler |> TaskResult.mapError box
-
-        let newHandlers =
-            eventTypes
-            |> List.fold
-                (fun handlers (eventName, eventType) -> handlers |> Map.add eventName (eventType, boxedHandler))
-                state.EventHandlers
-
-        { state with
-            EventHandlers = newHandlers }
-
-type Agent internal (initState: State, logger: ILogger<Agent>, getUtcNow: GetUtcNow, jsonOptions: JsonSerializerOptions, options: Configuration.RabbitMQOptions) =
+type Agent internal (jsonOptions: JsonSerializerOptions, options: Configuration.RabbitMQOptions, getUtcNow: GetUtcNow, logger: ILogger<Agent>, connectionFactory: unit -> IConnection, consumer: AsyncEventingBasicConsumer, consumerChannel: IModel, eventHandlers) =
     let getEventName (ev: Event<'payload>) : string =
         let payloadType = typeof<'payload>
 
@@ -146,69 +90,25 @@ type Agent internal (initState: State, logger: ILogger<Agent>, getUtcNow: GetUtc
         | true -> FSharpValue.GetUnionFields(ev.Data, payloadType) |> fst |> _.Name
         | false -> payloadType.Name
 
-    let initTopology (inbox: MailboxProcessor<Message>)=
+    let dispose (state: State) =
+        state.Consumer |> Option.map (_.Model >> _.Dispose()) |> ignore
+        state.Channel |> Option.map _.Dispose() |> ignore
+        state.ConsumerChannel |> Option.map _.Dispose() |> ignore
+        state.GetOrCreateConnection() |> _.Dispose()
+    
+    let cts = new CancellationTokenSource()
+    
+    let registerHandlers (inbox: MailboxProcessor<Message>)
+        =
         let queueName = options.SubscriptionClientName
         let maxRetryCount = options.RetryCount
-
         let exchangeName = Configuration.ExchangeName
-        let dlExchangeName = Configuration.DeadLetterExchangeName
-        let dlQueueName = Configuration.DeadLetterQueueName
 
-        let dlExchangeArgName = Configuration.DeadLetterExchangeArgName
-        let dlRoutingKeyArgName = Configuration.DeadLetterRoutingKeyArgName
-
-        let connection = initState.GetOrCreateConnection()
-        
-        let channel = connection.CreateModel()
-
-        // Configure Dead Letter Exchange and Queue
-        channel.ExchangeDeclare(
-            exchange = dlExchangeName,
-            ``type`` = "direct",
-            durable = true,
-            autoDelete = false
-        )
-
-        channel.QueueDeclare(
-            queue = dlQueueName,
-            durable = true,
-            exclusive = false,
-            autoDelete = false,
-            arguments = null
-        )
-        |> ignore
-
-        channel.QueueBind(queue = dlQueueName, exchange = dlExchangeName, routingKey = queueName)
-
-        // Configure Main Exchange and Queue
-        channel.ExchangeDeclare(exchange = exchangeName, ``type`` = "direct")
-
-        let arguments: Map<string, obj> =
-            Map.empty
-            |> Map.add dlExchangeArgName (dlExchangeName |> box)
-            |> Map.add dlRoutingKeyArgName (queueName |> box)
-
-        channel.QueueDeclare(
-            queue = queueName,
-            durable = true,
-            exclusive = false,
-            autoDelete = false,
-            arguments = arguments
-        )
-        |> ignore
-
-        channel.BasicQos(prefetchSize = 0u, prefetchCount = 1us, ``global`` = false)
-
-        let consumer = AsyncEventingBasicConsumer(channel)
-
-        channel.BasicConsume(queue = queueName, autoAck = false, consumer = consumer)
-        |> ignore
-
-        initState.EventHandlers
+        eventHandlers
         |> Map.keys
         |> Seq.iter (fun eventName ->
             consumer.Model.QueueBind(queue = queueName, exchange = exchangeName, routingKey = eventName))
-
+        
         consumer.add_Received (fun _ ea ->
             taskResult {
                 let timestamp =
@@ -225,7 +125,7 @@ type Agent internal (initState: State, logger: ILogger<Agent>, getUtcNow: GetUtc
                 let bodyBytes = ea.Body.ToArray()
 
                 do!
-                    initState.EventHandlers
+                    eventHandlers
                     |> Map.tryFind eventName
                     |> Option.map (fun (eventType, handler) ->
                         taskResult {
@@ -295,24 +195,25 @@ type Agent internal (initState: State, logger: ILogger<Agent>, getUtcNow: GetUtc
                 consumer.Model.BasicNack(ea.DeliveryTag, multiple = false, requeue = false))
             |> TaskResult.ignoreError
             :> Task)
-
-        initState
-        |> State.withConsumer consumer
-        |> State.withConsumerChannel channel
     
-    let processor = MailboxProcessor<Message>.Start(fun inbox ->
+    let processor = MailboxProcessor<Message>.Start((fun inbox ->
         let rec loop (state: State) =
             async {
-                let! maybeHighPriority =
-                    inbox.TryScan(Message.getHighPriority >> Option.map Async.singleton)
+                let! cancellationRequested = Async.CancellationToken |> Async.map _.IsCancellationRequested
                 
+                if cancellationRequested then
+                    state |> dispose
+                    return ()
+                
+                let! maybeHighPriority = inbox.TryScan(Message.getHighPriority >> Option.map Async.singleton)
+
                 let! msg =
                     maybeHighPriority
                     |> Option.map Async.singleton
                     |> Option.defaultWith inbox.Receive
-                
-                return! 
-                    match msg with 
+
+                return!
+                    match msg with
                     | Publish(eventName, event, _) ->
                         let exchangeName = Configuration.ExchangeName
 
@@ -375,10 +276,15 @@ type Agent internal (initState: State, logger: ILogger<Agent>, getUtcNow: GetUtc
                         state |> State.withChannel channel
                     |> loop
             }
-    
-        inbox
-        |> initTopology
-        |> loop)
+        
+        inbox |> registerHandlers
+        
+        State.init connectionFactory
+        |> State.withConsumer consumer
+        |> State.withConsumerChannel consumerChannel
+        |> loop), cts.Token)
+
+    //member _.Start(initState: State)
     
     member _.Publish<'payload>(ev: Event<'payload>, priority: Priority) =
         let eventName = ev |> getEventName
@@ -387,11 +293,62 @@ type Agent internal (initState: State, logger: ILogger<Agent>, getUtcNow: GetUtc
         (eventName, boxedEvent, priority) |> Message.Publish |> processor.Post
 
     interface IDisposable with
-        member _.Dispose() = processor.Dispose()
-
+        member _.Dispose() =
+            cts.Cancel(false)
+            cts.Dispose()
+            processor.Dispose()
 
 [<RequireQualifiedAccess>]
 module Agent =
+    type private Options =
+        { CreateConnection: unit -> IConnection
+          EventHandlers: Map<EventName, EventType * BoxedEventHandler>
+          SubscriptionClientName: string
+          RetryCount: int
+          MessageTtl: TimeSpan
+          JsonOptions: JsonSerializerOptions
+          Logger: ILogger<Agent>
+          GetUtcNow: GetUtcNow }
+
+    let private createConnectionFactory connectionString =
+        let mutable connection: IConnection option = None
+
+        let factory =
+            ConnectionFactory(
+                Uri = Uri(connectionString),
+                AutomaticRecoveryEnabled = true,
+                NetworkRecoveryInterval = TimeSpan.FromSeconds(3.0),
+                RequestedHeartbeat = TimeSpan.FromSeconds(3.0),
+                DispatchConsumersAsync = true
+            )
+
+        fun () ->
+            let conn =
+                connection
+                |> Option.map (fun conn ->
+                    if conn.IsOpen then
+                        conn
+                    else
+                        conn.Dispose()
+                        factory.CreateConnection())
+                |> Option.defaultWith factory.CreateConnection
+
+            connection <- Some conn
+            conn
+
+    let private getEventTypes<'payload> =
+        let payloadType = typeof<'payload>
+
+        match FSharpType.IsUnion(payloadType) with
+        | true ->
+            FSharpType.GetUnionCases(payloadType, false)
+            |> Array.map (fun targetCase ->
+                let eventName = targetCase.Name
+                let targetCaseDataType = targetCase.GetFields() |> Array.head |> _.PropertyType
+
+                eventName, EventType.Union(targetCase, targetCaseDataType))
+            |> List.ofArray
+        | false -> [ payloadType.Name, EventType.Object payloadType ]
 
     let private handleError (logger: ILogger<Agent>) : AgentErrorHandler<State, Message, IoError> =
         fun state msg err ->
@@ -403,28 +360,93 @@ module Agent =
 
             state |> AsyncOption.some
 
-    let private dispose (state: State) =
-        state.Consumer |> Option.map (_.Model >> _.Dispose()) |> ignore
-        state.Channel |> Option.map _.Dispose() |> ignore
-        state.GetOrCreateConnection() |> _.Dispose()
-        Async.singleton ()
+    let init connectionString (options: Configuration.RabbitMQOptions) logger getUtcNow  =
+        { CreateConnection = createConnectionFactory connectionString
+          RetryCount = options.RetryCount
+          SubscriptionClientName = options.SubscriptionClientName
+          MessageTtl = options.MessageTtl
+          EventHandlers = Map.empty
+          JsonOptions = JsonSerializerOptions.Default
+          Logger = logger
+          GetUtcNow = getUtcNow }
 
-    let init connectionString = State.init connectionString
+    let withJsonOptions (jsonOptions: JsonSerializerOptions) options =
+        { options with
+            JsonOptions = jsonOptions }
+    
+    let addHandler (handler: EventHandler<'payload, 'err>) options =
+        let eventTypes = getEventTypes<'payload>
 
-    let addHandler (handler: EventHandler<'payload, 'err>) state = state |> State.addHandler handler
+        let boxedHandler (ev: Event<obj>) : TaskResult<unit, obj> =
+            ev |> Event.mapPayload unbox<'payload> |> handler |> TaskResult.mapError box
 
-    let build
-        (logger: ILogger<Agent>)
-        (getUtcNow: GetUtcNow)
-        (options: Configuration.RabbitMQOptions)
-        (jsonOptions: JsonSerializerOptions)
-        (state: State)
-        =
-        Agent.init state
-        |> Agent.withMessageHandler (handleMessage logger getUtcNow jsonOptions options)
-        |> Agent.withErrorHandler (handleError logger)
-        |> Agent.withDisposal dispose
-        |> Agent.start
-        |> fun agent ->
-            agent.Post<Message> Init
-            new Agent(agent)
+        let newHandlers =
+            eventTypes
+            |> List.fold
+                (fun handlers (eventName, eventType) -> handlers |> Map.add eventName (eventType, boxedHandler))
+                options.EventHandlers
+
+        { options with
+            EventHandlers = newHandlers }
+
+    let private initTopology (options: Options) =
+        let queueName = options.SubscriptionClientName
+
+        let exchangeName = Configuration.ExchangeName
+        let dlExchangeName = Configuration.DeadLetterExchangeName
+        let dlQueueName = Configuration.DeadLetterQueueName
+
+        let dlExchangeArgName = Configuration.DeadLetterExchangeArgName
+        let dlRoutingKeyArgName = Configuration.DeadLetterRoutingKeyArgName
+
+        let connection = options.CreateConnection()
+
+        let channel = connection.CreateModel()
+
+        // Configure Dead Letter Exchange and Queue
+        channel.ExchangeDeclare(exchange = dlExchangeName, ``type`` = "direct", durable = true, autoDelete = false)
+
+        channel.QueueDeclare(
+            queue = dlQueueName,
+            durable = true,
+            exclusive = false,
+            autoDelete = false,
+            arguments = null
+        )
+        |> ignore
+
+        channel.QueueBind(queue = dlQueueName, exchange = dlExchangeName, routingKey = queueName)
+
+        // Configure Main Exchange and Queue
+        channel.ExchangeDeclare(exchange = exchangeName, ``type`` = "direct")
+
+        let arguments: Map<string, obj> =
+            Map.empty
+            |> Map.add dlExchangeArgName (dlExchangeName |> box)
+            |> Map.add dlRoutingKeyArgName (queueName |> box)
+
+        channel.QueueDeclare(
+            queue = queueName,
+            durable = true,
+            exclusive = false,
+            autoDelete = false,
+            arguments = arguments
+        )
+        |> ignore
+
+        channel.BasicQos(prefetchSize = 0u, prefetchCount = 1us, ``global`` = false)
+
+        let consumer = AsyncEventingBasicConsumer(channel)
+
+        channel.BasicConsume(queue = queueName, autoAck = false, consumer = consumer)
+        |> ignore
+
+        TaskResult.ok (connection, consumer, channel)
+    
+    let start (options: Options) =
+        taskResult {
+            let! connection, consumer, consumerChannel = initTopology options
+            let proce
+            
+        }
+        
