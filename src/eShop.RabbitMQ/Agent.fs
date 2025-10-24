@@ -44,6 +44,8 @@ type private BoxedEventHandler = Event<obj> -> TaskResult<unit, obj>
 
 type private RetryCount = int
 
+type Priority = | High | Low
+
 type Message =
     | Init
     | Publish of EventName * Event<obj>
