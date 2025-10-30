@@ -7,7 +7,7 @@ open FsToolkit.ErrorHandling
 module TaskResult =
     let collapse x = x |> Task.map Result.collapse
 
-    let inline catch f (t: unit -> #Task) =
+    let inline catch ([<InlineIfLambda>] f) (t: unit -> #Task) =
         task {
             try
                 let! result = t()

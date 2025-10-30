@@ -2,7 +2,6 @@
 
 open System
 open System.Collections.Immutable
-open System.Text
 open System.Text.Json
 open System.Threading.Tasks
 open Microsoft.Extensions.Logging
@@ -39,29 +38,35 @@ type Priority =
     | Regular
 
 type RabbitMQIoError =
-
     | SerializationError of exn
     | ChannelCreationError of exn
     | ExchangeDeclarationError of exn
     | EventDispatchError of exn
     | InvalidEventData of string
 
-type private RetryCount = int
-type private EventBody = byte array
-
-type RabbitMQSubscriptionIoError =
-    | InvalidEventData of string
-    | DeserializationError of exn
-    | UnhandledEvent of EventName * EventBody
-    | HandlerError of obj
+type internal RetryCount = int
 
 type RabbitMQEventDispatcher<'eventPayload> = Event<'eventPayload> -> TaskResult<unit, RabbitMQIoError>
 
 type private EventHandler<'payload, 'err> = Event<'payload> -> TaskResult<unit, 'err>
 
-type private EventType =
+type internal EventType =
     | Object of Type
     | Union of UnionCaseInfo * Type
+
+type internal RabbitMQ = RabbitMQ
+
+type private EventBody = byte array
+
+type RabbitMQSubscriptionError =
+    | InvalidEventData of string
+    | DeserializationError of exn
+    | UnhandledEvent of EventName * EventBody
+    | HandlerError of obj
+
+type RabbitMQPublishError =
+    | SerializationError of exn
+    | ChannelError of exn
 
 module private Json =
     let deserializeBody (jsonOptions: JsonSerializerOptions) (eventType: EventType) (body: byte array) =
@@ -71,9 +76,10 @@ module private Json =
             | Union(targetUnionCase, objType) ->
                 let unionData = JsonSerializer.Deserialize(body, objType, jsonOptions)
                 FSharpValue.MakeUnion(targetUnionCase, [| unionData |]))
-        |> Result.mapError DeserializationError
 
-type private RabbitMQ = RabbitMQ
+    let serializeBody (jsonOptions: JsonSerializerOptions) (body: obj) =
+        Result.catch (fun () -> JsonSerializer.SerializeToUtf8Bytes(body, jsonOptions) |> ReadOnlyMemory)
+
 
 [<RequireQualifiedAccess>]
 module internal RabbitMQ =
@@ -92,347 +98,174 @@ module internal RabbitMQ =
     [<Literal>]
     let internal RetryTimestampArgName = "x-retry-timestamp"
 
-    let private configureDeadLetters (options: RabbitMQOptions) (channel: IModel) =
-        let queueName = options.SubscriptionClientName
+    type State =
+        internal
+            { Publisher: IChannel
+              Consumer: AsyncEventingBasicConsumer }
 
-        channel.ExchangeDeclare(
-            exchange = DeadLetterExchangeName,
-            ``type`` = "direct",
-            durable = true,
-            autoDelete = false
-        )
+    let private createConnectionFactory connectionString : unit -> ValueTask<IConnection> =
+        let mutable connection: IConnection option = None
 
-        channel.QueueDeclare(
-            queue = DeadLetterQueueName,
-            durable = true,
-            exclusive = false,
-            autoDelete = false,
-            arguments = null
-        )
-        |> ignore
+        let factory =
+            ConnectionFactory(
+                Uri = Uri(connectionString),
+                AutomaticRecoveryEnabled = true,
+                NetworkRecoveryInterval = TimeSpan.FromSeconds(3.0),
+                RequestedHeartbeat = TimeSpan.FromSeconds(3.0),
+                TopologyRecoveryEnabled = true
+            )
 
-        channel.QueueBind(queue = DeadLetterQueueName, exchange = DeadLetterExchangeName, routingKey = queueName)
-        
-        channel
+        fun () ->
+            task {
+                let! conn =
+                    connection
+                    |> Option.map (fun conn ->
+                        if conn.IsOpen then
+                            ValueTask<IConnection>(conn)
+                        else
+                            task {
+                                do! conn.DisposeAsync()
+                                return! factory.CreateConnectionAsync()
+                            }
+                            |> ValueTask<IConnection>)
+                    |> Option.defaultWith (fun () -> factory.CreateConnectionAsync() |> ValueTask<IConnection>)
 
-    let private configureExchange (options: RabbitMQOptions) (channel: IModel) =
-        let queueName = options.SubscriptionClientName
+                connection <- Some conn
+                return conn
+            }
+            |> ValueTask<IConnection>
 
-        channel.ExchangeDeclare(exchange = ExchangeName, ``type`` = "direct")
 
-        let arguments: Map<string, obj> =
-            Map.empty
-            |> Map.add "x-dead-letter-exchange" DeadLetterExchangeName
-            |> Map.add "x-dead-letter-routing-key" options.SubscriptionClientName
-            |> Map.mapValues box
+    let private configureDeadLetters (options: RabbitMQOptions) (channel: IChannel) =
+        taskResult {
+            let queueName = options.SubscriptionClientName
 
-        channel.QueueDeclare(
-            queue = queueName,
-            durable = true,
-            exclusive = false,
-            autoDelete = false,
-            arguments = arguments
-        )
-        |> ignore
+            do!
+                channel.ExchangeDeclareAsync(
+                    exchange = DeadLetterExchangeName,
+                    ``type`` = "direct",
+                    durable = true,
+                    autoDelete = false
+                )
 
-        channel.BasicQos(prefetchSize = 0u, prefetchCount = 1us, ``global`` = false)
+            do!
+                channel.QueueDeclareAsync(
+                    queue = DeadLetterQueueName,
+                    durable = true,
+                    exclusive = false,
+                    autoDelete = false,
+                    arguments = null
+                )
+                |> Task.ignore
 
-        let consumer = AsyncEventingBasicConsumer(channel)
+            do!
+                channel.QueueBindAsync(
+                    queue = DeadLetterQueueName,
+                    exchange = DeadLetterExchangeName,
+                    routingKey = queueName
+                )
+        }
 
-        channel.BasicConsume(queue = queueName, autoAck = false, consumer = consumer)
-        |> ignore
+    let private configureConsumerExchange (options: RabbitMQOptions) (channel: IChannel) =
+        taskResult {
+            let queueName = options.SubscriptionClientName
 
-        consumer, channel
+            do! channel.ExchangeDeclareAsync(exchange = ExchangeName, ``type`` = "direct")
 
-    let private subscribe
-        (retry: BasicDeliverEventArgs -> RetryCount -> TaskResult<unit, RabbitMQIoError>)
+            let arguments: Map<string, obj> =
+                Map.empty
+                |> Map.add "x-dead-letter-exchange" DeadLetterExchangeName
+                |> Map.add "x-dead-letter-routing-key" queueName
+                |> Map.mapValues box
+
+            do!
+                channel.QueueDeclareAsync(
+                    queue = queueName,
+                    durable = true,
+                    exclusive = false,
+                    autoDelete = false,
+                    arguments = arguments
+                )
+                |> Task.ignore
+
+            do! channel.BasicQosAsync(prefetchSize = 0u, prefetchCount = 10us, ``global`` = false)
+
+            let consumer = AsyncEventingBasicConsumer(channel)
+
+            do!
+                channel.BasicConsumeAsync(queue = queueName, autoAck = false, consumer = consumer)
+                |> Task.ignore
+
+            return consumer
+        }
+
+    let private configureConsuming (connection: IConnection) options =
+        taskResult {
+            let! channel = connection.CreateChannelAsync()
+
+            do! channel |> configureDeadLetters options
+
+            let! consumer = channel |> configureConsumerExchange options
+
+            return consumer
+        }
+
+    let private configurePublishing (connection: IConnection) =
+        taskResult {
+            let! channel =
+                connection.CreateChannelAsync(
+                    CreateChannelOptions(
+                        publisherConfirmationsEnabled = true,
+                        publisherConfirmationTrackingEnabled = true
+                    )
+                )
+
+            do! channel.ExchangeDeclareAsync(ExchangeName, ``type`` = "direct")
+
+            return channel
+        }
+
+    let internal createTopology connectionString options =
+        taskResult {
+            let createConnection = createConnectionFactory connectionString
+
+            let! connection = createConnection ()
+
+            let! publisher = configurePublishing connection
+            let! consumer = configureConsuming connection options
+            
+            return
+                { Publisher = publisher
+                  Consumer = consumer }
+        }
+
+    let internal subscribe
         (options: RabbitMQOptions)
         (jsonOptions: JsonSerializerOptions)
         (getUtcNow: GetUtcNow)
         (logger: ILogger<RabbitMQ>)
+        (retry: BasicDeliverEventArgs -> RetryCount -> TaskResult<unit, RabbitMQPublishError>)
         (eventHandlers: Map<EventName, EventType * EventHandler<_, _>>)
-        (consumer: AsyncEventingBasicConsumer)
+        (state: State)
         =
-
-        let queueName = options.SubscriptionClientName
-        let maxRetryCount = options.RetryCount
-
-        eventHandlers
-        |> Map.keys
-        |> Seq.iter (fun eventName ->
-            consumer.Model.QueueBind(
-                queue = queueName,
-                exchange = ExchangeName,
-                routingKey = EventName.value eventName
-            ))
-
-        consumer.add_Received (fun _ ea ->
-            taskResult {
-                let timestamp =
-                    match ea.BasicProperties.IsTimestampPresent() with
-                    | true -> ea.BasicProperties.Timestamp.UnixTime |> DateTimeOffset.FromUnixTimeSeconds
-                    | false -> getUtcNow ()
-
-                let! eventId =
-                    ea.BasicProperties.MessageId
-                    |> EventId.ofString
-                    |> Result.mapError InvalidEventData
-
-                let! eventName = ea.RoutingKey |> EventName.create |> Result.mapError InvalidEventData
-
-                let bodyBytes = ea.Body.ToArray()
-
-                do!
-                    eventHandlers
-                    |> Map.tryFind eventName
-                    |> Option.map (fun (eventType, handler) ->
-                        taskResult {
-                            let! payload = bodyBytes |> Json.deserializeBody jsonOptions eventType
-
-                            return!
-                                { Id = eventId
-                                  OccurredAt = timestamp
-                                  Data = payload }
-                                |> handler
-                                |> TaskResult.mapError HandlerError
-                        })
-                    |> Option.defaultWith (fun () -> (eventName, bodyBytes) |> UnhandledEvent |> TaskResult.error)
-            }
-            |> TaskResult.tee (fun _ ->
-                consumer.Model.BasicAck(ea.DeliveryTag, multiple = false)
-
-                logger.LogInformation(
-                    "Successfully acknowledged MessageId {MessageId} of type {MessageType}",
-                    ea.BasicProperties.MessageId,
-                    ea.BasicProperties.Type
-                ))
-            |> TaskResult.teeErrorAsync (fun err ->
-                task {
-                    logger.LogError(
-                        "An error occurred for MessageId {MessageId} of type {MessageType}: {Error}",
-                        ea.BasicProperties.MessageId,
-                        ea.BasicProperties.Type,
-                        err
-                    )
-
-                    let headers =
-                        ea.BasicProperties.Headers
-                        |> Option.ofObj
-                        |> Option.defaultWith (fun () ->
-                            ea.BasicProperties.Headers <- ImmutableDictionary.Empty
-                            ea.BasicProperties.Headers)
-
-                    let retryCount =
-                        headers.TryGetValue(RetryCountArgName)
-                        |> Option.ofPair
-                        |> Option.map unbox<int>
-                        |> Option.defaultValue 0
-
-                    match retryCount < maxRetryCount with
-                    | true ->
-                        logger.LogWarning(
-                            "Message with MessageId {MessageId} of type {MessageType} will be retried: [{Retry}/{MaxRetries}]",
-                            ea.BasicProperties.MessageId,
-                            ea.BasicProperties.Type,
-                            retryCount,
-                            maxRetryCount
-                        )
-
-                        do!
-                            retry ea retryCount
-                            |> TaskResult.teeError (fun e ->
-                                logger.LogError(
-                                    "Unexpected error when retrying Message with MessageId {MessageId} of type {MessageType}: {Error}",
-                                    ea.BasicProperties.MessageId,
-                                    ea.BasicProperties.Type,
-                                    e
-                                ))
-                            |> TaskResult.ignoreError
-                    | false ->
-                        logger.LogWarning(
-                            "Message with MessageId {MessageId} of type {MessageType} reached max retry count: {Retry}",
-                            ea.BasicProperties.MessageId,
-                            ea.BasicProperties.Type,
-                            retryCount
-                        )
-
-                    consumer.Model.BasicNack(ea.DeliveryTag, multiple = false, requeue = false)
-                })
-            |> TaskResult.ignoreError
-            :> Task)
-
-    let internal createChannel (connection: IConnection) = Result.catch connection.CreateModel
-
-    let internal ensureExchange exchangeName (channel: IModel) =
-        Result.catch (fun () ->
-            channel.ExchangeDeclare(exchange = exchangeName, ``type`` = "direct")
-            channel)
-
-    let internal ensureDeadLetterExchange (channel: IModel) =
-        Result.catch (fun () ->
-            channel.ExchangeDeclare(
-                exchange = DeadLetterExchangeName,
-                ``type`` = "direct",
-                durable = true,
-                autoDelete = false
-            ))
-
-    let internal ensureDeadLetterQueue (channel: IModel) =
-        Result.catch (fun () ->
-            channel.QueueDeclare(
-                queue = DeadLetterQueueName,
-                durable = true,
-                exclusive = false,
-                autoDelete = false,
-                arguments = null
-            )
-            |> ignore)
-
-    let internal ensureQueue (QueueName queueName) (channel: IModel) =
-        let arguments: Map<string, obj> =
-            Map.empty
-            |> Map.add "x-dead-letter-exchange" DeadLetterExchangeName
-            |> Map.add "x-dead-letter-routing-key" queueName
-            |> Map.mapValues box
-
-        Result.catch (fun () ->
-            channel.QueueDeclare(
-                queue = queueName,
-                durable = true,
-                exclusive = false,
-                autoDelete = false,
-                arguments = arguments
-            )
-            |> ignore)
-
-    let internal bindDeadLetterQueue (QueueName queueName) (channel: IModel) =
-        Result.catch (fun () ->
-            channel.QueueBind(Configuration.DeadLetterQueueName, Configuration.DeadLetterExchangeName, queueName))
-
-    let internal bindQueue (QueueName queueName) routingKey (channel: IModel) =
-        Result.catch (fun () -> channel.QueueBind(queueName, Configuration.ExchangeName, routingKey))
-
-    let internal publish (EventName eventName) body properties (channel: IModel) =
-        Result.catch (fun () ->
-            channel.BasicPublish(
-                exchange = Configuration.ExchangeName,
-                routingKey = eventName,
-                mandatory = true,
-                basicProperties = properties,
-                body = body
-            ))
-
-    let internal createConsumer (QueueName queueName) (channel: IModel) =
-        Result.catch (fun () ->
-            channel.BasicQos(0u, 1us, false)
-
-            let consumer = AsyncEventingBasicConsumer(channel)
-
-            channel.BasicConsume(queue = queueName, autoAck = false, consumer = consumer)
-            |> ignore
-
-            consumer)
-
-    let internal ack (ea: BasicDeliverEventArgs) (channel: IModel) =
-        channel.BasicAck(ea.DeliveryTag, multiple = false)
-
-    let internal nack (ea: BasicDeliverEventArgs) (channel: IModel) =
-        channel.BasicNack(ea.DeliveryTag, multiple = false, requeue = false)
-
-    let internal initConsumer (connection: IConnection) (config: Configuration.RabbitMQOptions) =
         taskResult {
-            let ensureIsOpen (connection: IConnection) (retries: TimeSpan list) =
-                let mutable isOpen = connection.IsOpen
-
-                task {
-                    for i in 0 .. retries.Length - 1 do
-                        if not isOpen then
-                            do! retries[i] |> Task.Delay
-                            isOpen <- connection.IsOpen
-
-                    return isOpen
-                }
-
-
-            let inline exnToMsg msg : Result<_, exn> -> Result<_, string> =
-                Result.mapError (_.Message >> sprintf "%s: %s" msg)
-
-            let! queueName = config.SubscriptionClientName |> QueueName.create
+            let queueName = options.SubscriptionClientName
+            let maxRetryCount = options.RetryCount
 
             do!
-                [ (1: float); 2; 5 ]
-                |> List.map TimeSpan.FromSeconds
-                |> ensureIsOpen connection
-                |> TaskResult.requireTrue "Connection to RabbitMQ was closed"
-
-            let! channel = createChannel connection |> exnToMsg "Failed to create RabbitMQ channel"
-
-            do!
-                [ ensureDeadLetterExchange >> exnToMsg "Failed to declare RabbitMQ exchange"
-                  ensureDeadLetterQueue >> exnToMsg "Failed to declare RabbitMQ queue"
-                  bindDeadLetterQueue queueName >> exnToMsg "Failed to bind RabbitMQ queue"
-
-                  ensureExchange >> exnToMsg "Failed to declare RabbitMQ exchange"
-                  ensureQueue queueName >> exnToMsg "Failed to declare RabbitMQ queue" ]
-                |> List.traverseResultA ((|>) channel)
-                |> Result.ignore
-                |> Result.mapError (String.concat Environment.NewLine)
-
-            return!
-                channel
-                |> createConsumer queueName
-                |> exnToMsg "Failed to create RabbitMQ consumer"
-        }
-
-    let internal registerEventHandler
-        (eventNamesToHandle: EventName Set)
-        (aggregateIdSelector: 'eventPayload -> AggregateId<'state>)
-        (deserializePayload: EventName -> string -> Result<'eventPayload, exn>)
-        (consumer: AsyncEventingBasicConsumer)
-        (config: Configuration.RabbitMQOptions)
-        (logger: ILogger<'eventPayload>)
-        (getUtcNow: GetUtcNow)
-        (persistEvents: PersistEvents<'state, 'eventPayload, 'ioError>)
-        =
-        result {
-            let inline handleResult (ea: BasicDeliverEventArgs) =
-                TaskResult.tee (fun _ ->
-                    ack ea consumer.Model
-
-                    logger.LogInformation(
-                        "Successfully acknowledged MessageId {MessageId} of type {MessageType}",
-                        ea.BasicProperties.MessageId,
-                        ea.BasicProperties.Type
-                    ))
-                >> TaskResult.teeError (fun err ->
-                    logger.LogError(
-                        "An error occurred for MessageId {MessageId} of type {MessageType}: {Error}",
-                        ea.BasicProperties.MessageId,
-                        ea.BasicProperties.Type,
-                        err
+                eventHandlers
+                |> Map.keys
+                |> Task.createColdSeq (fun eventName ->
+                    state.Consumer.Channel.QueueBindAsync(
+                        queue = queueName,
+                        exchange = ExchangeName,
+                        routingKey = EventName.value eventName
                     )
+                    |> Task.ofUnit)
+                |> Task.sequential
+                |> Task.ignore
 
-                    nack ea consumer.Model)
-                >> TaskResult.ignoreError
-
-            do!
-                consumer.IsRunning
-                |> Result.requireTrue $"""Consumer %s{consumer.ConsumerTags |> String.concat ", "} is not running"""
-
-            let! queueName = config.SubscriptionClientName |> QueueName.create
-
-            do!
-                eventNamesToHandle
-                |> Set.toList
-                |> List.traverseResultA (fun (EventName eventName) -> consumer.Model |> bindQueue queueName eventName)
-                |> Result.mapError (
-                    List.map _.Message
-                    >> String.concat Environment.NewLine
-                    >> (+) "Failed to bind RabbitMQ queues: "
-                )
-                |> Result.ignore
-
-            consumer.add_Received (fun _ ea ->
+            state.Consumer.add_ReceivedAsync (fun _ ea ->
                 taskResult {
                     let timestamp =
                         match ea.BasicProperties.IsTimestampPresent() with
@@ -442,64 +275,165 @@ module internal RabbitMQ =
                     let! eventId =
                         ea.BasicProperties.MessageId
                         |> EventId.ofString
-                        |> Result.mapError (InvalidEventData >> Choice1Of2)
+                        |> Result.mapError InvalidEventData
 
-                    let! eventName =
-                        ea.RoutingKey
-                        |> EventName.create
-                        |> Result.mapError (InvalidEventData >> Choice1Of2)
+                    let! eventName = ea.RoutingKey |> EventName.create |> Result.mapError InvalidEventData
 
-                    let! eventPayload =
-                        Encoding.UTF8.GetString(ea.Body.Span)
-                        |> deserializePayload eventName
-                        |> Result.mapError (DeserializationError >> Choice1Of2)
-
-                    let aggregateId = eventPayload |> aggregateIdSelector
+                    let bodyBytes = ea.Body.ToArray()
 
                     do!
-                        { Id = eventId
-                          Data = eventPayload
-                          OccurredAt = timestamp }
-                        |> List.singleton
-                        |> persistEvents aggregateId
-                        |> TaskResult.mapError Choice2Of2
+                        eventHandlers
+                        |> Map.tryFind eventName
+                        |> Option.map (fun (eventType, handler) ->
+                            taskResult {
+                                let! payload =
+                                    bodyBytes
+                                    |> Json.deserializeBody jsonOptions eventType
+                                    |> Result.mapError DeserializationError
+
+                                return!
+                                    { Id = eventId
+                                      OccurredAt = timestamp
+                                      Data = payload }
+                                    |> handler
+                                    |> TaskResult.mapError HandlerError
+                            })
+                        |> Option.defaultWith (fun () -> (eventName, bodyBytes) |> UnhandledEvent |> TaskResult.error)
                 }
-                |> handleResult ea
+                |> TaskResult.teeAsync (fun _ ->
+                    task {
+                        do! state.Consumer.Channel.BasicAckAsync(ea.DeliveryTag, multiple = false)
+
+                        logger.LogInformation(
+                            "Successfully acknowledged MessageId {MessageId} of type {MessageType}",
+                            ea.BasicProperties.MessageId,
+                            ea.BasicProperties.Type
+                        )
+                    })
+                |> TaskResult.teeErrorAsync (fun err ->
+                    task {
+                        logger.LogError(
+                            "An error occurred for MessageId {MessageId} of type {MessageType}: {Error}",
+                            ea.BasicProperties.MessageId,
+                            ea.BasicProperties.Type,
+                            err
+                        )
+
+                        let headers =
+                            ea.BasicProperties.Headers
+                            |> Option.ofObj
+                            |> Option.defaultValue ImmutableDictionary.Empty
+
+                        let retryCount =
+                            headers.TryGetValue(RetryCountArgName)
+                            |> Option.ofPair
+                            |> Option.map unbox<int>
+                            |> Option.defaultValue 0
+
+                        match retryCount < maxRetryCount with
+                        | true ->
+                            logger.LogWarning(
+                                "Message with MessageId {MessageId} of type {MessageType} will be retried: [{Retry}/{MaxRetries}]",
+                                ea.BasicProperties.MessageId,
+                                ea.BasicProperties.Type,
+                                retryCount,
+                                maxRetryCount
+                            )
+
+                            do!
+                                retry ea retryCount
+                                |> TaskResult.teeError (fun e ->
+                                    logger.LogError(
+                                        "Unexpected error when retrying Message with MessageId {MessageId} of type {MessageType}: {Error}",
+                                        ea.BasicProperties.MessageId,
+                                        ea.BasicProperties.Type,
+                                        e
+                                    ))
+                                |> TaskResult.ignoreError
+                        | false ->
+                            logger.LogWarning(
+                                "Message with MessageId {MessageId} of type {MessageType} reached max retry count: {Retry}",
+                                ea.BasicProperties.MessageId,
+                                ea.BasicProperties.Type,
+                                retryCount
+                            )
+
+                        do! state.Consumer.Channel.BasicNackAsync(ea.DeliveryTag, multiple = false, requeue = false)
+                    })
+                |> TaskResult.ignoreError
                 :> Task)
         }
 
-    let createEventDispatcher
-        (connection: IConnection)
-        (getEventName: 'eventPayload -> Result<EventName, string>)
-        (serializePayload: 'eventPayload -> Result<byte array, exn>)
-        : RabbitMQEventDispatcher<'eventPayload> =
-        fun (event: Event<'eventPayload>) ->
-            taskResult {
-                let! eventName = event.Data |> getEventName |> Result.mapError InvalidEventData
+    let internal publish
+        (jsonOptions: JsonSerializerOptions)
+        (options: Configuration.RabbitMQOptions)
+        (state: State)
+        (eventName: EventName)
+        (event: Event<obj>)
+        =
+        taskResult {
+            let! body =
+                event.Data
+                |> Json.serializeBody jsonOptions
+                |> Result.mapError SerializationError
 
-                let! body =
-                    event.Data
-                    |> serializePayload
-                    |> Result.map ReadOnlyMemory
-                    |> Result.mapError SerializationError
+            let rawEventName = EventName.value eventName
 
-                use! channel = createChannel connection |> Result.mapError ChannelCreationError
+            let properties = BasicProperties()
+            properties.MessageId <- event.Id |> EventId.toString
+            properties.Type <- rawEventName
+            properties.DeliveryMode <- DeliveryModes.Persistent
+            properties.Timestamp <- event.OccurredAt.ToUnixTimeSeconds() |> AmqpTimestamp
+            properties.ContentType <- "application/json"
+            properties.Persistent <- true
+            properties.Expiration <- options.MessageTtl.TotalMilliseconds |> int |> string
 
-                do!
-                    channel
-                    |> ensureExchange Configuration.ExchangeName
-                    |> Result.mapError ExchangeDeclarationError
+            do!
+                TaskResult.catch ChannelError (fun () ->
+                    state.Consumer.Channel
+                        .BasicPublishAsync(
+                            exchange = ExchangeName,
+                            routingKey = rawEventName,
+                            mandatory = true,
+                            basicProperties = properties,
+                            body = body
+                        )
+                        .AsTask()
+                    |> Task.ofUnit)
+        }
 
-                let properties = channel.CreateBasicProperties()
-                properties.MessageId <- event.Id |> EventId.toString
-                properties.Type <- event |> Event.getType
-                properties.DeliveryMode <- 2uy
-                properties.Timestamp <- event.OccurredAt.ToUnixTimeSeconds() |> AmqpTimestamp
-                properties.ContentType <- "application/json"
-                properties.Persistent <- true
+    let internal retry
+        (state: State)
+        (getUtcNow: GetUtcNow)
+        (ea: BasicDeliverEventArgs)
+        (retryCount: int)
+        : TaskResult<unit, RabbitMQPublishError> =
+        taskResult {
+            let newRetryCount = retryCount + 1
+            let retryTimestamp = getUtcNow () |> _.ToUnixTimeSeconds() |> AmqpTimestamp
 
-                return!
-                    channel
-                    |> publish eventName body properties
-                    |> Result.mapError EventDispatchError
-            }
+            let properties = BasicProperties(ea.BasicProperties)
+
+            let headers =
+                properties.Headers
+                |> Option.ofObj
+                |> Option.defaultWith (fun () ->
+                    properties.Headers <- ImmutableDictionary.Empty
+                    properties.Headers)
+
+            headers.Add(RetryCountArgName, newRetryCount)
+            headers.Add(RetryTimestampArgName, retryTimestamp)
+
+            do!
+                TaskResult.catch ChannelError (fun () ->
+                    state.Publisher
+                        .BasicPublishAsync(
+                            exchange = ea.Exchange,
+                            routingKey = ea.RoutingKey,
+                            mandatory = true,
+                            basicProperties = properties,
+                            body = ea.Body
+                        )
+                        .AsTask()
+                    |> Task.ofUnit)
+        }

@@ -15,7 +15,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <PackageReference Include="Aspire.RabbitMQ.Client" />
+      <PackageReference Include="Aspire.RabbitMQ.Client.v7" />
       <PackageReference Include="FsToolkit.ErrorHandling" />
     </ItemGroup>
 

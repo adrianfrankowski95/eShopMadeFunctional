@@ -15,23 +15,6 @@ open eShop.RabbitMQ
 open eShop.DomainDrivenDesign
 open eShop.Prelude
 
-type private EventName = string
-type private EventBody = byte array
-
-type IoError =
-    | DeserializationError of exn
-    | SerializationError of exn
-    | ChannelCreationError of exn
-    | ExchangeDeclarationError of exn
-    | EventDispatchError of exn
-    | InvalidEventData of string
-    | UnhandledEvent of EventName * EventBody
-
-
-
-type private BoxedEventHandler = Event<obj> -> TaskResult<unit, obj>
-
-type private RetryCount = int
 
 type private Message =
     | Publish of EventName * Event<obj> * Priority
@@ -42,8 +25,6 @@ module private Message =
         match msg with
         | Publish(_, _, priority) -> if priority = High then Some msg else None
         | Retry _ -> None
-
-
 
 type State =
     private
@@ -310,31 +291,7 @@ module Agent =
           Logger: ILogger<Agent>
           GetUtcNow: GetUtcNow }
 
-    let private createConnectionFactory connectionString =
-        let mutable connection: IConnection option = None
-
-        let factory =
-            ConnectionFactory(
-                Uri = Uri(connectionString),
-                AutomaticRecoveryEnabled = true,
-                NetworkRecoveryInterval = TimeSpan.FromSeconds(3.0),
-                RequestedHeartbeat = TimeSpan.FromSeconds(3.0),
-                DispatchConsumersAsync = true
-            )
-
-        fun () ->
-            let conn =
-                connection
-                |> Option.map (fun conn ->
-                    if conn.IsOpen then
-                        conn
-                    else
-                        conn.Dispose()
-                        factory.CreateConnection())
-                |> Option.defaultWith factory.CreateConnection
-
-            connection <- Some conn
-            conn
+    
 
     let private getEventTypes<'payload> =
         let payloadType = typeof<'payload>

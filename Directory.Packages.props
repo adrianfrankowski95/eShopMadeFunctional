@@ -3,7 +3,7 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
     <AspnetVersion>9.0.5</AspnetVersion>
-    <MicrosoftExtensionsVersion>9.0.5</MicrosoftExtensionsVersion>
+    <MicrosoftExtensionsVersion>9.0.9</MicrosoftExtensionsVersion>
     <MicrosoftExtensionsAIVersion>9.5.0</MicrosoftExtensionsAIVersion>
     <AspireVersion>9.3.0</AspireVersion>
     <AspireUnstablePackagesVersion>9.3.0-preview.1.25265.20</AspireUnstablePackagesVersion>
@@ -22,6 +22,8 @@
     <PackageVersion Include="Giraffe" Version="7.0.2" />
     <PackageVersion Include="Microsoft.Data.SqlClient" Version="6.0.1" />
     <!-- Version together with Aspire -->
+    <PackageVersion Include="Aspire.RabbitMQ.Client.v7" Version="$(AspireVersion)" />
+    <PackageVersion Include="Aspire.RabbitMQ.Client" Version="$(AspireVersion)" />
     <PackageVersion Include="Aspire.Hosting.AppHost" Version="$(AspireVersion)" />
     <PackageVersion Include="Aspire.Hosting.Docker" Version="$(AspireUnstablePackagesVersion)" />
     <PackageVersion Include="Aspire.Hosting.Azure.CognitiveServices" Version="$(AspireVersion)" />
@@ -30,15 +32,8 @@
     <PackageVersion Include="Aspire.Hosting.Redis" Version="$(AspireVersion)" />
     <PackageVersion Include="Aspire.Npgsql" Version="$(AspireVersion)" />
     <PackageVersion Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="$(AspireVersion)" />
-    <PackageVersion Include="Aspire.RabbitMQ.Client" Version="$(AspireVersion)" />
     <PackageVersion Include="Aspire.StackExchange.Redis" Version="$(AspireVersion)" />
     <PackageVersion Include="Aspire.Azure.AI.OpenAI" Version="$(AspireUnstablePackagesVersion)" />
-    <PackageVersion Include="Microsoft.Extensions.ApiDescription.Server" Version="$(AspnetVersion)">
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      <PrivateAssets>all</PrivateAssets>
-    </PackageVersion>
-    <PackageVersion Include="Microsoft.Extensions.Logging" Version="9.0.5" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.5" />
     <PackageVersion Include="Microsoft.Extensions.ServiceDiscovery" Version="$(AspireVersion)" />
     <PackageVersion Include="Microsoft.Extensions.ServiceDiscovery.Yarp" Version="$(AspireVersion)" />
     <!-- Version together with Asp.Versioning -->
@@ -46,6 +41,10 @@
     <PackageVersion Include="Asp.Versioning.Http.Client" Version="$(ApiVersioningVersion)" />
     <PackageVersion Include="Asp.Versioning.Mvc.ApiExplorer" Version="$(ApiVersioningVersion)" />
     <!-- Version together with ASP.NET -->
+    <PackageVersion Include="Microsoft.Extensions.ApiDescription.Server" Version="$(AspnetVersion)">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageVersion>
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="$(AspnetVersion)" />
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="$(AspnetVersion)" />
     <PackageVersion Include="Microsoft.AspNetCore.Components.QuickGrid" Version="$(AspnetVersion)" />
@@ -67,6 +66,8 @@
     <PackageVersion Include="Pgvector" Version="0.3.0" />
     <PackageVersion Include="Pgvector.EntityFrameworkCore" Version="0.2.1" />
     <!-- Version together with runtime -->
+    <PackageVersion Include="Microsoft.Extensions.Logging" Version="$(MicrosoftExtensionsVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="$(MicrosoftExtensionsVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="$(MicrosoftExtensionsVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Options" Version="$(MicrosoftExtensionsVersion)" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="$(MicrosoftExtensionsVersion)" />
@@ -109,7 +110,7 @@
     <PackageVersion Include="Google.Protobuf" Version="3.30.2" />
     <PackageVersion Include="MediatR" Version="12.4.1" />
     <PackageVersion Include="Microsoft.Web.LibraryManager.Build" Version="2.1.175" />
-    <PackageVersion Include="Polly.Core" Version="8.5.2" />
+    <PackageVersion Include="Polly.Core" Version="8.6.3" />
     <PackageVersion Include="System.Reflection.TypeExtensions" Version="4.7.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.0.2" />
