@@ -80,62 +80,34 @@ module private Json =
     let serializeBody (jsonOptions: JsonSerializerOptions) (body: obj) =
         Result.catch (fun () -> JsonSerializer.SerializeToUtf8Bytes(body, jsonOptions) |> ReadOnlyMemory)
 
+type PublisherCreationError =
+    | ChannelCreationError of exn
+    | ExchangeDeclarationError of exn
+
+type Publisher = private Publisher of IChannel
 
 [<RequireQualifiedAccess>]
-module internal RabbitMQ =
-    [<Literal>]
-    let internal ExchangeName = "eshop_event_bus"
+module Publisher =
+    let create (connection: IConnection) =
+        taskResult {
+            let! channel =
+                TaskResult.catch ChannelCreationError (fun () ->
+                    connection.CreateChannelAsync(
+                        CreateChannelOptions(
+                            publisherConfirmationsEnabled = true,
+                            publisherConfirmationTrackingEnabled = true
+                        )
+                    ))
 
-    [<Literal>]
-    let internal DeadLetterExchangeName = "eshop_event_bus_dlx"
+            do! TaskResult.catch ExchangeDeclarationError (fun () -> channel.ExchangeDeclareAsync(ExchangeName, ``type`` = "direct") |> Task.ofUnit)
 
-    [<Literal>]
-    let internal DeadLetterQueueName = "eshop_event_bus_dlq"
+            return channel |> Publisher
+        }
 
-    [<Literal>]
-    let internal RetryCountArgName = "x-retry-count"
+type Consumer = private Consumer of AsyncEventingBasicConsumer
 
-    [<Literal>]
-    let internal RetryTimestampArgName = "x-retry-timestamp"
-
-    type State =
-        internal
-            { Publisher: IChannel
-              Consumer: AsyncEventingBasicConsumer }
-
-    let private createConnectionFactory connectionString : unit -> ValueTask<IConnection> =
-        let mutable connection: IConnection option = None
-
-        let factory =
-            ConnectionFactory(
-                Uri = Uri(connectionString),
-                AutomaticRecoveryEnabled = true,
-                NetworkRecoveryInterval = TimeSpan.FromSeconds(3.0),
-                RequestedHeartbeat = TimeSpan.FromSeconds(3.0),
-                TopologyRecoveryEnabled = true
-            )
-
-        fun () ->
-            task {
-                let! conn =
-                    connection
-                    |> Option.map (fun conn ->
-                        if conn.IsOpen then
-                            ValueTask<IConnection>(conn)
-                        else
-                            task {
-                                do! conn.DisposeAsync()
-                                return! factory.CreateConnectionAsync()
-                            }
-                            |> ValueTask<IConnection>)
-                    |> Option.defaultWith (fun () -> factory.CreateConnectionAsync() |> ValueTask<IConnection>)
-
-                connection <- Some conn
-                return conn
-            }
-            |> ValueTask<IConnection>
-
-
+[<RequireQualifiedAccess>]
+module Consumer =
     let private configureDeadLetters (options: RabbitMQOptions) (channel: IChannel) =
         taskResult {
             let queueName = options.SubscriptionClientName
@@ -209,6 +181,52 @@ module internal RabbitMQ =
 
             return consumer
         }
+
+[<RequireQualifiedAccess>]
+module internal RabbitMQ =
+   
+
+
+
+    type State =
+        internal
+            { Publisher: IChannel
+              Consumer: AsyncEventingBasicConsumer }
+
+    let private createConnectionFactory connectionString : unit -> ValueTask<IConnection> =
+        let mutable connection: IConnection option = None
+
+        let factory =
+            ConnectionFactory(
+                Uri = Uri(connectionString),
+                AutomaticRecoveryEnabled = true,
+                NetworkRecoveryInterval = TimeSpan.FromSeconds(3.0),
+                RequestedHeartbeat = TimeSpan.FromSeconds(3.0),
+                TopologyRecoveryEnabled = true
+            )
+
+        fun () ->
+            task {
+                let! conn =
+                    connection
+                    |> Option.map (fun conn ->
+                        if conn.IsOpen then
+                            ValueTask<IConnection>(conn)
+                        else
+                            task {
+                                do! conn.DisposeAsync()
+                                return! factory.CreateConnectionAsync()
+                            }
+                            |> ValueTask<IConnection>)
+                    |> Option.defaultWith (fun () -> factory.CreateConnectionAsync() |> ValueTask<IConnection>)
+
+                connection <- Some conn
+                return conn
+            }
+            |> ValueTask<IConnection>
+
+
+    
 
     let private configurePublishing (connection: IConnection) =
         taskResult {
