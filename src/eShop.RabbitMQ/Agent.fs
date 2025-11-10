@@ -116,9 +116,7 @@ type Agent internal (jsonOptions: JsonSerializerOptions, options: Configuration.
                                 |> Result.mapError Choice1Of2
 
                             return!
-                                { Id = eventId
-                                  OccurredAt = timestamp
-                                  Data = payload }
+                                
                                 |> handler
                                 |> TaskResult.mapError Choice2Of2
                         })
@@ -293,19 +291,7 @@ module Agent =
 
     
 
-    let private getEventTypes<'payload> =
-        let payloadType = typeof<'payload>
-
-        match FSharpType.IsUnion(payloadType) with
-        | true ->
-            FSharpType.GetUnionCases(payloadType, false)
-            |> Array.map (fun targetCase ->
-                let eventName = targetCase.Name
-                let targetCaseDataType = targetCase.GetFields() |> Array.head |> _.PropertyType
-
-                eventName, EventType.Union(targetCase, targetCaseDataType))
-            |> List.ofArray
-        | false -> [ payloadType.Name, EventType.Object payloadType ]
+    
 
     let private handleError (logger: ILogger<Agent>) : AgentErrorHandler<State, Message, IoError> =
         fun state msg err ->

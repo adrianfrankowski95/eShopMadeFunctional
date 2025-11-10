@@ -1,7 +1,6 @@
 ﻿namespace eShop.DomainDrivenDesign
 
 open System
-open System.Threading.Channels
 open System.Threading.Tasks
 open Microsoft.FSharp.Reflection
 open eShop.Prelude
