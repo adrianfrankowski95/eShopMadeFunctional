@@ -17,7 +17,7 @@ open eShop.Prelude
 
 
 type private Message =
-    | Publish of EventName * Event<obj> * Priority
+    | Publish of EventName * Event<obj> * EventPriority
     | Retry of BasicDeliverEventArgs * RetryCount
 
 module private Message =
@@ -265,7 +265,7 @@ type Agent internal (jsonOptions: JsonSerializerOptions, options: Configuration.
 
     //member _.Start(initState: State)
     
-    member _.Publish<'payload>(ev: Event<'payload>, priority: Priority) =
+    member _.Publish<'payload>(ev: Event<'payload>, priority: EventPriority) =
         let eventName = ev |> getEventName
         let boxedEvent = ev |> Event.mapPayload box
 
