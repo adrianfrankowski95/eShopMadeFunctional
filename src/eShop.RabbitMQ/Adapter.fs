@@ -71,11 +71,11 @@ type EventHandler<'payload, 'err> = Event<'payload> -> TaskResult<unit, 'err>
 
 type private RawBody = string
 
-type EventHandlingError<'handlerErr> =
+type EventHandlingError<'err> =
     | InvalidEventData of string
     | DeserializationError of exn
     | UnhandledEvent of EventName * RawBody
-    | HandlerError of 'handlerErr
+    | HandlerError of 'err
 
 type EventHandlers = private EventHandlers of Dictionary<EventName, EventType * BoxedEventHandler>
 
@@ -242,7 +242,7 @@ module Consumer =
     let subscribe
         (getUtcNow: GetUtcNow)
         (logger: ILogger<RabbitMQ>)
-        (handler: EventName -> Event<byte[]> -> TaskResult<unit, 'err>)
+        (handler: EventName -> Event<byte[]> -> TaskResult<unit, _>)
         (Consumer consumer)
         =
         consumer.add_ReceivedAsync (fun _ ea ->
