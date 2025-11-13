@@ -237,7 +237,7 @@ module OrderIntegrationEventsProcessor =
 
     let private build services : OrderIntegrationEventsProcessor =
         let dbConnection = services |> getDbConnection
-        let config = services.Get<IOptions<Configuration.RabbitMQOptions>>()
+        let config = services.Get<IOptions<Configuration.EventBusOptions>>()
         let logger = services.Get<ILogger<OrderIntegrationEventsProcessor>>()
 
         let orderIntegrationEventsAdapter =

@@ -31,12 +31,12 @@ type Extensions =
         )
 
         builder.Services
-            .Configure<Configuration.RabbitMQOptions>(
+            .Configure<Configuration.EventBusOptions>(
                 builder.Configuration.GetRequiredSection(Configuration.SectionName)
             )
             .AddSingleton<AsyncEventingBasicConsumer>(fun sp ->
                 let connection = sp.GetRequiredService<IConnection>()
-                let config = sp.GetRequiredService<IOptions<Configuration.RabbitMQOptions>>().Value
+                let config = sp.GetRequiredService<IOptions<Configuration.EventBusOptions>>().Value
 
                 config
                 |> RabbitMQ.initConsumer connection
@@ -69,7 +69,7 @@ type Extensions =
 
                         let consumer = sp.GetRequiredService<AsyncEventingBasicConsumer>()
 
-                        let config = sp.GetRequiredService<IOptions<Configuration.RabbitMQOptions>>().Value
+                        let config = sp.GetRequiredService<IOptions<Configuration.EventBusOptions>>().Value
 
                         let persistEvents = sp |> buildPersistEvents
 

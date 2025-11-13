@@ -3,13 +3,13 @@
 open System
 
 [<Literal>]
-let ExchangeName = "eshop_event_bus"
+let MainExchangeName = "eshop_event_bus"
 
 [<Literal>]
-let DeadLetterExchangeName = "eshop_event_bus_dlx"
+let MainDeadLetterExchangeName = "eshop_event_bus_dlx"
 
 [<Literal>]
-let DeadLetterQueueName = "eshop_event_bus_dlq"
+let MainDeadLetterQueueName = "eshop_event_bus_dlq"
 
 [<Literal>]
 let RetryCountArgName = "x-retry-count"
@@ -21,7 +21,7 @@ let RetryTimestampArgName = "x-retry-timestamp"
 let SectionName = "EventBus"
 
 [<CLIMutable>]
-type RabbitMQOptions =
+type EventBusOptions =
     { SubscriptionClientName: string
-      RetryCount: int
-      MessageTtl: TimeSpan }
+      MessageTtl: TimeSpan
+      Retries: TimeSpan[] }

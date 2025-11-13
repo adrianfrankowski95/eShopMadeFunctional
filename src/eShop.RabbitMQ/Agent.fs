@@ -63,7 +63,7 @@ module private State =
 
     let withConsumer consumer state = { state with Consumer = Some consumer }
 
-type Agent internal (jsonOptions: JsonSerializerOptions, options: Configuration.RabbitMQOptions, getUtcNow: GetUtcNow, logger: ILogger<Agent>, connectionFactory: unit -> IConnection, consumer: AsyncEventingBasicConsumer, consumerChannel: IModel, eventHandlers) =
+type Agent internal (jsonOptions: JsonSerializerOptions, options: Configuration.EventBusOptions, getUtcNow: GetUtcNow, logger: ILogger<Agent>, connectionFactory: unit -> IConnection, consumer: AsyncEventingBasicConsumer, consumerChannel: IModel, eventHandlers) =
     let getEventName (ev: Event<'payload>) : string =
         let payloadType = typeof<'payload>
 
@@ -83,7 +83,7 @@ type Agent internal (jsonOptions: JsonSerializerOptions, options: Configuration.
         =
         let queueName = options.SubscriptionClientName
         let maxRetryCount = options.RetryCount
-        let exchangeName = Configuration.ExchangeName
+        let exchangeName = Configuration.MainExchangeName
 
         eventHandlers
         |> Map.keys
@@ -194,7 +194,7 @@ type Agent internal (jsonOptions: JsonSerializerOptions, options: Configuration.
                 return!
                     match msg with
                     | Publish(eventName, event, _) ->
-                        let exchangeName = Configuration.ExchangeName
+                        let exchangeName = Configuration.MainExchangeName
 
                         let body =
                             JsonSerializer.SerializeToUtf8Bytes(event.Data, jsonOptions) |> ReadOnlyMemory
@@ -303,7 +303,7 @@ module Agent =
 
             state |> AsyncOption.some
 
-    let init connectionString (options: Configuration.RabbitMQOptions) logger getUtcNow  =
+    let init connectionString (options: Configuration.EventBusOptions) logger getUtcNow  =
         { CreateConnection = createConnectionFactory connectionString
           RetryCount = options.RetryCount
           SubscriptionClientName = options.SubscriptionClientName
@@ -335,9 +335,9 @@ module Agent =
     let private initTopology (options: Options) =
         let queueName = options.SubscriptionClientName
 
-        let exchangeName = Configuration.ExchangeName
-        let dlExchangeName = Configuration.DeadLetterExchangeName
-        let dlQueueName = Configuration.DeadLetterQueueName
+        let exchangeName = Configuration.MainExchangeName
+        let dlExchangeName = Configuration.MainDeadLetterExchangeName
+        let dlQueueName = Configuration.MainDeadLetterQueueName
 
         let dlExchangeArgName = Configuration.DeadLetterExchangeArgName
         let dlRoutingKeyArgName = Configuration.DeadLetterRoutingKeyArgName
