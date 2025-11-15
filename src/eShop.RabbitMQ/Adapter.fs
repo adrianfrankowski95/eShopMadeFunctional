@@ -65,10 +65,6 @@ module ConnectionFactory =
             TopologyRecoveryEnabled = true
         )
 
-type private BoxedEventHandler = Event<obj> -> TaskResult<unit, obj>
-
-type EventHandler<'payload, 'err> = Event<'payload> -> TaskResult<unit, 'err>
-
 type private RawBody = string
 
 type EventHandlingError<'err> =
@@ -76,6 +72,10 @@ type EventHandlingError<'err> =
     | DeserializationError of exn
     | UnhandledEvent of EventName * RawBody
     | HandlerError of 'err
+
+type EventHandler<'payload, 'err> = Event<'payload> -> TaskResult<unit, 'err>
+
+type private BoxedEventHandler = Event<obj> -> TaskResult<unit, obj>
 
 type EventHandlers = private EventHandlers of Dictionary<EventName, EventType * BoxedEventHandler>
 
@@ -145,7 +145,7 @@ module Publisher =
         let payloadType = typeof<'payload>
 
         match FSharpType.IsUnion(payloadType) with
-        | true -> FSharpValue.GetUnionFields(ev.Data, payloadType) |> fst |> _.Name
+        | true -> FSharpValue.GetUnionFields(ev.Data, payloadType) |> snd |> Array.head |> _.GetType() |> _.Name
         | false -> payloadType.Name
 
     let internal create (connection: IConnection) =
@@ -171,8 +171,8 @@ module Publisher =
                             properties.Headers <- Dictionary()
                             properties.Headers)
 
-                    headers.Add("x-unroutable", true)
-                    headers.Add("x-original-exchange", ea.Exchange)
+                    headers.Add(UnroutableArgName, true)
+                    headers.Add(OriginalExchangeArgName, ea.Exchange)
 
                     do!
                         channel.BasicPublishAsync(
@@ -218,6 +218,8 @@ module Publisher =
                     |> Task.ofUnit)
         }
 
+type internal ConsumerHandler<'err> = EventName -> Event<byte[]> -> TaskResult<unit, 'err>
+
 type Consumer = private Consumer of AsyncEventingBasicConsumer
 
 [<RequireQualifiedAccess>]
@@ -239,18 +241,16 @@ module Consumer =
             return consumer |> Consumer
         }
 
-    let subscribe
-        (getUtcNow: GetUtcNow)
-        (logger: ILogger<RabbitMQ>)
-        (handler: EventName -> Event<byte[]> -> TaskResult<unit, _>)
-        (Consumer consumer)
-        =
+    let subscribe (logger: ILogger<RabbitMQ>) (handler: ConsumerHandler<'err>) (Consumer consumer) =
         consumer.add_ReceivedAsync (fun _ ea ->
             taskResult {
-                let timestamp =
+                let! timestamp =
                     match ea.BasicProperties.IsTimestampPresent() with
-                    | true -> ea.BasicProperties.Timestamp.UnixTime |> DateTimeOffset.FromUnixTimeSeconds
-                    | false -> getUtcNow ()
+                    | true ->
+                        ea.BasicProperties.Timestamp.UnixTime
+                        |> DateTimeOffset.FromUnixTimeSeconds
+                        |> Ok
+                    | false -> "Missing Timestamp property" |> InvalidEventData |> Error
 
                 let! eventId =
                     ea.BasicProperties.MessageId
@@ -290,7 +290,6 @@ module Consumer =
             |> TaskResult.ignoreError
             :> Task)
 
-
 type EventBus = private EventBus of IConnection * EventBusOptions
 
 [<RequireQualifiedAccess>]
@@ -323,6 +322,32 @@ module EventBus =
                 )
 
             do! topologyChannel.ExchangeDeclareAsync(exchange = MainExchangeName, ``type`` = "direct")
+
+            topologyChannel.add_BasicReturnAsync (fun _ ea ->
+                task {
+                    let body = ea.Body.ToArray()
+
+                    let properties = BasicProperties(ea.BasicProperties)
+
+                    let headers =
+                        properties.Headers
+                        |> Option.ofObj
+                        |> Option.defaultWith (fun () ->
+                            properties.Headers <- Dictionary()
+                            properties.Headers)
+
+                    headers.Add(UnroutableArgName, true)
+                    headers.Add(OriginalExchangeArgName, ea.Exchange)
+
+                    do!
+                        topologyChannel.BasicPublishAsync(
+                            exchange = MainDeadLetterExchangeName,
+                            mandatory = true,
+                            routingKey = ea.RoutingKey,
+                            basicProperties = properties,
+                            body = body
+                        )
+                })
         }
 
     let private configureClient
@@ -518,16 +543,25 @@ module EventBus =
                 |> Task.ignore
         }
 
-    let create (factory: ConnectionFactory) (options: EventBusOptions) (eventHandlers: EventHandlers) =
+    let private initializeTopology (connection: IConnection) (options: EventBusOptions) (eventHandlers: EventHandlers) =
         task {
-            let! connection = factory.CreateConnectionAsync()
-
             let! topologyChannel = connection.CreateChannelAsync()
 
             let! publisher = connection |> Publisher.create
 
             do! topologyChannel |> configureMainExchange
             do! topologyChannel |> configureClient options eventHandlers publisher
+        }
+
+    let create (factory: ConnectionFactory) (options: EventBusOptions) (eventHandlers: EventHandlers) =
+        task {
+            let! connection = factory.CreateConnectionAsync()
+
+            let init = initializeTopology connection options
+
+            do! eventHandlers |> init
+
+            connection.add_RecoverySucceededAsync (fun _ _ -> eventHandlers |> init :> Task)
 
             return (connection, options) |> EventBus
         }

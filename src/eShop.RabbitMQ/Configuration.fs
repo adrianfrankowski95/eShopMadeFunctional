@@ -3,19 +3,22 @@
 open System
 
 [<Literal>]
-let MainExchangeName = "eshop_event_bus"
+let internal MainExchangeName = "eshop_event_bus"
 
 [<Literal>]
-let MainDeadLetterExchangeName = "eshop_event_bus_dlx"
+let internal MainDeadLetterExchangeName = "eshop_event_bus_dlx"
 
 [<Literal>]
-let MainDeadLetterQueueName = "eshop_event_bus_dlq"
+let internal MainDeadLetterQueueName = "eshop_event_bus_dlq"
 
 [<Literal>]
-let RetryCountArgName = "x-retry-count"
+let internal RetryCountArgName = "x-retry-count"
 
 [<Literal>]
-let RetryTimestampArgName = "x-retry-timestamp"
+let internal UnroutableArgName = "x-unroutable"
+
+[<Literal>]
+let internal OriginalExchangeArgName = "x-original-exchange"
 
 [<Literal>]
 let SectionName = "EventBus"
