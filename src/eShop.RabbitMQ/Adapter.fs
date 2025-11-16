@@ -88,10 +88,15 @@ module EventHandlers =
         | true ->
             FSharpType.GetUnionCases(payloadType, false)
             |> Array.map (fun unionCase ->
-                let eventName = unionCase.Name |> EventName.create |> Result.valueOr failwith
-                let caseDataType = unionCase.GetFields() |> Array.head |> _.PropertyType
-
-                eventName, EventType.Union(unionCase, caseDataType))
+                match unionCase.GetFields() with
+                | [||]
+                | null ->
+                    let eventName = unionCase.Name |> EventName.create |> Result.valueOr failwith
+                    eventName, EventType.Union(unionCase, null)
+                | caseFields ->
+                    let caseDataType = caseFields |> Array.head |> _.PropertyType
+                    let eventName = caseDataType.Name |> EventName.create |> Result.valueOr failwith
+                    eventName, EventType.Union(unionCase, caseDataType))
         | false ->
             let eventName = payloadType.Name |> EventName.create |> Result.valueOr failwith
 
@@ -148,7 +153,8 @@ module Publisher =
         | true ->
             FSharpValue.GetUnionFields(ev.Data, payloadType)
             |> function
-                | unionCase, [||] -> unionCase.Name
+                | unionCase, [||]
+                | unionCase, null -> unionCase.Name
                 | _, caseData -> caseData |> Array.head |> _.GetType().Name
         | false -> payloadType.Name
         |> EventName.create
