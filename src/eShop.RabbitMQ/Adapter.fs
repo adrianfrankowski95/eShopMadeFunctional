@@ -97,12 +97,11 @@ module EventHandlers =
                 let eventName = unionCase.Name |> EventName.forceCreate
 
                 match unionCase.GetFields() with
-                | [||]
-                | null -> eventName, EventType.Union(unionCase, None)
+                | [||] | null -> eventName, EventType.Union(unionCase, None)
                 | [| caseField |] -> eventName, EventType.Union(unionCase, caseField |> _.PropertyType |> Some)
                 | _ -> failwith "Unsupported Event Type: Only simple unions or single-data unions are supported.")
         | false ->
-            let eventName = payloadType.Name |> EventName.create |> Result.valueOr failwith
+            let eventName = payloadType.Name |> EventName.forceCreate
 
             [| eventName, EventType.Object payloadType |]
 
@@ -154,15 +153,9 @@ module Publisher =
         let payloadType = typeof<'payload>
 
         match FSharpType.IsUnion(payloadType) with
-        | true ->
-            FSharpValue.GetUnionFields(ev.Data, payloadType)
-            |> function
-                | unionCase, [||]
-                | unionCase, null -> unionCase.Name
-                | _, caseData -> caseData |> Array.head |> _.GetType().Name
+        | true -> FSharpValue.GetUnionFields(ev.Data, payloadType) |> fst |> _.Name
         | false -> payloadType.Name
-        |> EventName.create
-        |> Result.valueOr failwith
+        |> EventName.forceCreate
 
     let internal create (connection: IConnection) =
         task {
@@ -205,9 +198,9 @@ module Publisher =
 
     let internal internalPublish
         (jsonOptions: JsonSerializerOptions)
-        (Publisher publisher)
         (EventName eventName)
         (event: Event<obj>)
+        (Publisher publisher)
         =
         taskResult {
             let! body =
@@ -237,11 +230,11 @@ module Publisher =
                     |> Task.ofUnit)
         }
 
-    let inline publish (jsonOptions: JsonSerializerOptions) (publisher: Publisher) (event: Event<'payload>) =
+    let inline publish (jsonOptions: JsonSerializerOptions) (event: Event<'payload>) (publisher: Publisher) =
         let eventName = event |> getEventName
         let body = event |> Event.mapPayload box
 
-        internalPublish jsonOptions publisher eventName body
+        publisher |> internalPublish jsonOptions eventName body
 
 type internal ConsumerCallback<'err> = EventName -> Event<byte[]> -> TaskResult<unit, 'err>
 
@@ -595,5 +588,5 @@ module EventBus =
 
 
     let createPublisher (EventBus(connection, _)) = Publisher.create connection
-    
+
     let dispose (EventBus(connection, _)) = connection.Dispose()
