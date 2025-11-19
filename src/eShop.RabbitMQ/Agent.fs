@@ -2,73 +2,107 @@
 module eShop.RabbitMQ
 
 open System
+open System.Collections.Generic
 open System.Text.Json
+open System.Threading
+open System.Threading.Tasks
 open Microsoft.Extensions.Logging
 open eShop.RabbitMQ
 open eShop.DomainDrivenDesign
-open eShop.Prelude.Operators
 open FsToolkit.ErrorHandling
+open System.Threading.Channels
+open eShop.Prelude
+
+type private ReplyChannel<'t> = 't -> unit
 
 type private Message =
-    | Publish of EventName * Event<obj> * EventPriority * AsyncReplyChannel<Result<unit, PublishError>>
-    | Consume of EventName * Event<byte array> * AsyncReplyChannel<Result<unit, EventHandlingError<obj>>>
+    | Publish of EventName * Event<obj> * Priority * ReplyChannel<Result<unit, PublishError>>
+    | Consume of EventName * Event<byte array> * Priority * ReplyChannel<Result<unit, EventHandlingError<obj>>>
 
 module private Message =
-    let getWithHighPriority msg =
-        match msg with
-        | Publish(_, _, priority, _) when priority = EventPriority.High -> msg |> Some
-        | Publish _ -> None
-        | Consume _ -> None
+    let getPriority =
+        function
+        | Publish(_, _, p, _) ->
+            match p with
+            | Priority.Regular -> 0
+            | Priority.Low -> 1
+        | Consume(_, _, p, _) ->
+            match p with
+            | Priority.Regular -> 2
+            | Priority.Low -> 3
 
 type Agent
     internal
     (eventBus: EventBus, eventHandlers: EventHandlers, jsonOptions: JsonSerializerOptions, logger: ILogger<RabbitMQ>) =
-    let publishEvent = Publisher.internalPublish jsonOptions >>>> Async.AwaitTask
 
-    let handleEvent =
-        eventHandlers |> EventHandlers.invoke jsonOptions >>> Async.AwaitTask
+    let comparer =
+        Comparer.Create(fun a b -> (a, b) |> Tuple.mapBoth Message.getPriority |> (fun m -> m ||> compare))
 
+    let options =
+        UnboundedPrioritizedChannelOptions<Message>(
+            SingleReader = true,
+            AllowSynchronousContinuations = true,
+            Comparer = comparer
+        )
+
+    let cts = new CancellationTokenSource()
+
+    let channel = Channel.CreateUnboundedPrioritized<Message>(options)
+
+    let publishEvent = Publisher.internalPublish jsonOptions
+    let handleEvent = eventHandlers |> EventHandlers.invoke jsonOptions
     let subscribe = Consumer.subscribe logger
 
-    let agent =
-        MailboxProcessor<Message>.Start(fun inbox ->
-            let reply (channel: AsyncReplyChannel<_>) x = x |> Async.map channel.Reply
+    let rec loop (reader: ChannelReader<Message>, publisher: Publisher, consumer: Consumer) =
+        backgroundTask {
+            match cts.IsCancellationRequested with
+            | true ->
+                do! publisher |> Publisher.dispose
+                do! consumer |> Consumer.dispose
+                return ()
+            
+            | false ->
+                let! msg = reader.ReadAsync(cts.Token)
 
-            let rec loop (publisher: Publisher) =
-                async {
-                    let! maybeHighPriority = inbox.TryScan(Message.getWithHighPriority >> Option.map Async.singleton)
+                match msg with
+                | Publish(evName, ev, priority, reply) ->
+                    do! publisher |> publishEvent evName ev priority |> Task.map reply
 
-                    let! msg =
-                        maybeHighPriority
-                        |> Option.map Async.singleton
-                        |> Option.defaultWith inbox.Receive
+                | Consume(evName, ev, _, reply) -> do! ev |> handleEvent evName |> Task.map reply
 
-                    match msg with
-                    | Publish(evName, ev, _, r) -> do! publisher |> publishEvent evName ev |> reply r
+                return! loop (reader, publisher, consumer)
+        }
 
-                    | Consume(evName, ev, r) -> do! ev |> handleEvent evName |> reply r
+    let _ =
+        backgroundTask {
+            let! publisher = eventBus |> EventBus.createPublisher
+            let! consumer = eventBus |> EventBus.createConsumer
 
-                    return! publisher |> loop
-                }
+            consumer
+            |> subscribe (fun evName ev priority ->
+                let tcs = TaskCompletionSource<_>()
 
-            async {
-                let! publisher = eventBus |> EventBus.createPublisher |> Async.AwaitTask
-                let! consumer = eventBus |> EventBus.createConsumer |> Async.AwaitTask
+                channel.Writer.WriteAsync(Consume(evName, ev, priority, tcs.SetResult), cts.Token).AsTask()
+                |> Task.ofUnit
+                |> TaskResult.ofTask
+                |> TaskResult.bind (fun _ -> tcs.Task))
 
-                consumer
-                |> subscribe (fun evName ev ->
-                    inbox.PostAndAsyncReply(fun r -> (evName, ev, r) |> Consume)
-                    |> Async.StartImmediateAsTask)
+            return! loop (channel.Reader, publisher, consumer)
+        }
+    
+    member _.Publish<'payload> (ev: Event<'payload>) (priority: Priority) =
+        let evName = ev |> Publisher.getEventName
+        let boxedEv = ev |> Event.mapPayload box
+        
+        let tcs = TaskCompletionSource<_>()
 
-                do! publisher |> loop
-            })
-
-    member _.Publish<'payload> (ev: Event<'payload>) (priority: EventPriority) =
-        let eventName = ev |> Publisher.getEventName
-        let boxedEvent = ev |> Event.mapPayload box
-
-        agent.PostAndAsyncReply(fun reply -> (eventName, boxedEvent, priority, reply) |> Publish)
-        |> Async.StartImmediateAsTask
+        channel.Writer.WriteAsync(Publish(evName, boxedEv, priority, tcs.SetResult), cts.Token).AsTask()
+        |> Task.ofUnit
+        |> TaskResult.ofTask
+        |> TaskResult.bind (fun _ -> tcs.Task)
 
     interface IDisposable with
-        member _.Dispose() = agent.Dispose()
+        member _.Dispose() =
+            cts.Cancel()
+            cts.Dispose()
+            channel.Writer.Complete()

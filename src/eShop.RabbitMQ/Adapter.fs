@@ -36,9 +36,23 @@ module QueueName =
           String.Constraints.doesntStartWith "amqp." ]
         |> String.Constraints.evaluateM QueueName (nameof QueueName)
 
-type EventPriority =
-    | High
+[<RequireQualifiedAccess>]
+type Priority =
     | Regular
+    | Low
+
+[<RequireQualifiedAccess>]
+module Priority =
+    let value (priority: Priority) =
+        match priority with
+        | Priority.Regular -> 5uy
+        | Priority.Low -> 1uy
+
+    let create (rawPriority: byte) =
+        match rawPriority with
+        | 5uy -> Priority.Regular
+        | 1uy -> Priority.Low
+        | _ -> Priority.Regular
 
 type private EventType =
     | Object of Type
@@ -97,7 +111,8 @@ module EventHandlers =
                 let eventName = unionCase.Name |> EventName.forceCreate
 
                 match unionCase.GetFields() with
-                | [||] | null -> eventName, EventType.Union(unionCase, None)
+                | [||]
+                | null -> eventName, EventType.Union(unionCase, None)
                 | [| caseField |] -> eventName, EventType.Union(unionCase, caseField |> _.PropertyType |> Some)
                 | _ -> failwith "Unsupported Event Type: Only simple unions or single-data unions are supported.")
         | false ->
@@ -200,6 +215,7 @@ module Publisher =
         (jsonOptions: JsonSerializerOptions)
         (EventName eventName)
         (event: Event<obj>)
+        (priority: Priority)
         (Publisher publisher)
         =
         taskResult {
@@ -215,6 +231,7 @@ module Publisher =
             properties.Timestamp <- event.OccurredAt.ToUnixTimeSeconds() |> AmqpTimestamp
             properties.ContentType <- "application/json"
             properties.Persistent <- true
+            properties.Priority <- priority |> Priority.value
 
             do!
                 TaskResult.catch ChannelError (fun () ->
@@ -230,13 +247,20 @@ module Publisher =
                     |> Task.ofUnit)
         }
 
-    let inline publish (jsonOptions: JsonSerializerOptions) (event: Event<'payload>) (publisher: Publisher) =
+    let inline publish
+        (jsonOptions: JsonSerializerOptions)
+        (event: Event<'payload>)
+        (priority: Priority)
+        (publisher: Publisher)
+        =
         let eventName = event |> getEventName
         let body = event |> Event.mapPayload box
 
-        publisher |> internalPublish jsonOptions eventName body
+        publisher |> internalPublish jsonOptions eventName body priority
+        
+    let dispose (Publisher publisher) = publisher.DisposeAsync()
 
-type internal ConsumerCallback<'err> = EventName -> Event<byte[]> -> TaskResult<unit, 'err>
+type internal ConsumerCallback<'err> = EventName -> Event<byte[]> -> Priority -> TaskResult<unit, 'err>
 
 type Consumer = private Consumer of AsyncEventingBasicConsumer
 
@@ -282,7 +306,9 @@ module Consumer =
                       OccurredAt = timestamp
                       Data = ea.Body.ToArray() }
 
-                do! event |> callback eventName |> TaskResult.mapError HandlerError
+                let priority = ea.BasicProperties.Priority |> Priority.create
+
+                do! callback eventName event priority |> TaskResult.mapError HandlerError
             }
             |> TaskResult.teeAsync (fun _ ->
                 task {
@@ -307,6 +333,8 @@ module Consumer =
                 })
             |> TaskResult.ignoreError
             :> Task)
+        
+    let dispose (Consumer consumer) = consumer.Channel.DisposeAsync()
 
 type EventBus = private EventBus of IConnection * EventBusOptions
 
