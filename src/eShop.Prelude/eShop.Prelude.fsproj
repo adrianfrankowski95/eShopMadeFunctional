@@ -18,6 +18,7 @@
         <Compile Include="Either.fs" />
         <Compile Include="Tuple.fs" />
         <Compile Include="Task.fs" />
+        <Compile Include="ValueTask.fs" />
         <Compile Include="Operators.fs" />
     </ItemGroup>
 

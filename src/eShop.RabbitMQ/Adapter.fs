@@ -85,6 +85,31 @@ module ConnectionFactory =
             TopologyRecoveryEnabled = true
         )
 
+[<RequireQualifiedAccess>]
+module internal Event =
+    let ofDeliverArgs (ea: BasicDeliverEventArgs) =
+        validation {
+            let! timestamp =
+                match ea.BasicProperties.IsTimestampPresent() with
+                | true ->
+                    ea.BasicProperties.Timestamp.UnixTime
+                    |> DateTimeOffset.FromUnixTimeSeconds
+                    |> Ok
+                | false -> "Missing Timestamp property" |> Error
+
+            and! eventId = ea.BasicProperties.MessageId |> EventId.ofString
+
+            and! eventName = ea.RoutingKey |> EventName.create
+
+            let event =
+                { Id = eventId
+                  OccurredAt = timestamp
+                  Data = ea.Body.ToArray() }
+
+            return (eventName, event)
+        }
+        |> Result.mapError (String.concat "; ")
+
 type private RawBody = string
 
 type EventHandlingError<'err> =
@@ -235,16 +260,14 @@ module Publisher =
 
             do!
                 TaskResult.catch ChannelError (fun () ->
-                    publisher
-                        .BasicPublishAsync(
-                            exchange = MainExchangeName,
-                            routingKey = eventName,
-                            mandatory = true,
-                            basicProperties = properties,
-                            body = body
-                        )
-                        .AsTask()
-                    |> Task.ofUnit)
+                    publisher.BasicPublishAsync(
+                        exchange = MainExchangeName,
+                        routingKey = eventName,
+                        mandatory = true,
+                        basicProperties = properties,
+                        body = body
+                    )
+                    |> ValueTask.asTask)
         }
 
     let inline publish
@@ -257,7 +280,7 @@ module Publisher =
         let body = event |> Event.mapPayload box
 
         publisher |> internalPublish jsonOptions eventName body priority
-        
+
     let dispose (Publisher publisher) = publisher.DisposeAsync()
 
 type internal ConsumerCallback<'err> = EventName -> Event<byte[]> -> Priority -> TaskResult<unit, 'err>
@@ -283,57 +306,50 @@ module Consumer =
             return consumer |> Consumer
         }
 
-    let subscribe (logger: ILogger<RabbitMQ>) (callback: ConsumerCallback<'err>) (Consumer consumer) =
-        consumer.add_ReceivedAsync (fun _ ea ->
-            taskResult {
-                let! timestamp =
-                    match ea.BasicProperties.IsTimestampPresent() with
-                    | true ->
-                        ea.BasicProperties.Timestamp.UnixTime
-                        |> DateTimeOffset.FromUnixTimeSeconds
-                        |> Ok
-                    | false -> "Missing Timestamp property" |> InvalidEventData |> Error
+    let internal subscribe callback (Consumer consumer) =
+        consumer.add_ReceivedAsync (fun _ ea -> ea |> callback :> Task)
 
-                let! eventId =
-                    ea.BasicProperties.MessageId
-                    |> EventId.ofString
-                    |> Result.mapError InvalidEventData
+    let internal acknowledge (ea: BasicDeliverEventArgs) (Consumer consumer) =
+        consumer.Channel.BasicAckAsync(ea.DeliveryTag, multiple = false) |> ValueTask.asTask
 
-                let! eventName = ea.RoutingKey |> EventName.create |> Result.mapError InvalidEventData
+    let internal reject (ea: BasicDeliverEventArgs) (Consumer consumer) =
+        consumer.Channel.BasicNackAsync(ea.DeliveryTag, multiple = false, requeue = false) |> ValueTask.asTask
 
-                let event =
-                    { Id = eventId
-                      OccurredAt = timestamp
-                      Data = ea.Body.ToArray() }
+    let internal handleEvent
+        (logger: ILogger<RabbitMQ>)
+        (jsonOptions: JsonSerializerOptions)
+        (eventHandlers: EventHandlers)
+        (consumer: Consumer)
+        =
+        fun ea ->
+            ea
+            |> Event.ofDeliverArgs
+            |> Result.mapError InvalidEventData
+            |> TaskResult.ofResult
+            |> TaskResult.bind (fun ev ->
+                let handle = eventHandlers |> EventHandlers.invoke jsonOptions
 
-                let priority = ea.BasicProperties.Priority |> Priority.create
-
-                do! callback eventName event priority |> TaskResult.mapError HandlerError
-            }
+                ev ||> handle)
             |> TaskResult.teeAsync (fun _ ->
-                task {
-                    do! consumer.Channel.BasicAckAsync(ea.DeliveryTag, multiple = false)
-
+                consumer
+                |> acknowledge ea
+                |> Task.map (fun _ ->
                     logger.LogInformation(
                         "Successfully acknowledged MessageId {MessageId} of type {MessageType}",
                         ea.BasicProperties.MessageId,
                         ea.BasicProperties.Type
-                    )
-                })
+                    )))
             |> TaskResult.teeErrorAsync (fun err ->
-                task {
-                    logger.LogError(
-                        "An error occurred for MessageId {MessageId} of type {MessageType}: {Error}",
-                        ea.BasicProperties.MessageId,
-                        ea.BasicProperties.Type,
-                        err
-                    )
+                logger.LogError(
+                    "An error occurred for MessageId {MessageId} of type {MessageType}: {Error}",
+                    ea.BasicProperties.MessageId,
+                    ea.BasicProperties.Type,
+                    err
+                )
 
-                    do! consumer.Channel.BasicNackAsync(ea.DeliveryTag, multiple = false, requeue = false)
-                })
+                consumer |> reject ea)
             |> TaskResult.ignoreError
-            :> Task)
-        
+
     let dispose (Consumer consumer) = consumer.Channel.DisposeAsync()
 
 type EventBus = private EventBus of IConnection * EventBusOptions

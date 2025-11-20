@@ -7,6 +7,7 @@ open System.Text.Json
 open System.Threading
 open System.Threading.Tasks
 open Microsoft.Extensions.Logging
+open RabbitMQ.Client.Events
 open eShop.RabbitMQ
 open eShop.DomainDrivenDesign
 open FsToolkit.ErrorHandling
@@ -17,7 +18,7 @@ type private ReplyChannel<'t> = 't -> unit
 
 type private Message =
     | Publish of EventName * Event<obj> * Priority * ReplyChannel<Result<unit, PublishError>>
-    | Consume of EventName * Event<byte array> * Priority * ReplyChannel<Result<unit, EventHandlingError<obj>>>
+    | Consume of BasicDeliverEventArgs * Priority
 
 module private Message =
     let getPriority =
@@ -26,7 +27,7 @@ module private Message =
             match p with
             | Priority.Regular -> 0
             | Priority.Low -> 1
-        | Consume(_, _, p, _) ->
+        | Consume(_, p) ->
             match p with
             | Priority.Regular -> 2
             | Priority.Low -> 3
@@ -50,27 +51,27 @@ type Agent
     let channel = Channel.CreateUnboundedPrioritized<Message>(options)
 
     let publishEvent = Publisher.internalPublish jsonOptions
-    let handleEvent = eventHandlers |> EventHandlers.invoke jsonOptions
-    let subscribe = Consumer.subscribe logger
+    let handleEvent = Consumer.handleEvent logger jsonOptions eventHandlers
 
-    let rec loop (reader: ChannelReader<Message>, publisher: Publisher, consumer: Consumer) =
-        backgroundTask {
+    
+    let rec loop (inbox: ChannelReader<Message>, publisher: Publisher, consumer: Consumer) =
+        task {
             match cts.IsCancellationRequested with
             | true ->
                 do! publisher |> Publisher.dispose
                 do! consumer |> Consumer.dispose
                 return ()
-            
+
             | false ->
-                let! msg = reader.ReadAsync(cts.Token)
+                let! msg = inbox.ReadAsync(cts.Token)
 
                 match msg with
                 | Publish(evName, ev, priority, reply) ->
                     do! publisher |> publishEvent evName ev priority |> Task.map reply
 
-                | Consume(evName, ev, _, reply) -> do! ev |> handleEvent evName |> Task.map reply
+                | Consume(ea, _) -> do! ea |> handleEvent consumer
 
-                return! loop (reader, publisher, consumer)
+                return! loop (inbox, publisher, consumer)
         }
 
     let _ =
@@ -79,30 +80,27 @@ type Agent
             let! consumer = eventBus |> EventBus.createConsumer
 
             consumer
-            |> subscribe (fun evName ev priority ->
-                let tcs = TaskCompletionSource<_>()
+            |> Consumer.subscribe (fun ea ->
+                let priority = ea.BasicProperties.Priority |> Priority.create
 
-                channel.Writer.WriteAsync(Consume(evName, ev, priority, tcs.SetResult), cts.Token).AsTask()
-                |> Task.ofUnit
-                |> TaskResult.ofTask
-                |> TaskResult.bind (fun _ -> tcs.Task))
+                channel.Writer.WriteAsync(Consume(ea, priority), cts.Token) |> ValueTask.asTask)
 
             return! loop (channel.Reader, publisher, consumer)
         }
-    
+
     member _.Publish<'payload> (ev: Event<'payload>) (priority: Priority) =
         let evName = ev |> Publisher.getEventName
         let boxedEv = ev |> Event.mapPayload box
-        
+
         let tcs = TaskCompletionSource<_>()
 
-        channel.Writer.WriteAsync(Publish(evName, boxedEv, priority, tcs.SetResult), cts.Token).AsTask()
-        |> Task.ofUnit
+        channel.Writer.WriteAsync(Publish(evName, boxedEv, priority, tcs.SetResult), cts.Token)
+        |> ValueTask.asTask
         |> TaskResult.ofTask
         |> TaskResult.bind (fun _ -> tcs.Task)
 
     interface IDisposable with
         member _.Dispose() =
             cts.Cancel()
-            cts.Dispose()
             channel.Writer.Complete()
+            cts.Dispose()
