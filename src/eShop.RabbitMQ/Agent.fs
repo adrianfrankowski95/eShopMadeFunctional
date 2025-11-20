@@ -51,6 +51,7 @@ type Agent
     let channel = Channel.CreateUnboundedPrioritized<Message>(options)
 
     let publishEvent = Publisher.internalPublish jsonOptions
+    
     let handleEvent = Consumer.handleEvent logger jsonOptions eventHandlers
 
     
@@ -63,7 +64,7 @@ type Agent
                 return ()
 
             | false ->
-                let! msg = inbox.ReadAsync(cts.Token)
+                let! msg = inbox.ReadAsync()
 
                 match msg with
                 | Publish(evName, ev, priority, reply) ->
